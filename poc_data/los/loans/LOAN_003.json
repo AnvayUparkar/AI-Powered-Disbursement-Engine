@@ -1,0 +1,9 @@
+{
+  "loan_id": "LOAN_003",
+  "applicant_name": "Mohammad Rizwan",
+  "funding_amount": 300000.0,
+  "tenure_months": 12,
+  "application_id": "APP_003",
+  "pan": "MNOPQ5544Z",
+  "status": "APPROVED"
+}

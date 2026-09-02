@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
+env/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+dist-ssr/
+frontend/dist-ssr/
+*.local
+frontend/*.local
+.bolt/
+frontend/.bolt/
+
+# Logs & Debug outputs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+terminal_output.txt
+*.out
+
+# Environment & Secrets (Proprietary / Confidential)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# IDE & Editor / Agent artifacts
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+.agents/
+.gemini/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+tmp/
+.tmp/
+temp/
+
+# POC Runtime test artifacts & dynamic outputs
+poc_data/los/loans/LOAN_TEST_*
+poc_data/s3_raw/LOAN_TEST_*
+poc_data/s3_result/*/
+poc_data/los/scorecards_received/*/
+poc_data/idp_temp/
+
+# Review & Temporary Reports
+CODE_REVIEW_FINDINGS.md

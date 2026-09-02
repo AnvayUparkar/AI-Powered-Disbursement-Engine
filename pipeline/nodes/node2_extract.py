@@ -1,0 +1,369 @@
+"""Node 2 (OCR / Extract) — Intelligent Document Processing & Field Extraction.
+
+Natively integrates the IDP engine (Docling layout analysis, RapidOCR PP-OCRv6, VLM fallback)
+and applies regex field normalization to construct structured data for downstream verification.
+"""
+
+import asyncio
+import json
+import logging
+import os
+import re
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from config import DMS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR
+from idp.models.document import ParsedDocument
+from idp.services.document_processor import DocumentProcessor
+from pipeline.state import PipelineState
+from pipeline.storage import read_json, update_status
+
+logger = logging.getLogger("disbursement_pipeline.node2_extract")
+
+# Initialize global DocumentProcessor instance for reuse
+_processor: Optional[DocumentProcessor] = None
+
+
+def get_processor() -> DocumentProcessor:
+    global _processor
+    if _processor is None:
+        _processor = DocumentProcessor()
+    return _processor
+
+
+def _clean_numeric(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip()
+    match = re.search(r"(\d[\d,]*(?:\.\d+)?)", val_str)
+    if not match:
+        return None
+    cleaned = match.group(1).replace(",", "")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _normalize_tenure_months(val: Any) -> Optional[int]:
+    if val is None:
+        return None
+    if isinstance(val, int):
+        return val
+    val_str = str(val).strip().lower()
+    match = re.search(r"(\d+)", val_str)
+    if not match:
+        return None
+    num = int(match.group(1))
+    if "year" in val_str or "yr" in val_str:
+        return num * 12
+    return num
+
+
+def _map_doc_type_from_filename(filename: str) -> str:
+    """Maps raw document filename to canonical extracted_data key."""
+    fn = filename.lower()
+    if "application" in fn:
+        return "application_form"
+    if "agreement" in fn:
+        return "loan_agreement"
+    if "kfs" in fn:
+        return "kfs"
+    if "sanction" in fn:
+        return "sanction_letter"
+    if "pan" in fn:
+        return "kyc_pan"
+    if "aadhaar" in fn or "kyc" in fn or "address" in fn:
+        return "kyc_address_proof"
+    if "memo" in fn or "disbursal" in fn:
+        return "disbursal_memo"
+    return Path(filename).stem
+
+
+def _extract_fields_with_regex(doc_type: str, full_text: str, elements: list) -> Dict[str, Any]:
+    """Applies domain regex rules to raw OCR text and layout elements."""
+    fields: Dict[str, Any] = {}
+    text = full_text or ""
+
+    # Parse key-value element pairs if present
+    for elem in elements:
+        elem_text = elem.get("text", "") if isinstance(elem, dict) else getattr(elem, "text", "")
+        if ":" in elem_text or "=" in elem_text:
+            delimiter = ":" if ":" in elem_text else "="
+            parts = elem_text.split(delimiter, 1)
+            k = parts[0].strip().lower().replace(" ", "_")
+            v = parts[1].strip()
+            if k and v and k not in fields:
+                fields[k] = v
+
+    # Document-specific regex extraction
+    if doc_type == "application_form":
+        m_amt = re.search(r"(?:loan\s*amount|sanctioned\s*amount|approved\s*amount|principal\s*amount)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_amt:
+            fields["loan_amount"] = _clean_numeric(m_amt.group(1))
+
+        m_tenure = re.search(r"(?:tenure|loan\s*period|repayment\s*period)[:\s]*([\d]+)\s*(months?|yrs?\.?|years?)?", text, re.IGNORECASE)
+        if m_tenure:
+            num = int(m_tenure.group(1))
+            unit = (m_tenure.group(2) or "").lower()
+            fields["tenure_months"] = num * 12 if "yr" in unit or "year" in unit else num
+
+        m_name = re.search(r"(?:applicant(?:'s)?\s*name|name\s*of\s*applicant|customer\s*name|borrower\s*name)[:\s]*([A-Za-z\s\.]+?)(?=\n|$|,|;)", text, re.IGNORECASE)
+        if m_name:
+            fields["applicant_name"] = m_name.group(1).strip()
+
+        m_pan = re.search(r"([A-Z]{5}[0-9]{4}[A-Z]{1})", text)
+        if m_pan:
+            fields["pan_number"] = m_pan.group(1).strip().upper()
+
+        m_addr = re.search(r"(?:address|residential\s*address|permanent\s*address)[:\s]*([^\n\r]+(?:\n[^\n\r]+)?)", text, re.IGNORECASE)
+        if m_addr:
+            fields["address_text"] = m_addr.group(1).strip()
+
+        m_app_id = re.search(r"(?:application\s*(?:no\.?|id|number|code))[:\s]*([A-Za-z0-9\-_]+)", text, re.IGNORECASE)
+        if m_app_id:
+            fields["application_id"] = m_app_id.group(1).strip().upper()
+
+    elif doc_type == "loan_agreement":
+        m_amt = re.search(r"(?:loan\s*amount|principal\s*amount|sanctioned\s*amount)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_amt:
+            fields["loan_amount"] = _clean_numeric(m_amt.group(1))
+
+    elif doc_type == "kfs":
+        m_amt = re.search(r"(?:loan\s*amount|net\s*disbursement|amount\s*financed)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_amt:
+            amt = _clean_numeric(m_amt.group(1))
+            fields["loan_amount"] = amt
+            fields["funding_amount"] = amt
+
+        m_bpi = re.search(r"(?:broken\s*period\s*interest|BPI)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_bpi:
+            fields["broken_period_interest"] = _clean_numeric(m_bpi.group(1))
+
+    elif doc_type == "sanction_letter":
+        m_amt = re.search(r"(?:sanctioned\s*amount|loan\s*amount|approved\s*amount)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_amt:
+            amt = _clean_numeric(m_amt.group(1))
+            fields["loan_amount"] = amt
+            fields["funding_amount"] = amt
+
+        m_tenure = re.search(r"(?:tenure|loan\s*period)[:\s]*([\d]+)\s*(months?|yrs?\.?|years?)?", text, re.IGNORECASE)
+        if m_tenure:
+            num = int(m_tenure.group(1))
+            unit = (m_tenure.group(2) or "").lower()
+            fields["tenure_months"] = num * 12 if "yr" in unit or "year" in unit else num
+
+        m_bpi = re.search(r"(?:broken\s*period\s*interest|BPI)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_bpi:
+            fields["broken_period_interest"] = _clean_numeric(m_bpi.group(1))
+
+    elif doc_type == "kyc_pan":
+        m_pan = re.search(r"([A-Z]{5}[0-9]{4}[A-Z]{1})", text)
+        if m_pan:
+            fields["pan_number"] = m_pan.group(1).strip().upper()
+
+    elif doc_type == "kyc_address_proof":
+        m_addr = re.search(r"(?:address|s/o|w/o|d/o|c/o|house\s*no\.?|village|district)[:\s]*(.+)", text, re.IGNORECASE | re.DOTALL)
+        if m_addr:
+            fields["address_text"] = m_addr.group(1).strip()
+        else:
+            fields["address_text"] = text.strip()
+
+    elif doc_type == "disbursal_memo":
+        m_app_id = re.search(r"(?:application\s*(?:no\.?|id|number)|appl\.?\s*no)[:\s]*([A-Za-z0-9\-_]+)", text, re.IGNORECASE)
+        if m_app_id:
+            fields["application_id"] = m_app_id.group(1).strip().upper()
+
+        m_cls_id = re.search(r"(?:closure\s*(?:id|no\.?|account\s*no\.?)|loan\s*closure\s*no)[:\s]*([A-Za-z0-9\-_]+)", text, re.IGNORECASE)
+        if m_cls_id:
+            fields["closure_id"] = m_cls_id.group(1).strip().upper()
+
+        m_amt = re.search(r"(?:disbursal\s*amount|disbursed\s*amount|net\s*disbursal|amount)[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
+        if m_amt:
+            fields["disbursal_amount"] = _clean_numeric(m_amt.group(1))
+
+    return fields
+
+
+def _process_file_with_idp(file_path: Path, doc_id: str) -> Optional[Dict[str, Any]]:
+    """Runs IDP DocumentProcessor asynchronously in synchronous loop."""
+    processor = get_processor()
+    try:
+        # Preprocess directly via processor
+        prep = processor.preprocessor.preprocess(str(file_path), doc_id=doc_id)
+        if prep.file_category == "xml":
+            parsed = processor.serializer.parse_xml_fast_path(str(file_path), doc_id=doc_id)
+        else:
+            # Execute async pipeline
+            coro = processor.process_document(
+                document_id=doc_id,
+                s3_key=str(file_path)
+            )
+            try:
+                res = asyncio.run(coro)
+            except RuntimeError:
+                # If an event loop is already running in current thread
+                loop = asyncio.get_event_loop()
+                res = loop.run_until_complete(coro)
+
+            # Retrieve parsed document model
+            parsed = asyncio.run(processor.get_parsed_document(doc_id))
+
+        if parsed:
+            doc_type = _map_doc_type_from_filename(file_path.name)
+            extracted_fields = _extract_fields_with_regex(
+                doc_type=doc_type,
+                full_text=parsed.text,
+                elements=[e.model_dump() for e in parsed.elements]
+            )
+            return {
+                **extracted_fields,
+                "_raw_text": parsed.text,
+                "_pages": len(parsed.pages),
+                "_elements_count": len(parsed.elements),
+            }
+    except Exception as e:
+        logger.warning("Native IDP processing encountered an issue for %s: %s", file_path, e)
+    return None
+
+
+def node2_extract(state: PipelineState) -> PipelineState:
+    """Node 2 (OCR/Extract) — Native IDP Processing & Regex Field Normalization.
+
+    1. Processes document PDFs / images in raw_doc_paths via native IDP DocumentProcessor.
+    2. Runs extracted text through regex rulebook to populate structured fields for Node 3.
+    3. Ingests sidecar metadata JSONs (face embeddings, DMS status, OTP audit).
+    4. Falls back gracefully to pre-extracted data if document yields no fields.
+    """
+    loan_id = state["loan_id"]
+    errors = list(state.get("errors", []))
+    history = list(state.get("node_history", []))
+    history.append("extract")
+
+    logger.info("Executing Node 2 (Native IDP & Field Extraction) for loan: %s", loan_id)
+
+    raw_doc_paths = state.get("raw_doc_paths", {})
+    extracted_data: Dict[str, Any] = {}
+    face_embeddings: Dict[str, Any] = {}
+    dms_status: Dict[str, Any] = {}
+    otp_audit: Dict[str, Any] = {}
+
+    # 1. Inspect raw documents from Node 1
+    raw_dir = S3_RAW_DIR / loan_id
+    if not raw_doc_paths and raw_dir.exists():
+        for f in raw_dir.iterdir():
+            raw_doc_paths[f.name] = str(f)
+
+    # 2. Process sidecar JSONs & binary documents
+    for fname, fpath_str in raw_doc_paths.items():
+        fpath = Path(fpath_str)
+        if not fpath.exists():
+            continue
+
+        name_lower = fname.lower()
+
+        # Handle sidecars
+        if name_lower == "face_embeddings.json":
+            try:
+                face_embeddings = read_json(fpath)
+            except Exception as e:
+                errors.append(f"Failed to read face embeddings: {e}")
+            continue
+        elif name_lower == "dms_status.json":
+            try:
+                dms_status = read_json(fpath)
+            except Exception as e:
+                errors.append(f"Failed to read dms status: {e}")
+            continue
+        elif name_lower == "loan_agreement_otp_audit.json":
+            try:
+                otp_audit = read_json(fpath)
+            except Exception as e:
+                errors.append(f"Failed to read OTP audit: {e}")
+            continue
+        elif name_lower.endswith(".json") and fpath.stem.upper() == loan_id.upper():
+            # LOS loan metadata, skip
+            continue
+        elif name_lower.endswith(".json") and "metadata" in name_lower:
+            continue
+        elif name_lower.endswith(".json"):
+            try:
+                data = read_json(fpath)
+                doc_key = _map_doc_type_from_filename(fpath.stem)
+                extracted_data[doc_key] = data
+            except Exception as e:
+                errors.append(f"Failed reading JSON sidecar {fname}: {e}")
+            continue
+
+        # Handle PDFs and Images via IDP
+        if fpath.suffix.lower() in [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".xml"]:
+            doc_key = _map_doc_type_from_filename(fname)
+            doc_id = f"{loan_id}_{doc_key}"
+            idp_result = _process_file_with_idp(fpath, doc_id=doc_id)
+            if idp_result:
+                extracted_data[doc_key] = idp_result
+            else:
+                logger.info("IDP yielded no output for %s; checking fallback stores", fname)
+
+    # 3. Fallback / Merge with pre-extracted mock data if available
+    extracted_dir = S3_EXTRACTED_DIR / loan_id
+    if extracted_dir.exists():
+        for json_file in extracted_dir.glob("*.json"):
+            try:
+                data = read_json(json_file)
+                key = json_file.stem
+                if key == "face_embeddings" and not face_embeddings:
+                    face_embeddings = data
+                elif key == "dms_status" and not dms_status:
+                    dms_status = data
+                else:
+                    doc_key = _map_doc_type_from_filename(key)
+                    if doc_key not in extracted_data:
+                        extracted_data[doc_key] = data
+                    else:
+                        # Fill in missing checkpoint fields from fallback store if OCR missed them
+                        for k, v in data.items():
+                            if k not in extracted_data[doc_key] or extracted_data[doc_key][k] is None:
+                                extracted_data[doc_key][k] = v
+            except (json.JSONDecodeError, OSError) as e:
+                msg = f"Failed to load extracted fallback file {json_file}: {e}"
+                logger.warning(msg)
+
+    # Load OTP audit if present in DMS or S3 raw
+    if not otp_audit:
+        otp_audit_file = S3_RAW_DIR / loan_id / "loan_agreement_otp_audit.json"
+        if not otp_audit_file.exists():
+            otp_audit_file = DMS_DIR / loan_id / "loan_agreement_otp_audit.json"
+
+        if otp_audit_file.exists():
+            try:
+                otp_audit = read_json(otp_audit_file)
+            except (json.JSONDecodeError, OSError) as e:
+                msg = f"Failed to load OTP audit file {otp_audit_file}: {e}"
+                logger.error(msg)
+                errors.append(msg)
+
+    # Persist extracted data to S3_EXTRACTED_DIR for downstream serializers and consumers
+    extracted_out_dir = S3_EXTRACTED_DIR / loan_id
+    extracted_out_dir.mkdir(parents=True, exist_ok=True)
+    for doc_k, doc_v in extracted_data.items():
+        if isinstance(doc_v, dict):
+            try:
+                from pipeline.storage import write_json
+                write_json(extracted_out_dir / f"{doc_k}.json", doc_v)
+            except Exception as save_err:
+                logger.debug("Failed caching extracted file %s for %s: %s", doc_k, loan_id, save_err)
+
+    update_status(loan_id, current_node="extract", errors=errors, node_history=history)
+
+    return {
+        **state,
+        "extracted_data": extracted_data,
+        "face_embeddings": face_embeddings,
+        "dms_status": dms_status,
+        "otp_audit": otp_audit,
+        "errors": errors,
+        "node_history": history,
+    }

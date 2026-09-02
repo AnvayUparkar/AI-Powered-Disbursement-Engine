@@ -1,0 +1,14 @@
+{
+  "aadhaar_xml": {
+    "exists": false
+  },
+  "kfs": {
+    "exists": true
+  },
+  "sanction_letter": {
+    "exists": true
+  },
+  "loan_agreement": {
+    "exists": true
+  }
+}

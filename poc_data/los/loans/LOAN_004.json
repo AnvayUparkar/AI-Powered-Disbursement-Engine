@@ -1,0 +1,10 @@
+{
+  "loan_id": "LOAN_004",
+  "application_id": "APP-LOAN_004",
+  "applicant_name": "Applicant",
+  "loan_type": "Personal Loan",
+  "funding_amount": 500000.0,
+  "tenure_months": 24,
+  "login_date": "2026-09-02",
+  "status": "DRAFT"
+}
