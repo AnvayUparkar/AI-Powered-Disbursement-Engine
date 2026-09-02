@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pydantic import BaseModel, Field
 from idp.utils.file_utils import detect_file_type, validate_file_size
 from idp.core.exceptions import InvalidDocument

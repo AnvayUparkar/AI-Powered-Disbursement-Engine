@@ -47,6 +47,10 @@ def normalize_bbox(bbox: List[float], page_width: float, page_height: float) -> 
         return bbox
 
     l, t, r, b = bbox[0], bbox[1], bbox[2], bbox[3]
+    # Idempotent guard: if coordinates are already in [0.0, 1.0] normalized space
+    if r <= 1.0 and b <= 1.0:
+        return [round(max(0.0, l), 4), round(max(0.0, t), 4), round(min(1.0, r), 4), round(min(1.0, b), 4)]
+
     return [
         round(max(0.0, min(1.0, l / page_width)), 4),
         round(max(0.0, min(1.0, t / page_height)), 4),

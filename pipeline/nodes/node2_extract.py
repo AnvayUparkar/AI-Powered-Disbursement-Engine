@@ -163,6 +163,18 @@ def _extract_fields_with_regex(doc_type: str, full_text: str, elements: list) ->
         m_pan = re.search(r"([A-Z]{5}[0-9]{4}[A-Z]{1})", text)
         if m_pan:
             fields["pan_number"] = m_pan.group(1).strip().upper()
+        else:
+            # Fallback: OCR character confusable normalization for PAN format
+            pan_candidate = re.search(r"([A-Z0-9]{10})", text)
+            if pan_candidate:
+                raw_c = pan_candidate.group(1).upper()
+                # Pos 0-4: Alpha, Pos 5-8: Digit, Pos 9: Alpha
+                alpha_part1 = re.sub(r'0', 'O', re.sub(r'1', 'I', re.sub(r'5', 'S', raw_c[:5])))
+                digit_part = re.sub(r'O', '0', re.sub(r'I', '1', re.sub(r'S', '5', re.sub(r'Z', '2', re.sub(r'B', '8', raw_c[5:9])))))
+                alpha_part2 = re.sub(r'0', 'O', re.sub(r'1', 'I', raw_c[9]))
+                cleaned_pan = f"{alpha_part1}{digit_part}{alpha_part2}"
+                if re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", cleaned_pan):
+                    fields["pan_number"] = cleaned_pan
 
     elif doc_type == "kyc_address_proof":
         m_addr = re.search(r"(?:address|s/o|w/o|d/o|c/o|house\s*no\.?|village|district)[:\s]*(.+)", text, re.IGNORECASE | re.DOTALL)

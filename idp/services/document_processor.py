@@ -75,73 +75,61 @@ class DocumentProcessor:
                     "processing_time_seconds": round(elapsed, 3)
                 }
 
-            # Step 3: Docling layout parsing
+            # Step 3: Docling layout + integrated OCR parsing
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
             try:
                 docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
             except Exception as e:
-                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with OCR."))
+                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
 
-            # Step 4: RapidOCR + PP-OCRv6 execution
-            ocr_start = time.time()
-            ocr_results = []
-            
-            # Convert PDF to page images, capturing actual rendered image dimensions
             page_image_data = await self._get_page_images(local_file_path, prep_doc)
             page_images: List[bytes] = [item[0] for item in page_image_data]
-            
-            for pidx, (page_bytes, img_width, img_height) in enumerate(page_image_data):
-                pno = pidx + 1
-                ocr_res: OCRResult = self.ocr_engine.process(page_bytes, page_number=pno, doc_id=document_id)
-                # Store actual rendered image dimensions for correct bbox normalization
-                ocr_res.image_width = float(img_width)
-                ocr_res.image_height = float(img_height)
-                ocr_results.append(ocr_res)
 
-            metrics.ocr_processing_time = round(time.time() - ocr_start, 3)
-
-            # Step 5: Evaluate OCR quality and VLM fallback routing
+            # Step 4: Selective VLM Fallback Routing on Docling layout/OCR elements
             vlm_start = time.time()
             vlm_corrections: Dict[str, VLMResult] = {}
             vlm_used = False
 
-            for ocr_res in ocr_results:
-                if self.router.should_use_vlm(ocr_res, doc_id=document_id):
-                    low_conf_elements = self.router.get_low_confidence_elements(ocr_res)
-                    metrics.ocr_low_confidence_count += len(low_conf_elements)
+            if docling_result and docling_result.elements:
+                flagged_elements = self.router.get_low_confidence_layout_elements(
+                    docling_result.elements, doc_id=document_id
+                )
+                metrics.ocr_low_confidence_count = len(flagged_elements)
 
-                    pno = ocr_res.page_number
+                for elem in flagged_elements:
+                    pno = elem.page_number
                     page_bytes = page_images[pno - 1] if pno <= len(page_images) else b""
-                    # Use actual rendered image dims for VLM crop, not Docling doc-unit dims
-                    img_w = ocr_res.image_width if ocr_res.image_width > 0 else 595.0
-                    img_h = ocr_res.image_height if ocr_res.image_height > 0 else 842.0
+                    img_w = 595.0
+                    img_h = 842.0
+                    if pno <= len(docling_result.pages_dimensions):
+                        img_w = docling_result.pages_dimensions[pno - 1].get("width", 595.0)
+                        img_h = docling_result.pages_dimensions[pno - 1].get("height", 842.0)
 
-                    for elem in low_conf_elements:
-                        cropped_bytes = crop_image_region(
-                            image_bytes=page_bytes,
-                            bbox=elem.bbox,
-                            page_width=img_w,
-                            page_height=img_h
-                        )
+                    cropped_bytes = crop_image_region(
+                        image_bytes=page_bytes,
+                        bbox=elem.bbox,
+                        page_width=img_w,
+                        page_height=img_h
+                    )
 
-                        vlm_res = await self.vlm_client.analyze_region(
-                            image_bytes=cropped_bytes or page_bytes,
-                            ocr_element=elem,
-                            context_hint=f"Page {pno} line {elem.line_number}",
-                            doc_id=document_id
-                        )
+                    vlm_res = await self.vlm_client.analyze_region(
+                        image_bytes=cropped_bytes or page_bytes,
+                        ocr_element=elem,
+                        context_hint=f"Page {pno} element {elem.id}",
+                        doc_id=document_id
+                    )
 
-                        if vlm_res and elem.id:
-                            vlm_corrections[elem.id] = vlm_res
-                            metrics.vlm_fallback_count += 1
-                            vlm_used = True
+                    if vlm_res and elem.id:
+                        vlm_corrections[elem.id] = vlm_res
+                        metrics.vlm_fallback_count += 1
+                        vlm_used = True
 
             metrics.vlm_processing_time = round(time.time() - vlm_start, 3)
             metrics.total_processing_time = round(time.time() - start_time, 3)
 
-            # Step 6: Serialize into Canonical Unified Document Representation
+            # Step 5: Serialize into Canonical Unified Document Representation
             parsed_doc = self.serializer.build_unified_document(
                 doc_id=document_id,
                 filename=filename,
@@ -149,7 +137,7 @@ class DocumentProcessor:
                 file_size_bytes=prep_doc.file_size_bytes,
                 page_count=prep_doc.page_count,
                 docling_result=docling_result,
-                ocr_results=ocr_results,
+                ocr_results=[],
                 vlm_corrections=vlm_corrections,
                 metrics=metrics,
                 s3_bucket=bucket,

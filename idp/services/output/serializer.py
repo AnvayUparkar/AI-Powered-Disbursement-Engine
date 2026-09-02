@@ -58,165 +58,160 @@ class DocumentSerializer:
                     tables=[]
                 )
 
-            # Process each page independently for region alignment
+            # Process each page independently
             for pno in range(1, page_count + 1):
                 page_info = pages_map[pno]
                 w = page_info.width
                 h = page_info.height
+                consumed_ocr_ids = set()
 
-                # 1. Collect and prepare OCR elements for this page (with VLM corrections applied in-place)
-                page_ocr_elements: List[OCRElement] = []
-                for ocr_res in ocr_results:
-                    if ocr_res.page_number == pno:
-                        ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
-                        ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
+                # 1. Direct ingestion of Docling structural & OCR elements (with optional legacy OCR spatial alignment)
+                if docling_result and docling_result.elements:
+                    for elem in docling_result.elements:
+                        if elem.page_number == pno:
+                            norm_box = normalize_bbox(elem.bbox, w, h)
+                            final_text = elem.text
+                            src = elem.source or "docling_ocr"
+                            ocr_orig = elem.ocr_original
+                            conf = elem.confidence
 
-                        for ocr_elem in ocr_res.elements:
-                            final_text = ocr_elem.text
-                            src = "rapidocr" if ocr_elem.source == "ocr" else ocr_elem.source
-                            ocr_orig = ocr_elem.ocr_original
-                            conf = ocr_elem.confidence
+                            # Legacy spatial mapping support when explicit ocr_results are provided
+                            if ocr_results:
+                                matched_ocr = []
+                                for ocr_res in ocr_results:
+                                    if ocr_res.page_number == pno:
+                                        img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
+                                        img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
+                                        for ocr in ocr_res.elements:
+                                            if ocr.id in consumed_ocr_ids:
+                                                continue
+                                            norm_ocr_box = normalize_bbox(ocr.bbox, img_w, img_h)
+                                            if self._compute_overlap_score(norm_ocr_box, norm_box) >= 0.35 or self._compute_iou(norm_ocr_box, norm_box) >= 0.20:
+                                                matched_ocr.append(ocr)
+                                if matched_ocr:
+                                    matched_ocr.sort(key=lambda o: (round(o.bbox[1], 2), o.bbox[0]))
+                                    final_text = " ".join([o.text for o in matched_ocr])
+                                    conf = sum([o.confidence for o in matched_ocr]) / len(matched_ocr)
+                                    src = "rapidocr" if matched_ocr[0].source == "ocr" else matched_ocr[0].source
+                                    for o in matched_ocr:
+                                        consumed_ocr_ids.add(o.id)
 
-                            if ocr_elem.id in vlm_corrections:
-                                vlm_res = vlm_corrections[ocr_elem.id]
+                            # Apply VLM corrections in-place if element was flagged & re-analyzed
+                            if elem.id in vlm_corrections:
+                                vlm_res = vlm_corrections[elem.id]
                                 final_text = vlm_res.text
                                 src = "vlm_corrected"
-                                ocr_orig = ocr_elem.text
+                                ocr_orig = elem.text
                                 conf = vlm_res.confidence
 
-                            norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
-                            page_ocr_elements.append(
-                                OCRElement(
-                                    id=ocr_elem.id or f"ocr-{pno}-{len(page_ocr_elements)+1}",
-                                    text=final_text,
-                                    bbox=norm_box,
-                                    polygon=ocr_elem.polygon,
-                                    confidence=conf,
-                                    page_number=pno,
-                                    line_number=ocr_elem.line_number,
-                                    source=src,
-                                    ocr_original=ocr_orig
-                                )
+                            layout_elem = LayoutElement(
+                                id=elem.id,
+                                type=elem.type,
+                                text=final_text,
+                                bbox=norm_box,
+                                confidence=round(conf, 4),
+                                page_number=pno,
+                                reading_order=elem.reading_order,
+                                level=elem.level,
+                                source=src,
+                                structure_source="docling",
+                                ocr_original=ocr_orig
                             )
+                            page_info.elements.append(layout_elem)
 
-                # Defensive OCR safety deduplication (IoU >= 0.85)
-                deduped_ocr: List[OCRElement] = []
-                for elem in page_ocr_elements:
-                    is_dup = False
-                    for existing in deduped_ocr:
-                        if self._compute_iou(elem.bbox, existing.bbox) >= 0.85 and elem.text == existing.text:
-                            is_dup = True
-                            break
-                    if not is_dup:
-                        deduped_ocr.append(elem)
-
-                consumed_ocr_ids = set()
-                table_consumed_count = 0
-                region_consumed_count = 0
-
-                # 2. Table cell text alignment
-                if docling_result:
+                # 2. Direct ingestion of Docling TableFormer tables (with optional legacy cell OCR alignment)
+                if docling_result and docling_result.tables:
                     for table in docling_result.tables:
                         if table.page_number == pno:
                             norm_table_box = normalize_bbox(table.bbox or [0, 0, w, h], w, h)
                             table.bbox = norm_table_box
-
-                            # Grid cells alignment
+                            
                             rows_dict: Dict[int, List[str]] = {}
+                            # Normalize cell bounding boxes and apply cell-level VLM corrections or legacy OCR alignment
                             for cell in table.cells:
                                 norm_cell_box = normalize_bbox(cell.bbox or norm_table_box, w, h)
                                 cell.bbox = norm_cell_box
 
-                                matched_ocr = []
-                                for ocr in deduped_ocr:
-                                    if ocr.id in consumed_ocr_ids:
-                                        continue
-                                    score = self._compute_overlap_score(ocr.bbox, norm_cell_box)
-                                    iou = self._compute_iou(ocr.bbox, norm_cell_box)
-                                    if score >= 0.40 or iou >= 0.15:
-                                        matched_ocr.append(ocr)
-
-                                if matched_ocr:
-                                    matched_ocr.sort(key=lambda o: (round(o.bbox[1], 2), o.bbox[0]))
-                                    cell.text = " ".join([o.text for o in matched_ocr])
-                                    for o in matched_ocr:
-                                        if o.id not in consumed_ocr_ids:
+                                if ocr_results:
+                                    matched_ocr = []
+                                    for ocr_res in ocr_results:
+                                        if ocr_res.page_number == pno:
+                                            img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
+                                            img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
+                                            for ocr in ocr_res.elements:
+                                                if ocr.id in consumed_ocr_ids:
+                                                    continue
+                                                norm_ocr_box = normalize_bbox(ocr.bbox, img_w, img_h)
+                                                if self._compute_overlap_score(norm_ocr_box, norm_cell_box) >= 0.40 or self._compute_iou(norm_ocr_box, norm_cell_box) >= 0.15:
+                                                    matched_ocr.append(ocr)
+                                    if matched_ocr:
+                                        matched_ocr.sort(key=lambda o: (round(o.bbox[1], 2), o.bbox[0]))
+                                        cell_texts = []
+                                        for o in matched_ocr:
+                                            t_txt = vlm_corrections[o.id].text if o.id in vlm_corrections else o.text
+                                            cell_texts.append(t_txt)
                                             consumed_ocr_ids.add(o.id)
-                                            table_consumed_count += 1
+                                        cell.text = " ".join(cell_texts)
+
+                                cell_key = f"cell-{table.id}-{cell.row_index}-{cell.col_index}"
+                                if cell_key in vlm_corrections:
+                                    cell.text = vlm_corrections[cell_key].text
 
                                 if cell.row_index not in rows_dict:
                                     rows_dict[cell.row_index] = []
                                 rows_dict[cell.row_index].append(cell.text)
 
-                            table.rows_raw = [rows_dict[r] for r in sorted(rows_dict.keys())]
-                            if table.rows_raw:
-                                table.headers = table.rows_raw[0]
+                            if rows_dict:
+                                table.rows_raw = [rows_dict[r] for r in sorted(rows_dict.keys())]
+                                if table.rows_raw:
+                                    table.headers = table.rows_raw[0]
+
                             page_info.tables.append(table)
 
-                # 3. Structural region alignment
-                if docling_result:
-                    for struct_elem in docling_result.elements:
-                        if struct_elem.page_number == pno:
-                            norm_struct_box = normalize_bbox(struct_elem.bbox, w, h)
-
-                            matched_ocr = []
-                            for ocr in deduped_ocr:
-                                if ocr.id in consumed_ocr_ids:
+                # 3. Defensive Fallback: Absorb unconsumed external OCR elements if present
+                if ocr_results:
+                    for ocr_res in ocr_results:
+                        if ocr_res.page_number == pno:
+                            ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
+                            ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
+                            for ocr_elem in ocr_res.elements:
+                                if ocr_elem.id in consumed_ocr_ids:
                                     continue
-                                score = self._compute_overlap_score(ocr.bbox, norm_struct_box)
-                                iou = self._compute_iou(ocr.bbox, norm_struct_box)
-                                if score >= 0.35 or iou >= 0.20:
-                                    matched_ocr.append(ocr)
+                                norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
+                                final_text = ocr_elem.text
+                                src = "rapidocr" if ocr_elem.source == "ocr" else ocr_elem.source
+                                ocr_orig = ocr_elem.ocr_original
+                                conf = ocr_elem.confidence
 
-                            if matched_ocr:
-                                matched_ocr.sort(key=lambda o: (round(o.bbox[1], 2), o.bbox[0]))
-                                text_content = " ".join([o.text for o in matched_ocr])
-                                avg_conf = sum([o.confidence for o in matched_ocr]) / len(matched_ocr)
-                                has_vlm = any(o.source == "vlm_corrected" for o in matched_ocr)
+                                if ocr_elem.id in vlm_corrections:
+                                    vlm_res = vlm_corrections[ocr_elem.id]
+                                    final_text = vlm_res.text
+                                    src = "vlm_corrected"
+                                    ocr_orig = ocr_elem.text
+                                    conf = vlm_res.confidence
 
-                                layout_elem = LayoutElement(
-                                    id=struct_elem.id,
-                                    type=struct_elem.type,
-                                    text=text_content,
-                                    bbox=norm_struct_box,
-                                    confidence=round(avg_conf, 4),
-                                    page_number=pno,
-                                    reading_order=struct_elem.reading_order,
-                                    level=struct_elem.level,
-                                    source="vlm_corrected" if has_vlm else "rapidocr",
-                                    structure_source="docling",
-                                    ocr_original=matched_ocr[0].ocr_original if has_vlm else None
+                                if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
+                                    continue
+
+                                page_info.elements.append(
+                                    LayoutElement(
+                                        id=ocr_elem.id or f"ocr-{pno}-{len(page_info.elements)+1}",
+                                        type=ElementType.TEXT,
+                                        text=final_text,
+                                        bbox=norm_box,
+                                        confidence=conf,
+                                        page_number=pno,
+                                        source=src,
+                                        structure_source="none",
+                                        ocr_original=ocr_orig
+                                    )
                                 )
-                                page_info.elements.append(layout_elem)
-                                for o in matched_ocr:
-                                    if o.id not in consumed_ocr_ids:
-                                        consumed_ocr_ids.add(o.id)
-                                        region_consumed_count += 1
-
-                # 4. Standalone OCR elements (unconsumed text elements)
-                standalone_count = 0
-                for ocr in deduped_ocr:
-                    if ocr.id not in consumed_ocr_ids:
-                        layout_elem = LayoutElement(
-                            id=ocr.id,
-                            type=ElementType.TEXT,
-                            text=ocr.text,
-                            bbox=ocr.bbox,
-                            confidence=ocr.confidence,
-                            page_number=pno,
-                            source="rapidocr" if ocr.source == "ocr" else ocr.source,
-                            structure_source="none",
-                            ocr_original=ocr.ocr_original
-                        )
-                        page_info.elements.append(layout_elem)
-                        standalone_count += 1
 
                 logger.info(
                     format_doc_log(
                         doc_id,
-                        f"Page {pno} alignment summary: total_ocr={len(page_ocr_elements)}, "
-                        f"deduped={len(deduped_ocr)}, table_consumed={table_consumed_count}, "
-                        f"region_consumed={region_consumed_count}, standalone={standalone_count}"
+                        f"Page {pno} direct layout summary: elements={len(page_info.elements)}, "
+                        f"tables={len(page_info.tables)}"
                     )
                 )
 
@@ -259,8 +254,8 @@ class DocumentSerializer:
                 file_size_bytes=file_size_bytes,
                 page_count=page_count,
                 docling_used=docling_used,
-                ocr_engine="rapidocr",
-                ocr_model="PP-OCRv6",
+                ocr_engine="docling_rapidocr",
+                ocr_model="PP-OCRv6_MEDIUM",
                 vlm_used=vlm_used,
                 vlm_provider=vlm_provider,
                 metrics=metrics
@@ -349,13 +344,17 @@ class DocumentSerializer:
     def _is_duplicate(
         ocr_bbox: List[float],
         existing_elements: List[LayoutElement],
-        iou_threshold: float = 0.5
+        iou_threshold: float = 0.5,
+        text: Optional[str] = None
     ) -> bool:
         """
         Check if an OCR element's bounding box spatially overlaps any existing
-        element on the same page with IoU >= threshold.
+        element on the same page with IoU >= threshold or matching text content.
         """
         for elem in existing_elements:
+            if text and elem.text and text.strip().lower() == elem.text.strip().lower():
+                if DocumentSerializer._compute_iou(ocr_bbox, elem.bbox) >= 0.20 or DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox) >= 0.20:
+                    return True
             if DocumentSerializer._compute_iou(ocr_bbox, elem.bbox) >= iou_threshold:
                 return True
         return False
