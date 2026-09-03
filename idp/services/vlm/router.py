@@ -10,9 +10,13 @@ from idp.core.logging import logger, format_doc_log
 class ConfidenceRouter:
     """Quality router deciding whether OCR elements or layout regions require VLM verification."""
 
-    def __init__(self, threshold: float = getattr(settings, "OCR_CONFIDENCE_THRESHOLD", 0.80)):
+    def __init__(
+        self,
+        threshold: float = getattr(settings, "OCR_CONFIDENCE_THRESHOLD", 0.80),
+        vlm_enabled: Optional[bool] = None
+    ):
         self.threshold = threshold
-        self.vlm_enabled = getattr(settings, "VLM_ENABLED", True)
+        self.vlm_enabled = vlm_enabled if vlm_enabled is not None else getattr(settings, "VLM_ENABLED", True)
 
     def should_use_vlm(self, ocr_result: OCRResult, doc_id: str = "DOC") -> bool:
         """Determines if any element in the OCRResult requires VLM fallback."""
