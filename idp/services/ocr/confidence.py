@@ -1,6 +1,6 @@
 import re
 import math
-from typing import List, Set
+from typing import List, Set, Optional
 from idp.models.ocr import OCRElement, OCRResult
 from idp.core.config import settings
 
@@ -24,7 +24,7 @@ class OCRConfidenceEvaluator:
     PURE_CONSONANTS_PATTERN = re.compile(r"\b[BCDFGHJKLMNPQRSTVWXYZbcdfghjklmnpqrstvwxyz]{3,}\b")
     
     # 5. Invalid English Consonant-Vowel N-grams from Indic OCR misreads (e.g. "RROR", "HRAR", "3QRR")
-    INVALID_NGRAM_MISREADS = re.compile(r"\b(RROR|HRAR|HRTRR|RHR|HTT|3T9T3πT&T|3QRR|mąhil|3×ML)\b", re.IGNORECASE)
+    INVALID_NGRAM_MISREADS = re.compile(r"\b(RROR|HRAR|HRTRR|RHR|HTT|3T9T3πT&T|3QRR|mąhil|3×ML|oalh|2alalehule|3ITETT|31CT|3HTETR)\b", re.IGNORECASE)
 
     # Common financial, technical, and regulatory acronyms (whitelisted from consonant check)
     COMMON_ACRONYMS: Set[str] = {
@@ -42,6 +42,36 @@ class OCRConfidenceEvaluator:
 
     def __init__(self, threshold: float = settings.OCR_CONFIDENCE_THRESHOLD):
         self.threshold = threshold
+
+    @classmethod
+    def clean_bilingual_label_noise(cls, text: str) -> str:
+        """
+        Sanitizes bilingual misreads on Indian Identity & Financial Documents (PAN, Aadhaar, Driving License),
+        stripping out garbage English letter clusters resulting from Devanagari label misreads.
+        """
+        if not text or not text.strip():
+            return text
+
+        cleaned = text.strip()
+
+        # 1. Strip leading noise prefixes before standard labels
+        # e.g., "fua/Father's Name" -> "Father's Name", "f /Father's Name" -> "Father's Name"
+        cleaned = re.sub(r"^[fF](ua)?\s*/\s*", "", cleaned)
+        # e.g., "a/Date of Birth" -> "Date of Birth", "a/DateofBirth" -> "DateofBirth"
+        cleaned = re.sub(r"^[aA]\s*/\s*(?=[Dd]ate|[sS]ignature|[dD][oO][bB])", "", cleaned)
+        # e.g., "aT&/Signature" -> "Signature"
+        cleaned = re.sub(r"^[aA][tT]&?\s*/\s*", "", cleaned)
+        # e.g., "GR@/DOB" -> "DOB"
+        cleaned = re.sub(r"^GR@\s*/?\s*", "", cleaned)
+
+        # 2. Remove standalone English misread noise tokens for PAN & Aadhaar headers
+        cleaned = re.sub(r"\b(FarHToT|3RRTO|HRAHRR|PA ROR)\b", "", cleaned, flags=re.IGNORECASE)
+
+        # Clean up double spaces or dangling leading slashes
+        cleaned = re.sub(r"^\s*/\s*", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+        return cleaned
 
     def is_garbled_text(self, text: str) -> bool:
         """

@@ -70,16 +70,17 @@ class DoclingParser:
                             b = prov_item.bbox
                             bbox_list = [float(b.l), float(b.t), float(b.r), float(b.b)]
 
+                    txt = getattr(item, "text", "") or ""
                     elements.append(
                         LayoutElement(
                             id=f"docling-{uuid.uuid4().hex[:8]}",
                             type=elem_type,
-                            text="",  # Docling provides structure map, text is supplied by RapidOCR
+                            text=txt,
                             bbox=bbox_list,
                             confidence=1.0,
                             page_number=pno,
                             reading_order=reading_order,
-                            source="rapidocr",
+                            source="docling_ocr" if txt else "docling_ocr",
                             structure_source="docling"
                         )
                     )
@@ -100,20 +101,65 @@ class DoclingParser:
                     headers: List[str] = []
                     rows_raw: List[List[str]] = []
 
-                    if hasattr(table, "export_to_dataframe"):
+                    # 1. Native Docling TableData cell grid extraction
+                    if hasattr(table, "data") and hasattr(table.data, "table_cells") and table.data.table_cells:
+                        try:
+                            row_cell_map: Dict[int, List[Any]] = {}
+                            for tc in table.data.table_cells:
+                                r_idx = getattr(tc, "start_row_offset_idx", 0)
+                                c_idx = getattr(tc, "start_col_offset_idx", 0)
+                                c_txt = str(getattr(tc, "text", "")).strip()
+                                is_hdr = bool(getattr(tc, "column_header", False)) or (r_idx == 0)
+                                
+                                c_bbox = None
+                                if hasattr(tc, "prov") and tc.prov:
+                                    tb = tc.prov[0].bbox
+                                    if tb:
+                                        c_bbox = [float(tb.l), float(tb.t), float(tb.r), float(tb.b)]
+
+                                cells.append(
+                                    TableCell(
+                                        row_index=r_idx,
+                                        col_index=c_idx,
+                                        text=c_txt,
+                                        is_header=is_hdr,
+                                        bbox=c_bbox
+                                    )
+                                )
+                                if r_idx not in row_cell_map:
+                                    row_cell_map[r_idx] = []
+                                row_cell_map[r_idx].append((c_idx, c_txt))
+
+                            for r_idx in sorted(row_cell_map.keys()):
+                                r_cells = sorted(row_cell_map[r_idx], key=lambda x: x[0])
+                                row_vals = [c_txt for _, c_txt in r_cells]
+                                rows_raw.append(row_vals)
+                                if r_idx == 0:
+                                    headers = row_vals
+                        except Exception as ex:
+                            logger.debug(f"Native table cell extraction fallback: {ex}")
+
+                    # 2. Dataframe fallback if table_cells is unavailable
+                    if not rows_raw and hasattr(table, "export_to_dataframe"):
                         try:
                             df = table.export_to_dataframe()
                             headers = [str(c).strip() for c in df.columns]
+                            if headers:
+                                rows_raw.append(headers)
+                                for c_idx, val in enumerate(headers):
+                                    cells.append(TableCell(row_index=0, col_index=c_idx, text=val, is_header=True))
+
                             for r_idx, row in df.iterrows():
                                 row_vals = [str(v).strip() if v is not None and str(v) != "nan" else "" for v in row.values]
+                                actual_r_idx = r_idx + 1 if headers else r_idx
                                 rows_raw.append(row_vals)
                                 for c_idx, val in enumerate(row_vals):
                                     cells.append(
                                         TableCell(
-                                            row_index=r_idx,
+                                            row_index=actual_r_idx,
                                             col_index=c_idx,
-                                            text=val,  # Retain native table cell text or mapped via OCR
-                                            is_header=(r_idx == 0)
+                                            text=val,
+                                            is_header=False
                                         )
                                     )
                         except Exception:
