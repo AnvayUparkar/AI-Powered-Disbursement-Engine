@@ -1,9 +1,0 @@
-{
-  "loan_id": "LOAN_002",
-  "applicant_name": "Priya Verma",
-  "funding_amount": 750000.0,
-  "tenure_months": 36,
-  "application_id": "APP_002",
-  "pan": "XYZPK9988A",
-  "status": "UNDER_REVIEW"
-}

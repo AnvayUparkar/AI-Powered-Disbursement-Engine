@@ -120,8 +120,6 @@ export function CreateCaseModal({
       // 1. Create the case record in backend
       await casesService.createCase({
         case_id: caseId,
-        applicant_name: 'Applicant',
-        loan_type: 'Personal Loan',
       });
 
       // 2. Upload and OCR each queued document

@@ -3,6 +3,23 @@ import { documents as mockDocs } from '@/mock';
 import { apiClient } from './apiClient';
 import { node2Api } from '@/api/node2';
 
+function guessDocType(filename?: string): DocumentRecord['type'] {
+  if (!filename) return 'Miscellaneous';
+  const n = filename.toLowerCase();
+  if (n.includes('app') || n.includes('application')) return 'Application Form';
+  if (n.includes('pan')) return 'PAN';
+  if ((n.includes('aadhaar') || n.includes('aadhar') || n.includes('adhar')) && n.includes('xml')) return 'Aadhaar XML';
+  if (n.includes('aadhaar') || n.includes('aadhar') || n.includes('adhar')) return 'Aadhaar';
+  if (n.includes('kyc')) return 'KYC';
+  if (n.includes('kfs')) return 'KFS';
+  if (n.includes('sanction')) return 'Sanction Letter';
+  if (n.includes('agreement')) return 'Loan Agreement';
+  if (n.includes('memo') || n.includes('disbursal')) return 'Disbursal Memo';
+  if (n.includes('bt') || n.includes('foreclosure')) return 'BT Details';
+  if (n.includes('vky')) return 'VKYC Audit Trail';
+  return 'Miscellaneous';
+}
+
 export function adaptNode2DocumentToRecord(
   parsed: Node2ParsedDocument,
   caseId: string = 'HDB-2026-001245'
@@ -78,7 +95,7 @@ export function adaptNode2DocumentToRecord(
   return {
     id: docId,
     name: parsed.source?.filename || `${docId}.pdf`,
-    type: 'Application Form',
+    type: ((parsed.source as any)?.document_type as DocumentRecord['type']) || guessDocType(parsed.source?.filename),
     pages: pageCount,
     ocrStatus: 'COMPLETED',
     extractionStatus: 'COMPLETED',
