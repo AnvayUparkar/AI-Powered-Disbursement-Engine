@@ -140,6 +140,18 @@ Ensure you have **Python 3.10+** and **Node.js 18+** installed.
 git clone <repo-url>
 cd "Automated Disbursment Scorecard"
 
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows (PowerShell):
+# (If script execution is blocked, run: Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned)
+.\venv\Scripts\Activate.ps1
+# On Windows (CMD):
+.\venv\Scripts\activate.bat
+# On Linux / macOS:
+source venv/bin/activate
+
 # Install Python dependencies
 pip install -r requirements.txt
 

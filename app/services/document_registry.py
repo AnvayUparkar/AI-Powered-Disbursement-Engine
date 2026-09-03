@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.serializers.case_serializer import serialize_all_cases
-from config import BASE_DIR, DMS_DIR, S3_RAW_DIR
+from config import BASE_DIR, DMS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR
 from idp.core.config import settings as idp_settings
+from pipeline.storage import list_loan_ids
 
 logger = logging.getLogger("disbursement_pipeline.document_registry")
 
@@ -217,78 +218,149 @@ class DocumentRegistry:
             logger.debug("Error during IDP parsed storage scan: %s", e)
 
     def _get_case_documents(self) -> List[Dict[str, Any]]:
-        """Index standard documents for all registered loan cases."""
-        all_cases = serialize_all_cases()
+        """Index actual documents stored for all registered loan cases without phantom files."""
+        loan_ids = list_loan_ids()
         docs = []
 
-        doc_meta = [
-            ("Application Form", "Application Form", 4, 180),
-            ("PAN", "PAN", 1, 45),
-            ("Aadhaar", "Aadhaar", 2, 75),
-            ("KYC", "KYC", 1, 60),
-            ("Selfie", "Miscellaneous", 1, 120),
-            ("Loan Agreement", "Loan Agreement", 12, 450),
-            ("KFS", "KFS", 3, 110),
-            ("Sanction Letter", "Sanction Letter", 2, 95),
-            ("Aadhaar XML", "Aadhaar XML", 1, 15),
-            ("Disbursal Memo", "Disbursal Memo", 1, 40),
-        ]
-
-        for c in all_cases:
-            c_id = c["id"]
-            # Check real files in S3 raw dir if present
+        for c_id in loan_ids:
             case_s3_dir = S3_RAW_DIR / c_id
-            real_files = set()
+            case_dms_dir = DMS_DIR / c_id
+            case_ext_dir = S3_EXTRACTED_DIR / c_id
+
+            seen_filenames = set()
+            candidate_files = []
+
+            # 1. Real files in S3 raw
             if case_s3_dir.exists():
-                for rf in case_s3_dir.glob("*.*"):
-                    real_files.add(rf.name)
+                for rf in sorted(case_s3_dir.iterdir()):
+                    if (
+                        rf.is_file()
+                        and rf.name != f"{c_id}.json"
+                        and not rf.name.endswith(".metadata.json")
+                        and rf.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".zip", ".xml")
+                    ):
+                        if rf.name not in seen_filenames:
+                            seen_filenames.add(rf.name)
+                            candidate_files.append((rf.name, rf, "s3_raw"))
 
-            for doc_name, doc_type, pages, size in doc_meta:
-                doc_filename = f"{doc_name.replace(' ', '_')}.pdf"
-                doc_id = f"doc-{c_id}-{doc_name.lower().replace(' ', '')}"
+            # 2. Real files in DMS
+            if case_dms_dir.exists():
+                for rf in sorted(case_dms_dir.iterdir()):
+                    if (
+                        rf.is_file()
+                        and rf.name != f"{c_id}.json"
+                        and not rf.name.endswith(".metadata.json")
+                        and not rf.name.endswith(".json")
+                        and rf.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".zip", ".xml")
+                    ):
+                        if rf.name not in seen_filenames:
+                            seen_filenames.add(rf.name)
+                            candidate_files.append((rf.name, rf, "dms"))
 
-                # If overridden dynamically, skip default generator
+            # 3. If no raw/dms files exist, check if extracted JSONs exist for pipeline runs
+            if not candidate_files and case_ext_dir.exists():
+                for ef in sorted(case_ext_dir.glob("*.json")):
+                    if ef.name not in (f"{c_id}.json", "status.json", "dms_status.json", "face_embeddings.json"):
+                        fake_name = f"{ef.stem}.pdf"
+                        if fake_name not in seen_filenames:
+                            seen_filenames.add(fake_name)
+                            candidate_files.append((fake_name, ef, "extracted"))
+
+            for doc_filename, fpath, source_kind in candidate_files:
+                doc_id = f"doc-{c_id}-{Path(doc_filename).stem.lower().replace(' ', '_')}"
                 if doc_id in self._dynamic_docs:
                     continue
 
-                docs.append({
-                    "id": doc_id,
-                    "name": doc_filename,
-                    "type": doc_type,
-                    "pages": pages,
-                    "ocrStatus": "COMPLETED",
-                    "extractionStatus": "COMPLETED",
-                    "confidence": 98.0,
-                    "vlmUsed": False,
-                    "uploadedAt": c.get("lastUpdated", "2026-09-01"),
-                    "caseId": c_id,
-                    "sizeKb": size,
-                    "extractedFields": [
+                doc_type = self._guess_doc_type(doc_filename)
+
+                # Check extracted data if available
+                ext_file = None
+                if case_ext_dir.exists():
+                    stem = Path(doc_filename).stem
+                    cand1 = case_ext_dir / f"{stem}.json"
+                    cand2 = case_ext_dir / f"{doc_type.lower().replace(' ', '_')}.json"
+                    if cand1.exists():
+                        ext_file = cand1
+                    elif cand2.exists():
+                        ext_file = cand2
+
+                ext_data = {}
+                if ext_file and ext_file.exists():
+                    try:
+                        ext_data = json.loads(ext_file.read_text(encoding="utf-8")) or {}
+                    except Exception:
+                        ext_data = {}
+
+                pages = ext_data.get("_pages") or ext_data.get("pages", 1)
+                if isinstance(pages, list):
+                    pages = len(pages)
+                else:
+                    try:
+                        pages = int(pages)
+                    except (ValueError, TypeError):
+                        pages = 1
+
+                extracted_fields = []
+                for k, v in ext_data.items():
+                    if k.startswith("_") or isinstance(v, (dict, list)):
+                        continue
+                    extracted_fields.append({
+                        "id": f"fld-{doc_id}-{k.lower().replace(' ', '_')}",
+                        "name": k.replace("_", " ").title(),
+                        "value": str(v),
+                        "confidence": 97.0,
+                        "sourceDocumentId": doc_id,
+                        "page": 1,
+                    })
+
+                if not extracted_fields:
+                    extracted_fields = [
                         {
                             "id": f"fld-{doc_id}-1",
-                            "name": f"{doc_type} Number / Identifier",
-                            "value": f"REF-{c_id[-4:]}-VERIFIED",
+                            "name": "Document Name",
+                            "value": doc_filename,
                             "confidence": 99.0,
                             "sourceDocumentId": doc_id,
                             "page": 1,
                         },
                         {
                             "id": f"fld-{doc_id}-2",
-                            "name": "Applicant Name",
-                            "value": c.get("borrowerName", "Applicant"),
-                            "confidence": 98.5,
+                            "name": "Type",
+                            "value": doc_type,
+                            "confidence": 98.0,
                             "sourceDocumentId": doc_id,
                             "page": 1,
                         },
-                    ],
+                    ]
+
+                size_kb = 45
+                if source_kind != "extracted" and fpath.exists():
+                    try:
+                        size_kb = max(1, round(fpath.stat().st_size / 1024))
+                    except OSError:
+                        size_kb = 45
+
+                docs.append({
+                    "id": doc_id,
+                    "name": doc_filename,
+                    "type": doc_type,
+                    "pages": pages,
+                    "ocrStatus": "COMPLETED" if ext_data else "PENDING",
+                    "extractionStatus": "COMPLETED" if ext_data else "PENDING",
+                    "confidence": 98.0 if ext_data else 95.0,
+                    "vlmUsed": bool(ext_data.get("_vlm_used", False)),
+                    "uploadedAt": datetime.now().strftime("%Y-%m-%d"),
+                    "caseId": c_id,
+                    "sizeKb": size_kb,
+                    "extractedFields": extracted_fields,
                     "processingSteps": [
                         {
                             "id": f"stp-{doc_id}-1",
                             "component": "PaddleOCR",
-                            "status": "COMPLETED",
-                            "detail": f"{doc_name} OCR processed and validated",
+                            "status": "COMPLETED" if ext_data else "PENDING",
+                            "detail": f"{doc_filename} OCR processing",
                             "startedAt": "10:30:00",
-                            "confidence": 98.5,
+                            "confidence": 98.0,
                         }
                     ],
                 })
@@ -349,10 +421,24 @@ class DocumentRegistry:
             return None
 
     def get_distinct_types(self) -> List[str]:
-        """Return distinct document types currently present in the registry."""
+        """Return distinct document types currently present in the registry or supported by default."""
         docs = self.list_all()
-        types = sorted(list({d.get("type") for d in docs if d.get("type")}))
-        return types
+        types = set(d.get("type") for d in docs if d.get("type"))
+        standard_types = {
+            "Application Form",
+            "PAN",
+            "Aadhaar",
+            "KYC",
+            "KFS",
+            "Sanction Letter",
+            "Loan Agreement",
+            "Disbursal Memo",
+            "BT Details",
+            "Aadhaar XML",
+            "VKYC Audit Trail",
+            "Miscellaneous",
+        }
+        return sorted(list(types | standard_types))
 
 
 # Global singleton instance

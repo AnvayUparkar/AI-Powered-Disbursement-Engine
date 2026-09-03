@@ -60,12 +60,15 @@ tmp/
 .tmp/
 temp/
 
-# POC Runtime test artifacts & dynamic outputs
-poc_data/los/loans/LOAN_TEST_*
-poc_data/s3_raw/LOAN_TEST_*
-poc_data/s3_result/*/
-poc_data/los/scorecards_received/*/
+# POC Runtime test artifacts, dynamic outputs & uploaded documents
+poc_data/los/loans/*
+poc_data/s3_raw/*
+poc_data/s3_extracted/*
+poc_data/s3_result/*
+poc_data/dms/*
+poc_data/los/scorecards_received/*
 poc_data/idp_temp/
+!poc_data/**/.gitkeep
 
 # Review & Temporary Reports
 CODE_REVIEW_FINDINGS.md

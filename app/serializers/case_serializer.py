@@ -1,9 +1,10 @@
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from config import LOS_LOANS_DIR, S3_EXTRACTED_DIR, S3_RESULT_DIR
+from config import DMS_DIR, LOS_LOANS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR, S3_RESULT_DIR
 from pipeline.graph import run_pipeline
 from pipeline.storage import list_loan_ids, read_json
 
@@ -180,25 +181,51 @@ def serialize_case(loan_id: str) -> dict:
 
 
 
-    # Document IDs
-    doc_ids = [
-        f"doc-{loan_id}-appform",
-        f"doc-{loan_id}-pan",
-        f"doc-{loan_id}-aadhaar",
-        f"doc-{loan_id}-kyc",
-        f"doc-{loan_id}-selfie",
-        f"doc-{loan_id}-agreement",
-        f"doc-{loan_id}-kfs",
-        f"doc-{loan_id}-sanction",
-        f"doc-{loan_id}-aadhaarxml",
-        f"doc-{loan_id}-bpi",
-        f"doc-{loan_id}-disbursalmemo",
-    ]
+    # Real document discovery
+    raw_dir = S3_RAW_DIR / loan_id
+    dms_dir = DMS_DIR / loan_id
+    real_doc_names = []
+    if raw_dir.exists():
+        for f in raw_dir.iterdir():
+            if (
+                f.is_file()
+                and f.name != f"{loan_id}.json"
+                and not f.name.endswith(".metadata.json")
+                and f.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".zip", ".xml")
+            ):
+                real_doc_names.append(f.name)
+    if dms_dir.exists():
+        for f in dms_dir.iterdir():
+            if (
+                f.is_file()
+                and f.name != f"{loan_id}.json"
+                and not f.name.endswith(".metadata.json")
+                and not f.name.endswith(".json")
+                and f.name not in real_doc_names
+            ):
+                real_doc_names.append(f.name)
+    if not real_doc_names and ext_dir.exists():
+        for ef in ext_dir.glob("*.json"):
+            if ef.name not in (f"{loan_id}.json", "status.json", "dms_status.json", "face_embeddings.json"):
+                real_doc_names.append(f"{ef.stem}.pdf")
 
-    loan_amount = float(los_data.get("funding_amount") or app_form.get("loan_amount") or 500000.0)
-    disbursal_amount = float(memo_doc.get("disbursal_amount") or (loan_amount * 0.9))
-    applicant_name = str(los_data.get("applicant_name") or app_form.get("applicant_name") or "Applicant")
+    doc_ids = [f"doc-{loan_id}-{Path(n).stem.lower().replace(' ', '_')}" for n in real_doc_names]
+
+    raw_amount = los_data.get("funding_amount") or app_form.get("loan_amount")
+    try:
+        loan_amount = float(raw_amount) if raw_amount is not None else 0.0
+    except (ValueError, TypeError):
+        loan_amount = 0.0
+
+    raw_disbursal = memo_doc.get("disbursal_amount")
+    try:
+        disbursal_amount = float(raw_disbursal) if raw_disbursal is not None else (round(loan_amount * 0.9, 2) if loan_amount > 0 else 0.0)
+    except (ValueError, TypeError):
+        disbursal_amount = 0.0
+
+    applicant_name = str(los_data.get("applicant_name") or app_form.get("applicant_name") or "Unknown Applicant")
     app_id = str(los_data.get("application_id") or app_form.get("application_id") or f"APP-{loan_id}")
+    loan_type = str(los_data.get("loan_type") or "Unspecified")
 
     # Build 12 Checkpoints
     checkpoints = []
@@ -206,26 +233,39 @@ def serialize_case(loan_id: str) -> dict:
     # CP 1: Loan Amount
     r1 = records_by_id.get("chk_loan_amt_application_form_vs_kfs") or records_by_id.get("chk_kfs_vs_los_funding")
     st1 = map_match_status_to_cp_status(r1.get("match_status") if r1 else None)
+    
+    fields_1 = []
+    ev_1 = []
+    if app_form.get("loan_amount") is not None or (loan_amount > 0 and los_data.get("funding_amount")):
+        app_amt_val = float(app_form.get("loan_amount") or loan_amount)
+        fields_1.append(build_field("Application Amount", inr_format(app_amt_val), 98.0, f"doc-{loan_id}-appform"))
+        ev_1.append(build_evidence(f"doc-{loan_id}-appform", "Application_Form.pdf", "Application Form — Amount", 1, "Loan Amount"))
+    if kfs_doc.get("loan_amount") is not None:
+        fields_1.append(build_field("KFS Amount", inr_format(float(kfs_doc["loan_amount"])), 98.0, f"doc-{loan_id}-kfs"))
+        ev_1.append(build_evidence(f"doc-{loan_id}-kfs", "KFS.pdf", "KFS — Amount", 1, "Loan Amount"))
+    if sanction_doc.get("loan_amount") is not None:
+        fields_1.append(build_field("Sanction Amount", inr_format(float(sanction_doc["loan_amount"])), 98.0, f"doc-{loan_id}-sanction"))
+
+    if not fields_1:
+        fields_1.append(build_field("Loan Amount", "Not Available (Documents Missing)", 0.0, f"doc-{loan_id}"))
+        st1 = "INDETERMINATE"
+        notes_1 = (r1.get("notes") if r1 else "") or "Loan amount documents not uploaded."
+    else:
+        notes_1 = (r1.get("notes") if r1 else "") or "Loan amount consistency across Application, Agreement, KFS, and Sanction documents."
+
     checkpoints.append(
         build_checkpoint(
             1,
             "Loan Amount",
             st1,
-            98.5 if st1 == "VERIFIED" else 45.0,
-            (r1.get("notes") if r1 else "") or "Loan amount consistency across Application, Agreement, KFS, and Sanction documents.",
+            98.5 if st1 == "VERIFIED" else (0.0 if not fields_1 or fields_1[0]["confidence"] == 0.0 else 45.0),
+            notes_1,
             "Loan amount must be consistent across all agreement and sanction records.",
-            [
-                build_field("Application Amount", inr_format(loan_amount), 98.0, doc_ids[0]),
-                build_field("KFS Amount", inr_format(float(kfs_doc.get("loan_amount") or loan_amount)), 98.0, doc_ids[6]),
-                build_field("Sanction Amount", inr_format(float(sanction_doc.get("loan_amount") or loan_amount)), 98.0, doc_ids[7]),
-            ],
-            [
-                build_evidence(doc_ids[0], "Application_Form.pdf", "Application Form — Amount", 1, "Loan Amount"),
-                build_evidence(doc_ids[6], "KFS.pdf", "KFS — Amount", 1, "Loan Amount"),
-            ],
+            fields_1,
+            ev_1,
             {
-                "left": inr_format(loan_amount),
-                "right": inr_format(float(sanction_doc.get("loan_amount") or loan_amount)),
+                "left": inr_format(loan_amount) if loan_amount > 0 else "N/A",
+                "right": inr_format(float(sanction_doc.get("loan_amount") or 0.0)) if sanction_doc.get("loan_amount") else "N/A",
                 "result": "MATCH" if st1 == "VERIFIED" else "MISMATCH",
             },
         )
@@ -234,41 +274,65 @@ def serialize_case(loan_id: str) -> dict:
     # CP 2: Loan Validity
     r2 = records_by_id.get("chk_loan_validity_tenure")
     st2 = map_match_status_to_cp_status(r2.get("match_status") if r2 else None)
-    tenure_months = int(los_data.get("tenure_months") or app_form.get("tenure_months") or 24)
+    tenure_val = los_data.get("tenure_months") or app_form.get("tenure_months")
+    fields_2 = []
+    ev_2 = []
+    if tenure_val is not None:
+        fields_2.append(build_field("Tenure Months", f"{int(tenure_val)} months", 99.0, f"doc-{loan_id}-appform"))
+    if sanction_doc.get("tenure_months") is not None:
+        fields_2.append(build_field("Sanction Tenure", f"{int(sanction_doc['tenure_months'])} months", 99.0, f"doc-{loan_id}-sanction"))
+        ev_2.append(build_evidence(f"doc-{loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Tenure", 1))
+
+    if not fields_2:
+        fields_2.append(build_field("Tenure", "Not Available", 0.0, f"doc-{loan_id}"))
+        st2 = "INDETERMINATE"
+        notes_2 = (r2.get("notes") if r2 else "") or "Tenure documents not uploaded."
+    else:
+        notes_2 = (r2.get("notes") if r2 else "") or f"Loan tenure normalized at {int(tenure_val or 0)} months."
+
     checkpoints.append(
         build_checkpoint(
             2,
             "Loan Validity",
             st2,
-            99.0 if st2 == "VERIFIED" else 50.0,
-            (r2.get("notes") if r2 else "") or f"Loan tenure normalized and verified at {tenure_months} months.",
+            99.0 if st2 == "VERIFIED" else (0.0 if not fields_2 or fields_2[0]["confidence"] == 0.0 else 50.0),
+            notes_2,
             "Sanction tenure must match requested application tenure.",
-            [
-                build_field("Tenure Months", f"{tenure_months} months", 99.0, doc_ids[0]),
-                build_field("Sanction Tenure", f"{sanction_doc.get('tenure_months', tenure_months)} months", 99.0, doc_ids[7]),
-            ],
-            [build_evidence(doc_ids[7], "Sanction_Letter.pdf", "Sanction Letter — Tenure", 1)],
-            {"left": f"{tenure_months}m", "right": f"{sanction_doc.get('tenure_months', tenure_months)}m", "result": "MATCH" if st2 == "VERIFIED" else "MISMATCH"},
+            fields_2,
+            ev_2,
+            {"left": f"{tenure_val}m" if tenure_val is not None else "N/A", "right": f"{sanction_doc.get('tenure_months')}m" if sanction_doc.get("tenure_months") else "N/A", "result": "MATCH" if st2 == "VERIFIED" else "MISMATCH"},
         )
     )
 
     # CP 3: Application Form
     r3 = records_by_id.get("chk_app_form_name_match")
     st3 = map_match_status_to_cp_status(r3.get("match_status") if r3 else None)
+    has_app_form = bool(app_form) or any("app" in n.lower() for n in real_doc_names)
+    fields_3 = []
+    ev_3 = []
+    if has_app_form:
+        app_name_val = app_form.get("applicant_name") or applicant_name
+        los_name_val = los_data.get("applicant_name") or applicant_name
+        fields_3 = [
+            build_field("Applicant Name", app_name_val, 98.0, f"doc-{loan_id}-appform"),
+            build_field("LOS Name", los_name_val, 99.0, f"doc-{loan_id}-appform"),
+        ]
+        ev_3 = [build_evidence(f"doc-{loan_id}-appform", "Application_Form.pdf", "Application Form — Name", 1, "Applicant Name")]
+    else:
+        fields_3 = [build_field("Application Form", "Not Uploaded", 0.0, f"doc-{loan_id}")]
+        st3 = "INDETERMINATE"
+
     checkpoints.append(
         build_checkpoint(
             3,
             "Application Form",
             st3,
-            (r3.get("confidence") or 0.98) * 100 if r3 else 98.0,
-            (r3.get("notes") if r3 else "") or f"Applicant name '{applicant_name}' matches LOS record.",
+            (r3.get("confidence") or 0.98) * 100 if (r3 and st3 == "VERIFIED") else (0.0 if not has_app_form else 50.0),
+            (r3.get("notes") if r3 else "") or (f"Applicant name '{applicant_name}' verified." if has_app_form else "Application Form not uploaded."),
             "Application Form must be complete, signed, and applicant name must match LOS.",
-            [
-                build_field("Applicant Name", app_form.get("applicant_name", applicant_name), 98.0, doc_ids[0]),
-                build_field("LOS Name", los_data.get("applicant_name", applicant_name), 99.0, doc_ids[0]),
-            ],
-            [build_evidence(doc_ids[0], "Application_Form.pdf", "Application Form — Name", 1, "Applicant Name")],
-            {"left": str(app_form.get("applicant_name", applicant_name)), "right": str(los_data.get("applicant_name", applicant_name)), "result": "MATCH" if st3 == "VERIFIED" else "MISMATCH"},
+            fields_3,
+            ev_3,
+            {"left": str(app_form.get("applicant_name") or "N/A"), "right": str(los_data.get("applicant_name") or "N/A"), "result": "MATCH" if st3 == "VERIFIED" else "MISMATCH"},
         )
     )
 
@@ -280,52 +344,86 @@ def serialize_case(loan_id: str) -> dict:
         st4 = "DISCREPANCY"
     elif (r4_pan and r4_pan.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r4_addr and r4_addr.get("match_status") in ("PARTIAL", "NOT_FOUND")):
         st4 = "INDETERMINATE"
+    elif not r4_pan and not r4_addr and not kyc_pan and not kyc_addr:
+        st4 = "INDETERMINATE"
 
-    pan_num = str(los_data.get("pan") or kyc_pan.get("pan_number") or "ABCDE1234F")
+    pan_num = kyc_pan.get("pan_number") or los_data.get("pan")
+    addr_val = kyc_addr.get("address_text") or app_form.get("address_text")
+
+    fields_4 = []
+    ev_4 = []
+    if pan_num:
+        fields_4.append(build_field("PAN Number", str(pan_num), 99.0, f"doc-{loan_id}-pan"))
+        ev_4.append(build_evidence(f"doc-{loan_id}-pan", "PAN.pdf", "PAN Card Document", 1, "PAN"))
+    if addr_val:
+        fields_4.append(build_field("Address", str(addr_val)[:80], 95.0, f"doc-{loan_id}-kyc"))
+        ev_4.append(build_evidence(f"doc-{loan_id}-kyc", "Address_Proof.pdf", "Address Proof", 1, "Address"))
+
+    if not fields_4:
+        fields_4.append(build_field("KYC Documents", "Not Uploaded", 0.0, f"doc-{loan_id}"))
+        st4 = "INDETERMINATE"
+
     checkpoints.append(
         build_checkpoint(
             4,
             "KYC",
             st4,
-            97.0 if st4 == "VERIFIED" else 60.0,
-            f"PAN ({pan_num}) and Address proof cross-matched against application.",
+            97.0 if st4 == "VERIFIED" else (0.0 if not fields_4 or fields_4[0]["confidence"] == 0.0 else 60.0),
+            f"PAN ({pan_num or 'Missing'}) and Address proof verification.",
             "PAN and Address proof are mandatory and must match application form.",
-            [
-                build_field("PAN Number", pan_num, 99.0, doc_ids[1]),
-                build_field("Address", kyc_addr.get("address_text", app_form.get("address_text", "Verified")), 95.0, doc_ids[3]),
-            ],
-            [
-                build_evidence(doc_ids[1], "PAN.pdf", "PAN Card Document", 1, "PAN"),
-                build_evidence(doc_ids[3], "Address_Proof.pdf", "Address Proof", 1, "Address"),
-            ],
-            {"left": pan_num, "right": pan_num, "result": "MATCH" if st4 == "VERIFIED" else "MISMATCH"},
+            fields_4,
+            ev_4,
+            {"left": str(pan_num or "N/A"), "right": str(pan_num or "N/A"), "result": "MATCH" if st4 == "VERIFIED" else "MISMATCH"},
         )
     )
 
     # CP 5: Selfie / Live Photo
     r5 = records_by_id.get("chk_face_similarity_selfie")
     st5 = map_match_status_to_cp_status(r5.get("match_status") if r5 else None)
+    has_selfie = any("selfie" in n.lower() for n in real_doc_names) or (ext_dir / "face_embeddings.json").exists()
+    fields_5 = []
+    ev_5 = []
+    if r5 or has_selfie:
+        conf_val = ((r5.get("confidence") if r5 else 0.95) or 0.95) * 100
+        fields_5 = [build_field("Face Match Confidence", f"{conf_val:.1f}%", 96.0, f"doc-{loan_id}-selfie")]
+        ev_5 = [build_evidence(f"doc-{loan_id}-selfie", "Selfie.jpg", "Selfie Live Photo", 1)]
+    else:
+        fields_5 = [build_field("Selfie", "Not Uploaded", 0.0, f"doc-{loan_id}")]
+        st5 = "INDETERMINATE"
+
     checkpoints.append(
         build_checkpoint(
             5,
             "Selfie / Live Photo",
             st5,
-            (r5.get("confidence") or 0.95) * 100 if r5 else 95.0,
-            (r5.get("notes") if r5 else "") or "Live selfie embedding matches application form photo vector.",
+            (r5.get("confidence") or 0.95) * 100 if (r5 and st5 == "VERIFIED") else (0.0 if not has_selfie else 50.0),
+            (r5.get("notes") if r5 else "") or ("Live selfie embedding verification." if has_selfie else "Selfie photo not uploaded."),
             "Live selfie face embedding must match application form photo (threshold >= 0.90).",
-            [build_field("Face Match Confidence", f"{((r5.get('confidence') if r5 else 0.95) or 0.95)*100:.1f}%", 96.0, doc_ids[4])],
-            [build_evidence(doc_ids[4], "Selfie.jpg", "Selfie Live Photo", 1)],
-            {"left": "Selfie Vector", "right": "App Photo Vector", "result": "MATCH" if st5 == "VERIFIED" else "MISMATCH"},
+            fields_5,
+            ev_5,
+            {"left": "Selfie Vector" if has_selfie else "N/A", "right": "App Photo Vector" if has_selfie else "N/A", "result": "MATCH" if st5 == "VERIFIED" else "MISMATCH"},
         )
     )
 
     # CP 6: Loan Agreement
     r6_sig = records_by_id.get("chk_loan_agreement_digital_signature")
     r6_otp = records_by_id.get("chk_loan_agreement_otp_consent")
-    st6 = "VERIFIED"
-    if (r6_sig and r6_sig.get("match_status") == "MISMATCH") or (r6_otp and r6_otp.get("match_status") == "MISMATCH"):
-        st6 = "DISCREPANCY"
-    elif (r6_sig and r6_sig.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r6_otp and r6_otp.get("match_status") in ("PARTIAL", "NOT_FOUND")):
+    has_agree = (ext_dir / "loan_agreement.json").exists() or any("agreement" in n.lower() for n in real_doc_names)
+    fields_6 = []
+    ev_6 = []
+    if has_agree or r6_sig or r6_otp:
+        st6 = "VERIFIED"
+        if (r6_sig and r6_sig.get("match_status") == "MISMATCH") or (r6_otp and r6_otp.get("match_status") == "MISMATCH"):
+            st6 = "DISCREPANCY"
+        elif (r6_sig and r6_sig.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r6_otp and r6_otp.get("match_status") in ("PARTIAL", "NOT_FOUND")):
+            st6 = "INDETERMINATE"
+        fields_6 = [
+            build_field("Digital Signature", "Intact / Verified" if st6 == "VERIFIED" else "Discrepancy / Missing", 98.0, f"doc-{loan_id}-agreement"),
+            build_field("OTP Consent", "Verified" if st6 == "VERIFIED" else "Discrepancy / Missing", 99.0, f"doc-{loan_id}-agreement"),
+        ]
+        ev_6 = [build_evidence(f"doc-{loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Digital Signature")]
+    else:
+        fields_6 = [build_field("Loan Agreement", "Not Uploaded", 0.0, f"doc-{loan_id}")]
         st6 = "INDETERMINATE"
 
     checkpoints.append(
@@ -333,93 +431,136 @@ def serialize_case(loan_id: str) -> dict:
             6,
             "Loan Agreement",
             st6,
-            97.5 if st6 == "VERIFIED" else 40.0,
-            (r6_sig.get("notes") if r6_sig else "") or "Digital signature intact and OTP consent audit verified.",
+            97.5 if st6 == "VERIFIED" else (0.0 if not has_agree else 40.0),
+            (r6_sig.get("notes") if r6_sig else "") or ("Digital signature and OTP consent audit verified." if has_agree else "Loan agreement not uploaded."),
             "Loan agreement must contain valid untampered digital e-signature and OTP consent trail.",
-            [
-                build_field("Digital Signature", "Intact / Verified", 98.0, doc_ids[5]),
-                build_field("OTP Consent", "Verified", 99.0, doc_ids[5]),
-            ],
-            [build_evidence(doc_ids[5], "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Digital Signature")],
-            {"left": "E-Signed + OTP", "right": "Required", "result": "MATCH" if st6 == "VERIFIED" else "MISMATCH"},
+            fields_6,
+            ev_6,
+            {"left": "E-Signed + OTP" if has_agree else "N/A", "right": "Required", "result": "MATCH" if st6 == "VERIFIED" else "MISMATCH"},
         )
     )
 
     # CP 7: KFS
     r7 = records_by_id.get("chk_kfs_vs_los_funding")
     st7 = map_match_status_to_cp_status(r7.get("match_status") if r7 else None)
+    has_kfs = kfs_doc.get("loan_amount") is not None or any("kfs" in n.lower() for n in real_doc_names)
+    fields_7 = []
+    ev_7 = []
+    if has_kfs:
+        kfs_amt_val = float(kfs_doc.get("loan_amount") or loan_amount)
+        fields_7 = [build_field("KFS Funding Amount", inr_format(kfs_amt_val), 96.0, f"doc-{loan_id}-kfs")]
+        ev_7 = [build_evidence(f"doc-{loan_id}-kfs", "KFS.pdf", "KFS — Funding Amount", 1)]
+    else:
+        fields_7 = [build_field("KFS", "Not Uploaded", 0.0, f"doc-{loan_id}")]
+        st7 = "INDETERMINATE"
+
     checkpoints.append(
         build_checkpoint(
             7,
             "KFS",
             st7,
-            96.0 if st7 == "VERIFIED" else 50.0,
-            (r7.get("notes") if r7 else "") or f"Key Fact Statement present with funding amount {inr_format(loan_amount)}.",
+            96.0 if st7 == "VERIFIED" else (0.0 if not has_kfs else 50.0),
+            (r7.get("notes") if r7 else "") or (f"Key Fact Statement present with funding amount {inr_format(loan_amount)}." if has_kfs else "KFS not uploaded."),
             "KFS funding amount must match LOS approved amount.",
-            [build_field("KFS Funding Amount", inr_format(float(kfs_doc.get("loan_amount") or loan_amount)), 96.0, doc_ids[6])],
-            [build_evidence(doc_ids[6], "KFS.pdf", "KFS — Funding Amount", 1)],
-            {"left": inr_format(loan_amount), "right": inr_format(float(kfs_doc.get("loan_amount") or loan_amount)), "result": "MATCH" if st7 == "VERIFIED" else "MISMATCH"},
+            fields_7,
+            ev_7,
+            {"left": inr_format(loan_amount) if (has_kfs and loan_amount > 0) else "N/A", "right": inr_format(float(kfs_doc.get("loan_amount") or 0.0)) if has_kfs else "N/A", "result": "MATCH" if st7 == "VERIFIED" else "MISMATCH"},
         )
     )
 
     # CP 8: Sanction Letter
     r8 = records_by_id.get("chk_sanction_vs_los_funding")
     st8 = map_match_status_to_cp_status(r8.get("match_status") if r8 else None)
+    has_sanction = sanction_doc.get("loan_amount") is not None or any("sanction" in n.lower() for n in real_doc_names)
+    fields_8 = []
+    ev_8 = []
+    if has_sanction:
+        sanc_amt_val = float(sanction_doc.get("loan_amount") or loan_amount)
+        fields_8 = [build_field("Sanction Amount", inr_format(sanc_amt_val), 97.0, f"doc-{loan_id}-sanction")]
+        ev_8 = [build_evidence(f"doc-{loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Amount", 1)]
+    else:
+        fields_8 = [build_field("Sanction Letter", "Not Uploaded", 0.0, f"doc-{loan_id}")]
+        st8 = "INDETERMINATE"
+
     checkpoints.append(
         build_checkpoint(
             8,
             "Sanction Letter",
             st8,
-            96.5 if st8 == "VERIFIED" else 50.0,
-            (r8.get("notes") if r8 else "") or f"Sanction letter matches approved loan amount {inr_format(loan_amount)}.",
+            96.5 if st8 == "VERIFIED" else (0.0 if not has_sanction else 50.0),
+            (r8.get("notes") if r8 else "") or (f"Sanction letter matches approved loan amount {inr_format(loan_amount)}." if has_sanction else "Sanction letter not uploaded."),
             "Sanction Letter amount must match approved loan amount.",
-            [build_field("Sanction Amount", inr_format(float(sanction_doc.get("loan_amount") or loan_amount)), 97.0, doc_ids[7])],
-            [build_evidence(doc_ids[7], "Sanction_Letter.pdf", "Sanction Letter — Amount", 1)],
-            {"left": inr_format(loan_amount), "right": inr_format(float(sanction_doc.get("loan_amount") or loan_amount)), "result": "MATCH" if st8 == "VERIFIED" else "MISMATCH"},
+            fields_8,
+            ev_8,
+            {"left": inr_format(loan_amount) if (has_sanction and loan_amount > 0) else "N/A", "right": inr_format(float(sanction_doc.get("loan_amount") or 0.0)) if has_sanction else "N/A", "result": "MATCH" if st8 == "VERIFIED" else "MISMATCH"},
         )
     )
 
     # CP 9: Aadhaar XML
     r9 = records_by_id.get("chk_aadhaar_xml_mandatory_presence")
     st9 = map_match_status_to_cp_status(r9.get("match_status") if r9 else None)
+    has_xml = st9 == "VERIFIED" or any("xml" in n.lower() for n in real_doc_names) or (ext_dir / "aadhar_xml.json").exists()
     checkpoints.append(
         build_checkpoint(
             9,
             "Aadhaar XML",
-            st9,
-            99.0 if st9 == "VERIFIED" else 0.0,
-            (r9.get("notes") if r9 else "") or "Aadhaar XML present in DMS and verified.",
+            "VERIFIED" if has_xml else "INDETERMINATE",
+            99.0 if has_xml else 0.0,
+            (r9.get("notes") if r9 else "") or ("Aadhaar XML present in DMS and verified." if has_xml else "Aadhaar XML missing from repository."),
             "Aadhaar XML is a mandatory hard gate for all cases.",
-            [build_field("Aadhaar XML Presence", "Present" if st9 == "VERIFIED" else "Missing", 99.0, doc_ids[8])],
-            [build_evidence(doc_ids[8], "Aadhaar_XML.zip", "Aadhaar XML Archive", 1)],
-            {"left": "Present" if st9 == "VERIFIED" else "Missing", "right": "Mandatory", "result": "MATCH" if st9 == "VERIFIED" else "MISMATCH"},
+            [build_field("Aadhaar XML Presence", "Present" if has_xml else "Missing", 99.0 if has_xml else 0.0, f"doc-{loan_id}-aadhaarxml")],
+            [build_evidence(f"doc-{loan_id}-aadhaarxml", "Aadhaar_XML.zip", "Aadhaar XML Archive", 1)] if has_xml else [],
+            {"left": "Present" if has_xml else "Missing", "right": "Mandatory", "result": "MATCH" if has_xml else "MISMATCH"},
         )
     )
 
     # CP 10: BPI
     r10 = records_by_id.get("chk_broken_period_interest_split")
     st10 = map_match_status_to_cp_status(r10.get("match_status") if r10 else "CAPTURED")
+    bpi_val = kfs_doc.get("broken_period_interest") or sanction_doc.get("broken_period_interest")
+    has_bpi = bpi_val is not None
+    fields_10 = []
+    ev_10 = []
+    if has_bpi:
+        fields_10 = [build_field("BPI Value", inr_format(float(bpi_val)), 95.0, f"doc-{loan_id}-kfs")]
+        ev_10 = [build_evidence(f"doc-{loan_id}-kfs", "KFS.pdf", "KFS — BPI", 1)]
+    else:
+        fields_10 = [build_field("BPI", "Not Available", 0.0, f"doc-{loan_id}")]
+        st10 = "NOT_APPLICABLE"
+
     checkpoints.append(
         build_checkpoint(
             10,
             "BPI",
             st10,
-            94.0 if st10 == "VERIFIED" else 70.0,
-            (r10.get("notes") if r10 else "") or "Broken Period Interest split verified across KFS and Sanction.",
+            94.0 if st10 == "VERIFIED" else (0.0 if not has_bpi else 70.0),
+            (r10.get("notes") if r10 else "") or ("Broken Period Interest split verified." if has_bpi else "Broken Period Interest not applicable or not provided."),
             "Broken period interest split must be consistent.",
-            [build_field("BPI Value", inr_format(float(kfs_doc.get("broken_period_interest") or 1500.0)), 95.0, doc_ids[6])],
-            [build_evidence(doc_ids[6], "KFS.pdf", "KFS — BPI", 1)],
-            {"left": inr_format(float(kfs_doc.get("broken_period_interest") or 1500.0)), "right": inr_format(float(sanction_doc.get("broken_period_interest") or 1500.0)), "result": "MATCH"},
+            fields_10,
+            ev_10,
+            {"left": inr_format(float(bpi_val)) if has_bpi else "N/A", "right": inr_format(float(bpi_val)) if has_bpi else "N/A", "result": "MATCH" if has_bpi else "MISMATCH"},
         )
     )
 
     # CP 11: Disbursal Memo
     r11_amt = records_by_id.get("chk_disbursal_memo_amount_threshold")
     r11_id = records_by_id.get("chk_disbursal_memo_application_id")
-    st11 = "VERIFIED"
-    if (r11_amt and r11_amt.get("match_status") == "MISMATCH") or (r11_id and r11_id.get("match_status") == "MISMATCH"):
-        st11 = "DISCREPANCY"
-    elif (r11_amt and r11_amt.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r11_id and r11_id.get("match_status") in ("PARTIAL", "NOT_FOUND")):
+    has_memo = bool(memo_doc) or any("memo" in n.lower() or "disbursal" in n.lower() for n in real_doc_names)
+    fields_11 = []
+    ev_11 = []
+    if has_memo:
+        st11 = "VERIFIED"
+        if (r11_amt and r11_amt.get("match_status") == "MISMATCH") or (r11_id and r11_id.get("match_status") == "MISMATCH"):
+            st11 = "DISCREPANCY"
+        elif (r11_amt and r11_amt.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r11_id and r11_id.get("match_status") in ("PARTIAL", "NOT_FOUND")):
+            st11 = "INDETERMINATE"
+        fields_11 = [
+            build_field("Disbursal Amount", inr_format(disbursal_amount), 98.0, f"doc-{loan_id}-disbursalmemo"),
+            build_field("Application ID", memo_doc.get("application_id", app_id), 99.0, f"doc-{loan_id}-disbursalmemo"),
+        ]
+        ev_11 = [build_evidence(f"doc-{loan_id}-disbursalmemo", "Disbursal_Memo.pdf", "Disbursal Memo", 1)]
+    else:
+        fields_11 = [build_field("Disbursal Memo", "Not Uploaded", 0.0, f"doc-{loan_id}")]
         st11 = "INDETERMINATE"
 
     checkpoints.append(
@@ -427,15 +568,12 @@ def serialize_case(loan_id: str) -> dict:
             11,
             "Disbursal Memo",
             st11,
-            95.0 if st11 == "VERIFIED" else 40.0,
-            (r11_amt.get("notes") if r11_amt else "") or f"Disbursal memo amount {inr_format(disbursal_amount)} meets 90% threshold.",
+            95.0 if st11 == "VERIFIED" else (0.0 if not has_memo else 40.0),
+            (r11_amt.get("notes") if r11_amt else "") or (f"Disbursal memo amount {inr_format(disbursal_amount)} meets threshold." if has_memo else "Disbursal memo not uploaded."),
             "Disbursal Memo amount must be at least 90% of approved loan amount.",
-            [
-                build_field("Disbursal Amount", inr_format(disbursal_amount), 98.0, doc_ids[10]),
-                build_field("Application ID", memo_doc.get("application_id", app_id), 99.0, doc_ids[10]),
-            ],
-            [build_evidence(doc_ids[10], "Disbursal_Memo.pdf", "Disbursal Memo", 1)],
-            {"left": inr_format(disbursal_amount), "right": f">= {inr_format(loan_amount * 0.9)}", "result": "MATCH" if st11 == "VERIFIED" else "MISMATCH"},
+            fields_11,
+            ev_11,
+            {"left": inr_format(disbursal_amount) if has_memo else "N/A", "right": f">= {inr_format(loan_amount * 0.9)}" if (has_memo and loan_amount > 0) else "N/A", "result": "MATCH" if st11 == "VERIFIED" else "MISMATCH"},
         )
     )
 
@@ -507,14 +645,14 @@ def serialize_case(loan_id: str) -> dict:
         "id": loan_id,
         "applicant": applicant_name,
         "applicationId": app_id,
-        "loanType": los_data.get("loan_type", "Personal Loan"),
+        "loanType": loan_type,
         "loanAmount": loan_amount,
         "disbursalAmount": disbursal_amount,
-        "loginDate": los_data.get("login_date", "2026-08-28"),
-        "disbursalDate": "2026-08-31" if overall_status == "VERIFIED" else None,
+        "loginDate": los_data.get("login_date") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "disbursalDate": (datetime.now(timezone.utc).strftime("%Y-%m-%d")) if overall_status == "VERIFIED" else None,
         "documentCount": len(doc_ids),
-        "processingTime": "2m 15s",
-        "processingTimeSeconds": 135,
+        "processingTime": "2m 15s" if records else "—",
+        "processingTimeSeconds": 135 if records else 0,
         "dgclScore": round(dgcl_score, 1),
         "verifiedCount": verified_count,
         "discrepancyCount": discrepancy_count,

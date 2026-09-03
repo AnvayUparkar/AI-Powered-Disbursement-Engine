@@ -52,10 +52,10 @@ def create_case(payload: CreateCaseRequest):
     los_data = {
         "loan_id": case_id,
         "application_id": f"APP-{case_id}",
-        "applicant_name": payload.applicant_name or "Applicant",
-        "loan_type": payload.loan_type or "Personal Loan",
-        "funding_amount": payload.loan_amount or 500000.0,
-        "tenure_months": payload.tenure_months or 24,
+        "applicant_name": payload.applicant_name or "Unknown Applicant",
+        "loan_type": payload.loan_type or "Unspecified",
+        "funding_amount": payload.loan_amount,
+        "tenure_months": payload.tenure_months,
         "login_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "status": "DRAFT",
     }
