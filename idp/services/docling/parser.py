@@ -70,20 +70,16 @@ class DoclingParser:
                             b = prov_item.bbox
                             bbox_list = [float(b.l), float(b.t), float(b.r), float(b.b)]
 
-                    # Extract native OCR text directly from Docling item
-                    item_text = str(getattr(item, "text", "")).strip()
-                    item_conf = float(getattr(item, "confidence", 0.95))
-
                     elements.append(
                         LayoutElement(
                             id=f"docling-{uuid.uuid4().hex[:8]}",
                             type=elem_type,
-                            text=item_text,
+                            text="",  # Docling provides structure map, text is supplied by RapidOCR
                             bbox=bbox_list,
-                            confidence=item_conf,
+                            confidence=1.0,
                             page_number=pno,
                             reading_order=reading_order,
-                            source="docling_ocr",
+                            source="rapidocr",
                             structure_source="docling"
                         )
                     )
@@ -107,21 +103,21 @@ class DoclingParser:
                     if hasattr(table, "export_to_dataframe"):
                         try:
                             df = table.export_to_dataframe()
-                            headers = [str(c) for c in df.columns]
+                            headers = [str(c).strip() for c in df.columns]
                             for r_idx, row in df.iterrows():
-                                row_vals = [str(v) for v in row.values]
+                                row_vals = [str(v).strip() if v is not None and str(v) != "nan" else "" for v in row.values]
                                 rows_raw.append(row_vals)
                                 for c_idx, val in enumerate(row_vals):
                                     cells.append(
                                         TableCell(
                                             row_index=r_idx,
                                             col_index=c_idx,
-                                            text=str(val).strip(),
+                                            text=val,  # Retain native table cell text or mapped via OCR
                                             is_header=(r_idx == 0)
                                         )
                                     )
-                        except Exception as tbl_err:
-                            logger.warning(format_doc_log(doc_id, f"Table dataframe export note: {tbl_err}"))
+                        except Exception:
+                            pass
 
                     tables.append(
                         TableStructure(
@@ -136,7 +132,7 @@ class DoclingParser:
                         )
                     )
 
-            logger.info(format_doc_log(doc_id, f"Docling successfully extracted {len(elements)} structural elements and {len(tables)} tables with integrated OCR."))
+            logger.info(format_doc_log(doc_id, f"Docling successfully extracted {len(elements)} structural elements and {len(tables)} tables."))
             return DoclingParseResult(
                 elements=elements,
                 tables=tables,
@@ -171,12 +167,12 @@ class DoclingParser:
                         LayoutElement(
                             id=f"docling-fb-{reading_order}",
                             type=ElementType.PARAGRAPH,
-                            text=b[4].strip() if len(b) > 4 else "",
+                            text="",  # Docling layout fallback provides structural regions only
                             bbox=[float(b[0]), float(b[1]), float(b[2]), float(b[3])],
                             confidence=0.9,
                             page_number=pno,
                             reading_order=reading_order,
-                            source="docling_ocr",
+                            source="rapidocr",
                             structure_source="docling"
                         )
                     )

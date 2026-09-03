@@ -35,6 +35,8 @@ class OCRElement(BaseModel):
     ocr_original: Optional[str] = None  # Preserved if VLM modified the text
     verified: bool = True
     needs_vlm: bool = False
+    metadata: dict = Field(default_factory=dict)
+
 
 
 class OCRResult(BaseModel):

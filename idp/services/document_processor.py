@@ -6,6 +6,7 @@ from idp.services.storage.s3 import S3Storage
 from idp.services.document_preprocessor import DocumentPreprocessor, PreprocessedDocument
 from idp.services.docling.parser import DoclingParser, DoclingParseResult
 from idp.services.ocr.rapidocr_engine import RapidOCREngine, OCRResult
+from idp.services.ocr.ocr_model_router import OCRModelRouter
 from idp.services.vlm.router import ConfidenceRouter
 from idp.services.vlm.client import VLMClient, VLMResult
 from idp.services.output.serializer import DocumentSerializer
@@ -25,6 +26,7 @@ class DocumentProcessor:
         self.preprocessor = DocumentPreprocessor()
         self.docling_parser = DoclingParser()
         self.ocr_engine = RapidOCREngine()
+        self.ocr_router = OCRModelRouter(default_engine=self.ocr_engine)
         self.router = ConfidenceRouter()
         self.vlm_client = VLMClient()
         self.serializer = DocumentSerializer()
@@ -42,7 +44,7 @@ class DocumentProcessor:
             Dict containing document_id, status, output_location, and processing_time.
         """
         start_time = time.time()
-        bucket = s3_bucket or settings.S3_BUCKET
+        bucket = s3_bucket if (isinstance(s3_bucket, str) and s3_bucket.strip()) else settings.S3_BUCKET
         temp_dir = create_temp_dir(prefix=f"node2_{document_id}_")
 
         logger.info(format_doc_log(document_id, f"Beginning Node 2 processing for s3://{bucket}/{s3_key}"))
@@ -75,61 +77,94 @@ class DocumentProcessor:
                     "processing_time_seconds": round(elapsed, 3)
                 }
 
-            # Step 3: Docling layout + integrated OCR parsing
+            # Step 3: Docling layout parsing
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
             try:
                 docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
             except Exception as e:
-                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
+                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with OCR."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
 
+            # Step 4: RapidOCR + Multilingual Router execution
+            ocr_start = time.time()
+            ocr_results = []
+            
+            # Convert PDF to page images, capturing actual rendered image dimensions
             page_image_data = await self._get_page_images(local_file_path, prep_doc)
             page_images: List[bytes] = [item[0] for item in page_image_data]
+            
+            doc_type_hint = os.path.splitext(os.path.basename(local_file_path))[0]
 
-            # Step 4: Selective VLM Fallback Routing on Docling layout/OCR elements
+            for pidx, (page_bytes, img_width, img_height) in enumerate(page_image_data):
+                pno = pidx + 1
+                preview_text = ""
+                if docling_result and docling_result.elements:
+                    p_elems = [e for e in docling_result.elements if e.page_number == pno and e.text]
+                    preview_text = " ".join([e.text for e in p_elems[:10]])
+
+                ocr_res: OCRResult = self.ocr_router.process_page(
+                    page_bytes, page_number=pno, doc_id=document_id, doc_type_hint=doc_type_hint, preview_text=preview_text
+                )
+                # Store actual rendered image dimensions for correct bbox normalization
+                ocr_res.image_width = float(img_width)
+                ocr_res.image_height = float(img_height)
+                ocr_results.append(ocr_res)
+
+
+
+            metrics.ocr_processing_time = round(time.time() - ocr_start, 3)
+
+            # Step 5: Evaluate OCR quality and VLM fallback routing
             vlm_start = time.time()
             vlm_corrections: Dict[str, VLMResult] = {}
             vlm_used = False
 
-            if docling_result and docling_result.elements:
-                flagged_elements = self.router.get_low_confidence_layout_elements(
-                    docling_result.elements, doc_id=document_id
-                )
-                metrics.ocr_low_confidence_count = len(flagged_elements)
+            for ocr_res in ocr_results:
+                if self.router.should_use_vlm(ocr_res, doc_id=document_id):
+                    low_conf_elements = self.router.get_low_confidence_elements(ocr_res)
+                    metrics.ocr_low_confidence_count += len(low_conf_elements)
 
-                for elem in flagged_elements:
-                    pno = elem.page_number
+                    pno = ocr_res.page_number
                     page_bytes = page_images[pno - 1] if pno <= len(page_images) else b""
-                    img_w = 595.0
-                    img_h = 842.0
-                    if pno <= len(docling_result.pages_dimensions):
-                        img_w = docling_result.pages_dimensions[pno - 1].get("width", 595.0)
-                        img_h = docling_result.pages_dimensions[pno - 1].get("height", 842.0)
+                    # Use actual rendered image dims for VLM crop, not Docling doc-unit dims
+                    img_w = ocr_res.image_width if ocr_res.image_width > 0 else 595.0
+                    img_h = ocr_res.image_height if ocr_res.image_height > 0 else 842.0
 
-                    cropped_bytes = crop_image_region(
-                        image_bytes=page_bytes,
-                        bbox=elem.bbox,
-                        page_width=img_w,
-                        page_height=img_h
-                    )
+                    for elem in low_conf_elements:
+                        cropped_bytes = crop_image_region(
+                            image_bytes=page_bytes,
+                            bbox=elem.bbox,
+                            page_width=img_w,
+                            page_height=img_h
+                        )
 
-                    vlm_res = await self.vlm_client.analyze_region(
-                        image_bytes=cropped_bytes or page_bytes,
-                        ocr_element=elem,
-                        context_hint=f"Page {pno} element {elem.id}",
-                        doc_id=document_id
-                    )
+                        vlm_res = await self.vlm_client.analyze_region(
+                            image_bytes=cropped_bytes or page_bytes,
+                            ocr_element=elem,
+                            context_hint=f"Page {pno} line {elem.line_number}",
+                            doc_id=document_id
+                        )
 
-                    if vlm_res and elem.id:
-                        vlm_corrections[elem.id] = vlm_res
-                        metrics.vlm_fallback_count += 1
-                        vlm_used = True
+                        if vlm_res and elem.id:
+                            vlm_corrections[elem.id] = vlm_res
+                            # Update element in-place to ensure downstream serializers and alignment directly use the corrected text
+                            elem.ocr_original = elem.text
+                            elem.text = vlm_res.text
+                            elem.confidence = max(elem.confidence, vlm_res.confidence)
+                            elem.source = "vlm_corrected"
+                            elem.needs_vlm = False
+                            metrics.vlm_fallback_count += 1
+                            vlm_used = True
+
+                            # Gentle pacing between VLM fallback calls to respect API quotas
+                            await asyncio.sleep(0.25)
+
 
             metrics.vlm_processing_time = round(time.time() - vlm_start, 3)
             metrics.total_processing_time = round(time.time() - start_time, 3)
 
-            # Step 5: Serialize into Canonical Unified Document Representation
+            # Step 6: Serialize into Canonical Unified Document Representation
             parsed_doc = self.serializer.build_unified_document(
                 doc_id=document_id,
                 filename=filename,
@@ -137,7 +172,7 @@ class DocumentProcessor:
                 file_size_bytes=prep_doc.file_size_bytes,
                 page_count=prep_doc.page_count,
                 docling_result=docling_result,
-                ocr_results=[],
+                ocr_results=ocr_results,
                 vlm_corrections=vlm_corrections,
                 metrics=metrics,
                 s3_bucket=bucket,
@@ -216,7 +251,7 @@ class DocumentProcessor:
         """
         Save direct browser uploaded raw file bytes to S3 raw-documents prefix and process through Node 2.
         """
-        bucket = s3_bucket or settings.S3_BUCKET
+        bucket = s3_bucket if (isinstance(s3_bucket, str) and s3_bucket.strip()) else settings.S3_BUCKET
         raw_key = f"{settings.RAW_DOCUMENT_PREFIX.strip('/')}/{document_id}_{filename}"
         await self.storage.upload(
             key=raw_key,
@@ -239,7 +274,7 @@ class DocumentProcessor:
 
     async def get_parsed_document(self, document_id: str, bucket: Optional[str] = None) -> Optional[ParsedDocument]:
         """Retrieve parsed document result model by document_id."""
-        target_bucket = bucket or settings.S3_BUCKET
+        target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else settings.S3_BUCKET
         out_key = f"{settings.PARSED_DOCUMENT_PREFIX.strip('/')}/{document_id}.json"
         
         # Check local mock path first if exists

@@ -38,7 +38,7 @@ class S3Storage:
         doc_id: str = "DOC"
     ) -> str:
         """Download object from S3 to local filesystem dest_path."""
-        target_bucket = bucket or self.default_bucket
+        target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else self.default_bucket
         logger.info(format_doc_log(doc_id, f"Downloading s3://{target_bucket}/{key} -> {dest_path}"))
 
         client = self._get_client()
@@ -85,7 +85,7 @@ class S3Storage:
         doc_id: str = "DOC"
     ) -> str:
         """Upload content string or bytes to S3 key location."""
-        target_bucket = bucket or self.default_bucket
+        target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else self.default_bucket
         logger.info(format_doc_log(doc_id, f"Uploading to s3://{target_bucket}/{key}"))
 
         if isinstance(content, str):

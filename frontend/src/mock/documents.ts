@@ -13,6 +13,7 @@ const base = (
   extractedFields: DocumentRecord['extractedFields'],
   processingSteps: DocumentRecord['processingSteps'],
   sizeKb = 240,
+  rawText?: string
 ): DocumentRecord => ({
   id,
   name,
@@ -27,10 +28,32 @@ const base = (
   sizeKb,
   extractedFields,
   processingSteps,
+  rawText: rawText || extractedFields.map((f) => `${f.name}: ${f.value}`).join('\n'),
 });
 
+
 export const documents: DocumentRecord[] = [
+  // User Verified Aadhaar Document
+  base('DOC-313347', 'DOC-313347_Jainam_Aadhar .pdf', 'Aadhaar', 1, 98.8, true, 'HDB-2026-001245', '12:54:34', [
+    field('Country', 'भारत सरकार / Government of India', 98.8, 'DOC-313347', 1),
+    field('Authority', 'भारतीय विशिष्ट ओळख प्राधिकरण / Unique Identification Authority of India', 97.5, 'DOC-313347', 1),
+    field('Enrolment No', '0000/00367/28154', 96.0, 'DOC-313347', 1),
+    field('Name (Devanagari)', 'जैनम संपत परमार', 98.0, 'DOC-313347', 1),
+    field('Name (English)', 'Jainam Sampat Parmar', 99.2, 'DOC-313347', 1),
+    field('Father Name', 'S/O Sampat Parmar', 95.0, 'DOC-313347', 1),
+    field('Aadhaar Number', '7241 5860 0518', 99.5, 'DOC-313347', 1),
+    field('DOB', '08/03/2005', 97.0, 'DOC-313347', 1),
+    field('Gender', 'पुरुष/ MALE', 95.0, 'DOC-313347', 1),
+    field('Address', '१४,अनुसया निवास, बोरबा देवी मंदिर जवळ, बोरला गोवंडी, मुंबई, महाराष्ट्र - 400088', 96.5, 'DOC-313347', 1),
+    field('Mobile', '9769384850', 99.0, 'DOC-313347', 1),
+    field('Tagline', 'माझे आधार, माझी ओळख', 98.2, 'DOC-313347', 1),
+  ], [
+    step('Docling', 'COMPLETED', 'Docling parsed layout structure (0.15s)', '12:54:34', '12:54:36', 99.0),
+    step('PaddleOCR', 'COMPLETED', 'RapidOCR Devanagari PP-OCRv5 extracted text (0.65s)', '12:54:36', '12:54:40', 98.5),
+    step('VLM Fallback', 'COMPLETED', 'VLM direct visual pixel verification applied', '12:54:40', '12:54:42', 99.0),
+  ]),
   // Case 1
+
   base('doc-001245-appform', 'Application_Form.pdf', 'Application Form', 4, 97.8, false, 'HDB-2026-001245', '10:42:01', [
     field('Applicant Name', 'Rahul Sharma', 98.1, 'doc-001245-appform', 1),
     field('Loan Amount', 90000, 98.4, 'doc-001245-appform', 2),

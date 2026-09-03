@@ -235,12 +235,15 @@ class DocumentSerializer:
 
                 for tbl in p.tables:
                     if tbl.rows_raw:
-                        full_text_parts.append("[TABLE]")
-                        if tbl.headers:
-                            full_text_parts.append(" | ".join(tbl.headers))
-                        for r in tbl.rows_raw:
-                            full_text_parts.append(" | ".join(r))
-                        full_text_parts.append("[/TABLE]")
+                        # Check if table actually has meaningful non-empty text
+                        has_content = any(any(c.strip() for c in r if isinstance(c, str)) for r in tbl.rows_raw)
+                        if has_content:
+                            full_text_parts.append("[TABLE]")
+                            if tbl.headers and any(h.strip() for h in tbl.headers):
+                                full_text_parts.append(" | ".join(tbl.headers))
+                            for r in tbl.rows_raw:
+                                full_text_parts.append(" | ".join(r))
+                            full_text_parts.append("[/TABLE]")
 
             full_text = "\n".join(full_text_parts)
 
