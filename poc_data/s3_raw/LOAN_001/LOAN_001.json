@@ -1,9 +1,0 @@
-{
-  "loan_id": "LOAN_001",
-  "applicant_name": "Rajesh Sharma",
-  "funding_amount": 500000.0,
-  "tenure_months": 24,
-  "application_id": "APP_001",
-  "pan": "ABCDE1234F",
-  "status": "APPROVED_FOR_DISBURSAL"
-}

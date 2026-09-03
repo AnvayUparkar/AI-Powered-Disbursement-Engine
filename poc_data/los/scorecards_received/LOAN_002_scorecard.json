@@ -4,23 +4,23 @@
   "notes": "Scoring algorithm logic not yet defined — passthrough compiled report",
   "preliminary_decision": "REJECT_OR_FLAG",
   "subnode_rollups": {
-    "loan_kyc": "Discrepancy",
+    "loan_kyc": "Indeterminate",
     "kfs_sanction": "Discrepancy",
-    "topup_bt": "Discrepancy"
+    "topup_bt": "Indeterminate"
   },
   "compiled_report": {
     "loan_id": "LOAN_002",
     "subnode_rollups": {
-      "loan_kyc": "Discrepancy",
+      "loan_kyc": "Indeterminate",
       "kfs_sanction": "Discrepancy",
-      "topup_bt": "Discrepancy"
+      "topup_bt": "Indeterminate"
     },
     "summary": {
-      "total_checks": 21,
-      "match_count": 8,
-      "mismatch_count": 11,
+      "total_checks": 20,
+      "match_count": 0,
+      "mismatch_count": 1,
       "partial_count": 0,
-      "not_found_count": 0,
+      "not_found_count": 17,
       "captured_count": 1,
       "not_implemented_count": 1
     },
@@ -34,15 +34,15 @@
           "loan_agreement"
         ],
         "values": [
-          800000.0,
-          750000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "zero_tolerance_numeric_compare",
         "llm_used": false,
-        "notes": "Amount mismatch: 800000.0 vs 750000.0"
+        "notes": "Missing amount in application_form"
       },
       {
         "check_id": "chk_loan_amt_application_form_vs_kfs",
@@ -53,15 +53,15 @@
           "kfs"
         ],
         "values": [
-          800000.0,
-          750000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "zero_tolerance_numeric_compare",
         "llm_used": false,
-        "notes": "Amount mismatch: 800000.0 vs 750000.0"
+        "notes": "Missing amount in application_form"
       },
       {
         "check_id": "chk_loan_amt_application_form_vs_sanction_letter",
@@ -72,15 +72,15 @@
           "sanction_letter"
         ],
         "values": [
-          800000.0,
-          700000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "zero_tolerance_numeric_compare",
         "llm_used": false,
-        "notes": "Amount mismatch: 800000.0 vs 700000.0"
+        "notes": "Missing amount in application_form"
       },
       {
         "check_id": "chk_loan_amt_loan_agreement_vs_kfs",
@@ -91,15 +91,15 @@
           "kfs"
         ],
         "values": [
-          750000.0,
-          750000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "zero_tolerance_numeric_compare",
         "llm_used": false,
-        "notes": null
+        "notes": "Missing amount in loan_agreement"
       },
       {
         "check_id": "chk_loan_amt_loan_agreement_vs_sanction_letter",
@@ -110,15 +110,15 @@
           "sanction_letter"
         ],
         "values": [
-          750000.0,
-          700000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "zero_tolerance_numeric_compare",
         "llm_used": false,
-        "notes": "Amount mismatch: 750000.0 vs 700000.0"
+        "notes": "Missing amount in loan_agreement"
       },
       {
         "check_id": "chk_loan_amt_kfs_vs_sanction_letter",
@@ -129,15 +129,15 @@
           "sanction_letter"
         ],
         "values": [
-          750000.0,
-          700000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "zero_tolerance_numeric_compare",
         "llm_used": false,
-        "notes": "Amount mismatch: 750000.0 vs 700000.0"
+        "notes": "Missing amount in kfs"
       },
       {
         "check_id": "chk_loan_validity_tenure",
@@ -148,15 +148,15 @@
           "sanction_letter"
         ],
         "values": [
-          36,
-          36
+          null,
+          null
         ],
         "match_type": "exact",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "normalized_tenure_compare",
         "llm_used": false,
-        "notes": null
+        "notes": "Tenure missing in application or sanction letter"
       },
       {
         "check_id": "chk_app_form_name_match",
@@ -167,15 +167,15 @@
           "los"
         ],
         "values": [
-          "Priya Verma",
-          "Priya Verma"
+          null,
+          null
         ],
         "match_type": "fuzzy",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "jaro_winkler",
         "llm_used": false,
-        "notes": null
+        "notes": "Applicant name missing in application or LOS"
       },
       {
         "check_id": "chk_kyc_pan",
@@ -186,15 +186,15 @@
           "application_form"
         ],
         "values": [
-          "XYZPK9988A",
-          "XYZPK9988A"
+          null,
+          null
         ],
         "match_type": "exact_id",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "strip_spaces_equality",
         "llm_used": false,
-        "notes": null
+        "notes": "PAN missing in KYC document or application form (Mandatory)"
       },
       {
         "check_id": "chk_kyc_address_proof",
@@ -205,15 +205,15 @@
           "application_form"
         ],
         "values": [
-          "45 Park Street, Kolkata, West Bengal, 700016",
-          "45 Park Street, Kolkata, West Bengal, 700016"
+          null,
+          null
         ],
         "match_type": "fuzzy",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "tfidf_cosine",
         "llm_used": false,
-        "notes": null
+        "notes": "Address missing in address proof or application (Mandatory)"
       },
       {
         "check_id": "chk_face_similarity_selfie",
@@ -224,15 +224,15 @@
           "application_form_photo"
         ],
         "values": [
-          "vector_len_128",
-          "vector_len_128"
+          false,
+          false
         ],
         "match_type": "face_similarity",
-        "match_status": "MISMATCH",
-        "confidence": -1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "cosine_similarity_embeddings",
         "llm_used": false,
-        "notes": "Face similarity score: -1.0000"
+        "notes": "Face embedding missing for selfie or application photo"
       },
       {
         "check_id": "chk_loan_agreement_digital_signature",
@@ -245,11 +245,11 @@
           "loan_agreement.pdf"
         ],
         "match_type": "cryptographic_verification",
-        "match_status": "MISMATCH",
+        "match_status": "NOT_FOUND",
         "confidence": 0.0,
         "method": "pyhanko_validate_pdf_signature",
         "llm_used": false,
-        "notes": "Digital signature verification failed (pyHanko error and OTP consent not verified)"
+        "notes": "Loan agreement PDF not found at D:\\Projects\\Automated Disbursment Scorecard\\poc_data\\dms\\LOAN_002\\loan_agreement.pdf"
       },
       {
         "check_id": "chk_loan_agreement_otp_consent",
@@ -259,14 +259,14 @@
           "loan_agreement_otp_audit.json"
         ],
         "values": [
-          false
+          null
         ],
         "match_type": "presence",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "audit_trail_verification",
         "llm_used": false,
-        "notes": "OTP verification flag is False in audit log"
+        "notes": "OTP audit trail file not found"
       },
       {
         "check_id": "chk_kfs_vs_los_funding",
@@ -277,15 +277,15 @@
           "los"
         ],
         "values": [
-          750000.0,
-          750000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "direct_numeric_compare",
         "llm_used": false,
-        "notes": null
+        "notes": "Missing funding amount in kfs"
       },
       {
         "check_id": "chk_sanction_vs_los_funding",
@@ -296,15 +296,15 @@
           "los"
         ],
         "values": [
-          700000.0,
-          750000.0
+          null,
+          null
         ],
         "match_type": "exact_numeric",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "direct_numeric_compare",
         "llm_used": false,
-        "notes": "Sanction amount (700000.0) != LOS amount (750000.0)"
+        "notes": "Missing funding amount in sanction_letter"
       },
       {
         "check_id": "chk_aadhaar_xml_mandatory_presence",
@@ -332,15 +332,15 @@
           "sanction_letter"
         ],
         "values": [
-          2000.0,
-          2000.0
+          null,
+          null
         ],
         "match_type": "threshold",
-        "match_status": "MATCH",
+        "match_status": "CAPTURED",
         "confidence": 1.0,
         "method": "placeholder_split_rule",
         "llm_used": false,
-        "notes": "Placeholder 10% tolerance comparison (exact 100%/90% rule TBD)"
+        "notes": "No broken period interest applicable for this loan"
       },
       {
         "check_id": "chk_disbursal_memo_application_id",
@@ -351,32 +351,15 @@
           "application_form"
         ],
         "values": [
-          "APP_002",
-          "APP_002"
+          null,
+          "LOAN_002"
         ],
         "match_type": "exact_id",
-        "match_status": "MATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "string_equality",
         "llm_used": false,
-        "notes": null
-      },
-      {
-        "check_id": "chk_disbursal_memo_closure_id",
-        "subnode": "topup_bt",
-        "field": "closure_id",
-        "sources": [
-          "disbursal_memo"
-        ],
-        "values": [
-          "CLOSURE_9900"
-        ],
-        "match_type": "exact_id",
-        "match_status": "CAPTURED",
-        "confidence": 1.0,
-        "method": "capture_only",
-        "llm_used": false,
-        "notes": "Closure ID captured: CLOSURE_9900"
+        "notes": "Application ID missing in disbursal memo"
       },
       {
         "check_id": "chk_disbursal_memo_amount_threshold",
@@ -387,15 +370,15 @@
           "los"
         ],
         "values": [
-          400000.0,
-          750000.0
+          null,
+          null
         ],
         "match_type": "threshold",
-        "match_status": "MISMATCH",
-        "confidence": 1.0,
+        "match_status": "NOT_FOUND",
+        "confidence": 0.0,
         "method": "threshold_numeric_compare",
         "llm_used": false,
-        "notes": "Memo amount (400000.0) below 90% threshold (675000.0)"
+        "notes": "Disbursal memo amount or valid loan amount missing"
       },
       {
         "check_id": "chk_bt_closure_vs_final_fc",
@@ -406,7 +389,7 @@
           "final_fc_doc_pending"
         ],
         "values": [
-          "CLOSURE_9900",
+          null,
           null
         ],
         "match_type": "threshold",
