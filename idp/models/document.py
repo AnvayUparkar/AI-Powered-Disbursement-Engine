@@ -30,4 +30,8 @@ class ParsedDocument(BaseModel):
     tables: List[TableStructure] = Field(default_factory=list)
     elements: List[LayoutElement] = Field(default_factory=list)
     text: str = ""
+    raw_text: Optional[str] = None
+    formatted_text: Optional[str] = None
     processing: ProcessingMetadata
+    custom_metadata: Dict[str, Any] = Field(default_factory=dict)
+

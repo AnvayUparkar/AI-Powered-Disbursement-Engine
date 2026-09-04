@@ -13,7 +13,8 @@ const base = (
   extractedFields: DocumentRecord['extractedFields'],
   processingSteps: DocumentRecord['processingSteps'],
   sizeKb = 240,
-  rawText?: string
+  rawText?: string,
+  formattedText?: string
 ): DocumentRecord => ({
   id,
   name,
@@ -29,6 +30,7 @@ const base = (
   extractedFields,
   processingSteps,
   rawText: rawText || extractedFields.map((f) => `${f.name}: ${f.value}`).join('\n'),
+  formattedText: formattedText || JSON.stringify(Object.fromEntries(extractedFields.filter(f => f.type === 'key_value' || f.source === 'OPENROUTER_LLM').map(f => [f.name, f.value])), null, 2),
 });
 
 

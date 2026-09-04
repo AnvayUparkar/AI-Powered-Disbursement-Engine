@@ -205,7 +205,29 @@ class DocumentProcessor:
                 vlm_provider=settings.VLM_PROVIDER if vlm_used else None
             )
 
-            # Step 7: Upload structured JSON to S3 parsed-documents prefix
+            # Assign raw OCR text
+            parsed_doc.raw_text = parsed_doc.text
+
+            # Step 7: Run OpenRouter LLM Field Extraction on OCR text
+            llm_fields: Dict[str, Any] = {}
+            try:
+                from pipeline.nodes.llm_field_extractor import llm_extract_fields
+                doc_type_hint = os.path.splitext(filename)[0].lower()
+                llm_fields = llm_extract_fields(
+                    doc_type=doc_type_hint,
+                    raw_text=parsed_doc.text,
+                    doc_id=document_id,
+                )
+                if llm_fields:
+                    import json
+                    if not isinstance(parsed_doc.custom_metadata, dict):
+                        parsed_doc.custom_metadata = {}
+                    parsed_doc.custom_metadata["llm_extracted_fields"] = llm_fields
+                    parsed_doc.formatted_text = json.dumps(llm_fields, indent=2)
+            except Exception as llm_err:
+                logger.warning(format_doc_log(document_id, f"LLM field extraction notice: {llm_err}"))
+
+            # Step 8: Upload structured JSON to S3 parsed-documents prefix
             output_location = await self._save_and_upload_output(parsed_doc, document_id, bucket)
 
             elapsed = time.time() - start_time
@@ -215,11 +237,15 @@ class DocumentProcessor:
                 "document_id": document_id,
                 "status": "completed",
                 "output_location": output_location,
-                "processing_time_seconds": round(elapsed, 3)
+                "processing_time_seconds": round(elapsed, 3),
+                "raw_text": parsed_doc.text,
+                "formatted_text": parsed_doc.formatted_text or "",
+                "extracted_fields": llm_fields,
             }
 
         finally:
             cleanup_temp_dir(temp_dir)
+
 
     async def _get_page_images(
         self, file_path: str, prep_doc: PreprocessedDocument
@@ -293,7 +319,9 @@ class DocumentProcessor:
         # Retrieve parsed document model
         parsed = await self.get_parsed_document(document_id, bucket)
         res["result"] = parsed.model_dump() if parsed else None
+        res["extracted_fields"] = (parsed.custom_metadata or {}).get("llm_extracted_fields", {}) if (parsed and parsed.custom_metadata) else {}
         return res
+
 
     async def get_parsed_document(self, document_id: str, bucket: Optional[str] = None) -> Optional[ParsedDocument]:
         """Retrieve parsed document result model by document_id."""

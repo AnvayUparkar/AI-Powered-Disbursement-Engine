@@ -225,12 +225,15 @@ def _process_file_with_idp(file_path: Path, doc_id: str) -> Optional[Dict[str, A
 
         if parsed:
             doc_type = _map_doc_type_from_filename(file_path.name)
-            from pipeline.nodes.llm_field_extractor import llm_extract_fields
-            extracted_fields = llm_extract_fields(
-                doc_type=doc_type,
-                raw_text=parsed.text,
-                doc_id=doc_id,
-            )
+            extracted_fields = (parsed.custom_metadata or {}).get("llm_extracted_fields") if (parsed and parsed.custom_metadata) else None
+            if not extracted_fields:
+                from pipeline.nodes.llm_field_extractor import llm_extract_fields
+                extracted_fields = llm_extract_fields(
+                    doc_type=doc_type,
+                    raw_text=parsed.text,
+                    doc_id=doc_id,
+                )
+
 
             # Convert parsed elements to dictionary list preserving bounding boxes, confidence, and source
             raw_element_dicts = []
@@ -261,9 +264,14 @@ def _process_file_with_idp(file_path: Path, doc_id: str) -> Optional[Dict[str, A
                 "paragraphs": spatial_results.get("paragraphs", [])
             }
 
+            import json
+            formatted_json = json.dumps(extracted_fields, indent=2) if extracted_fields else ""
             return {
                 **extracted_fields,
                 "_raw_text": parsed.text,
+                "rawText": parsed.text,
+                "_formatted_text": formatted_json,
+                "formattedText": formatted_json,
                 "_pages": len(parsed.pages),
                 "_elements_count": len(parsed.elements),
                 "_components": components,

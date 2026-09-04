@@ -19,8 +19,9 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<'fields' | 'rawText'>('fields');
+  const [viewMode, setViewMode] = useState<'fields' | 'rawText' | 'formattedText'>('fields');
   const [searchQuery, setSearchQuery] = useState('');
+
 
   const totalPages = document.pages;
 
@@ -112,7 +113,18 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
             }`}
           >
             <Code className="h-3.5 w-3.5 inline-block mr-1" />
-            Raw Text
+            Raw Text (OCR)
+          </button>
+          <button
+            onClick={() => setViewMode('formattedText')}
+            className={`px-2.5 py-1 rounded font-medium transition-colors ${
+              viewMode === 'formattedText'
+                ? 'bg-white text-ink-900 shadow-sm'
+                : 'text-ink-600 hover:text-ink-900'
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5 inline-block mr-1 text-brand-600" />
+            Formatted Text (LLM)
           </button>
         </div>
 
@@ -135,14 +147,29 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
             <div className="bg-white rounded-lg p-5 shadow-pop w-full h-full max-w-2xl overflow-y-auto font-mono text-xs text-ink-800 leading-relaxed whitespace-pre-wrap">
               <div className="flex items-center justify-between pb-3 mb-3 border-b border-ink-200 text-ink-500 font-sans">
                 <span className="font-semibold text-ink-900 text-sm">
-                  Node 2 Canonical Extracted Text Output
+                  Raw OCR Text (Docling & RapidOCR)
                 </span>
                 <span>{document.pages} Pages</span>
               </div>
-              {document.rawText ||
-                document.extractedFields.map((f) => `${f.name}: ${f.value}`).join('\n')}
+              {document.rawText || 'No raw OCR text available.'}
+            </div>
+          ) : viewMode === 'formattedText' ? (
+            <div className="bg-white rounded-lg p-5 shadow-pop w-full h-full max-w-2xl overflow-y-auto font-mono text-xs text-ink-800 leading-relaxed whitespace-pre-wrap">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-ink-200 text-ink-500 font-sans">
+                <span className="font-semibold text-ink-900 text-sm">
+                  Formatted Text (OpenRouter LLM)
+                </span>
+                <span className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-medium">Canonical JSON</span>
+              </div>
+              {document.formattedText || (
+                document.extractedFields
+                  .filter((f) => f.source === 'OPENROUTER_LLM' || f.type === 'key_value')
+                  .map((f) => `${f.name}: ${f.value}`)
+                  .join('\n')
+              ) || 'No LLM formatted text available.'}
             </div>
           ) : (
+
             <div
               className="bg-white shadow-pop rounded-sm flex items-center justify-center transition-transform relative"
               style={{
@@ -224,12 +251,14 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                               className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase font-semibold shrink-0 ${
                                 f.source === 'vlm'
                                   ? 'bg-review-50 text-review-700 border border-review-200'
-                                  : f.source === 'docling'
+                                  : f.source === 'docling' || f.source === 'OCR' || f.source === 'ocr'
                                   ? 'bg-info-50 text-info-700 border border-info-200'
+                                  : f.source === 'OPENROUTER_LLM' || f.source === 'llm'
+                                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
                                   : 'bg-ink-100 text-ink-600'
                               }`}
                             >
-                              {f.source}
+                              {f.source === 'OPENROUTER_LLM' ? 'LLM' : f.source}
                             </span>
                           )}
                         </div>
