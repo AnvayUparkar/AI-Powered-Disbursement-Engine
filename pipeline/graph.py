@@ -5,9 +5,9 @@ from langgraph.graph import END, StateGraph
 
 from pipeline.nodes.node1_fetch import node1_fetch
 from pipeline.nodes.node2_extract import node2_extract
-from pipeline.nodes.node3a_loan_kyc import node3a_loan_kyc
-from pipeline.nodes.node3b_kfs_sanction import node3b_kfs_sanction
-from pipeline.nodes.node3c_topup_bt import node3c_topup_bt
+from pipeline.nodes.node3a_identity import node3a_identity
+from pipeline.nodes.node3b_financial import node3b_financial
+from pipeline.nodes.node3c_dates_ids import node3c_dates_ids
 from pipeline.nodes.node4_compile import node4_compile
 from pipeline.nodes.node5_scorecard import node5_scorecard
 from pipeline.nodes.node6_push import node6_push
@@ -23,9 +23,9 @@ def _run_subnodes_parallel(state: PipelineState) -> dict:
     logger.info("Starting concurrent execution of sub-nodes 3a, 3b, 3c for loan %s", state["loan_id"])
 
     with ThreadPoolExecutor(max_workers=3) as executor:
-        future_3a = executor.submit(node3a_loan_kyc, state)
-        future_3b = executor.submit(node3b_kfs_sanction, state)
-        future_3c = executor.submit(node3c_topup_bt, state)
+        future_3a = executor.submit(node3a_identity, state)
+        future_3b = executor.submit(node3b_financial, state)
+        future_3c = executor.submit(node3c_dates_ids, state)
 
         all_records: list[dict] = []
         rollups: dict[str, str] = {}
@@ -176,7 +176,7 @@ def stream_pipeline(loan_id: str):
     node_labels = {
         "fetch": "Node 1: Fetch (LOS & Documents Ingestion)",
         "extract": "Node 2: Extract (Docling & RapidOCR Field Extraction)",
-        "comparison": "Node 3: Comparison (3a KYC, 3b KFS/Sanction, 3c Topup/BT)",
+        "comparison": "Node 3: Comparison (3a Identity, 3b Financial, 3c Dates/IDs)",
         "compile": "Node 4: Compile (Validation Report Aggregation)",
         "checker": "Node Checker: Consistency & Gate Verification",
         "scorecard": "Node 5: Scorecard (12 Checkpoints DGCL Evaluation)",

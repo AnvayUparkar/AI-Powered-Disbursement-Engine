@@ -225,10 +225,11 @@ def _process_file_with_idp(file_path: Path, doc_id: str) -> Optional[Dict[str, A
 
         if parsed:
             doc_type = _map_doc_type_from_filename(file_path.name)
-            extracted_fields = _extract_fields_with_regex(
+            from pipeline.nodes.llm_field_extractor import llm_extract_fields
+            extracted_fields = llm_extract_fields(
                 doc_type=doc_type,
-                full_text=parsed.text,
-                elements=[e.model_dump() for e in parsed.elements]
+                raw_text=parsed.text,
+                doc_id=doc_id,
             )
 
             # Convert parsed elements to dictionary list preserving bounding boxes, confidence, and source

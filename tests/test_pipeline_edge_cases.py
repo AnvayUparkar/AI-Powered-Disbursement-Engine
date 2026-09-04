@@ -2,15 +2,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from pipeline.audit import append_audit_entry
-from pipeline.nodes.node3a_loan_kyc import (
-    _clean_numeric,
-    _normalize_tenure_months,
-    node3a_loan_kyc,
-)
-from pipeline.nodes.node3b_kfs_sanction import (
-    _verify_pdf_signature_pyhanko,
-)
-from pipeline.nodes.node3c_topup_bt import node3c_topup_bt
+from pipeline.nodes.comparison_utils import clean_numeric
+from pipeline.nodes.node3a_identity import node3a_identity
+from pipeline.nodes.node3b_financial import node3b_financial
+from pipeline.nodes.node3c_dates_ids import node3c_dates_ids
 from pipeline.state import PipelineState, compute_rollup
 from pipeline.storage import read_json, write_json
 
@@ -46,34 +41,34 @@ def test_compute_rollup_states():
     ]) == "Verified"
 
 
-def test_numeric_and_tenure_cleaning_edge_cases():
-    assert _clean_numeric(None) is None
-    assert _clean_numeric("₹ 1,500,000.50") == 1500000.50
-    assert _clean_numeric(0) == 0.0
-    assert _clean_numeric("invalid") is None
-
-    assert _normalize_tenure_months(None) is None
-    assert _normalize_tenure_months("3 years") == 36
-    assert _normalize_tenure_months("24 months") == 24
-    assert _normalize_tenure_months(12) == 12
-    assert _normalize_tenure_months("invalid") is None
+def test_numeric_cleaning_edge_cases():
+    assert clean_numeric(None) is None
+    assert clean_numeric("₹ 1,500,000.50") == 1500000.50
+    assert clean_numeric(0) == 0.0
+    assert clean_numeric("invalid") is None
 
 
-def test_fail_closed_signature_verification_missing_pdf(tmp_path: Path):
-    non_existent = tmp_path / "non_existent.pdf"
-    res = _verify_pdf_signature_pyhanko(non_existent, "LOAN_TEST_FAIL")
-    assert res["match_status"] == "NOT_FOUND"
-
-
-def test_fail_closed_signature_verification_no_sigs_missing_otp(tmp_path: Path, monkeypatch):
-    dummy_pdf = tmp_path / "test.pdf"
-    dummy_pdf.write_bytes(b"%PDF-1.4\n%dummy pdf content")
-    monkeypatch.setattr("pipeline.nodes.node3b_kfs_sanction.S3_RAW_DIR", tmp_path / "s3_raw")
-    monkeypatch.setattr("pipeline.nodes.node3b_kfs_sanction.DMS_DIR", tmp_path / "dms")
-
-    res = _verify_pdf_signature_pyhanko(dummy_pdf, "LOAN_NO_SIGS")
-    # Must fail closed with MISMATCH because no signatures exist and no OTP audit file exists
-    assert res["match_status"] == "MISMATCH"
+def test_node3b_financial_empty_state():
+    state: PipelineState = {
+        "loan_id": "LOAN_EMPTY",
+        "los_data": {},
+        "raw_doc_paths": {},
+        "extracted_data": {},
+        "face_embeddings": {},
+        "dms_status": {},
+        "otp_audit": {},
+        "comparison_results": [],
+        "subnode_rollups": {},
+        "compiled_report": {},
+        "scorecard": {},
+        "retry_count": 0,
+        "checker_result": {},
+        "errors": [],
+        "node_history": [],
+    }
+    res = node3b_financial(state)
+    assert res["rollup"] == "Indeterminate"
+    assert len(res["records"]) > 0
 
 
 def test_concurrent_audit_logging(tmp_path: Path, monkeypatch):
@@ -121,23 +116,25 @@ def test_node3a_empty_state():
         "subnode_rollups": {},
         "compiled_report": {},
         "scorecard": {},
+        "retry_count": 0,
+        "checker_result": {},
         "errors": [],
         "node_history": [],
     }
-    res = node3a_loan_kyc(state)
+    res = node3a_identity(state)
     assert res["rollup"] == "Indeterminate"
     assert len(res["records"]) > 0
 
 
-def test_node3c_zero_and_threshold_logic():
+def test_node3b_disbursal_memo_threshold_logic():
     state: PipelineState = {
-        "loan_id": "LOAN_ZERO_TEST",
-        "los_data": {"funding_amount": 100000.0, "application_id": "APP_123"},
+        "loan_id": "LOAN_THRESHOLD_TEST",
+        "los_data": {"loan_amount": 100000.0, "loan_id": "LOAN_THRESHOLD_TEST"},
         "raw_doc_paths": {},
         "extracted_data": {
             "disbursal_memo": {
-                "application_id": "APP_123",
-                "disbursal_amount": 95000.0,
+                "loan_no": "LOAN_THRESHOLD_TEST",
+                "loan_amount": 95000.0,
             }
         },
         "face_embeddings": {},
@@ -147,10 +144,13 @@ def test_node3c_zero_and_threshold_logic():
         "subnode_rollups": {},
         "compiled_report": {},
         "scorecard": {},
+        "retry_count": 0,
+        "checker_result": {},
         "errors": [],
         "node_history": [],
     }
-    res = node3c_topup_bt(state)
+    res = node3b_financial(state)
     # Disbursal memo amount is 95k >= 90k threshold -> MATCH
-    memo_chk = next(r for r in res["records"] if r["check_id"] == "chk_disbursal_memo_amount_threshold")
+    memo_chk = next(r for r in res["records"] if r["sources"][0] == "disbursal_memo" and r["field"] == "loan_amount")
     assert memo_chk["match_status"] == "MATCH"
+

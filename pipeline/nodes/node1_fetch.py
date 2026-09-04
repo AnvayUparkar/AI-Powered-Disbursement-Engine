@@ -58,6 +58,16 @@ def node1_fetch(state: PipelineState) -> PipelineState:
         logger.warning(msg)
         errors.append(msg)
 
+    # 3. Pick up documents already in S3 raw (uploaded via the UI upload endpoint)
+    #    These are not in DMS, so the DMS copy above misses them entirely.
+    for item in raw_loan_dir.iterdir():
+        if item.name not in raw_doc_paths and item.is_file():
+            raw_doc_paths[item.name] = str(item)
+
+    if raw_doc_paths:
+        logger.info("Node 1: %d document(s) staged for processing: %s", len(raw_doc_paths), list(raw_doc_paths.keys()))
+
+
     update_status(loan_id, current_node="fetch", errors=errors, node_history=history)
 
     return {

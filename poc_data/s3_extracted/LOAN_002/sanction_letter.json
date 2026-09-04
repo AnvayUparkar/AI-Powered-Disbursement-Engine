@@ -1,5 +1,17 @@
 {
   "_raw_text": "--- PAGE 1 ---",
   "_pages": 1,
-  "_elements_count": 0
+  "_elements_count": 0,
+  "_components": {
+    "document_type": "sanction_letter",
+    "key_values": {},
+    "checkboxes": {},
+    "tables": [],
+    "paragraphs": []
+  },
+  "applicant_name": "Priya Verma",
+  "loan_amount": 400000.0,
+  "funding_amount": 400000.0,
+  "tenure_months": 36,
+  "broken_period_interest": 2000.0
 }

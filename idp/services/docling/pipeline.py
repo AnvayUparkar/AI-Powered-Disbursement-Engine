@@ -3,6 +3,9 @@ from idp.services.docling.options import DoclingOptions
 from idp.core.logging import logger
 
 
+_shared_converter: Optional[Any] = None
+
+
 class DoclingPipeline:
     """Pipeline factory for constructing Docling DocumentConverter instances."""
 
@@ -11,8 +14,13 @@ class DoclingPipeline:
         self._converter = None
 
     def get_converter(self) -> Any:
+        global _shared_converter
+        if _shared_converter is not None:
+            return _shared_converter
+
         if self._converter is not None:
             return self._converter
+
 
         try:
             from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -48,9 +56,12 @@ class DoclingPipeline:
                 "pdf": PdfFormatOption(pipeline_options=pipeline_options)
             }
             self._converter = DocumentConverter(format_options=format_options)
+            _shared_converter = self._converter
             logger.info("Docling DocumentConverter initialized successfully with ACCURATE table mode and managed OCR.")
         except Exception as e:
             logger.warning(f"Docling initialization note/fallback: {e}. Native Docling converter not imported or mock active.")
             self._converter = "MOCK"
+            _shared_converter = "MOCK"
 
         return self._converter
+

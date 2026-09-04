@@ -110,7 +110,7 @@ class DocumentRegistry:
                         parts = text.split(delim, 1)
                         k, v = parts[0].strip(), parts[1].strip()
                         if k and v:
-                            extracted_fields.push if hasattr(extracted_fields, 'push') else extracted_fields.append({
+                            extracted_fields.append({
                                 "id": e.get("id") or f"f-{idx + 1}",
                                 "name": k,
                                 "value": v,
@@ -188,6 +188,15 @@ class DocumentRegistry:
             }
 
             self._dynamic_docs[doc_id] = record
+
+            # Also index under the filename-based ID the UI generates from s3_raw scan
+            # so GET /api/documents/<doc-CASE-stem> resolves correctly after upload.
+            if case_id and filename:
+                from pathlib import Path as _Path
+                alt_id = f"doc-{case_id}-{_Path(filename).stem.lower().replace(' ', '_')}"
+                if alt_id != doc_id:
+                    self._dynamic_docs[alt_id] = record
+
             logger.info("Registered document %s (%s) for case %s", doc_id, filename, assoc_case)
             return record
 

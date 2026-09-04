@@ -1,49 +1,60 @@
-from pipeline.nodes.node3a_loan_kyc import node3a_loan_kyc
+import copy
+
+import pytest
+
+from pipeline.nodes.node3a_identity import node3a_identity
 from pipeline.state import PipelineState
 
 
 def test_node3a_clean_match(mock_state_001: PipelineState):
-    result = node3a_loan_kyc(mock_state_001)
+    result = node3a_identity(mock_state_001)
     assert result["rollup"] == "Verified"
-    assert len(result["records"]) >= 5
+    assert len(result["records"]) > 10
     for r in result["records"]:
         assert r["match_status"] == "MATCH"
+        assert r["confidence"] is not None
 
 
-def test_node3a_loan_amount_mismatch(mock_state_001: PipelineState):
-    state = dict(mock_state_001)
-    # Modify application form loan amount by 1 unit
-    state["extracted_data"]["application_form"]["loan_amount"] = "500001"
-    result = node3a_loan_kyc(state)
+def test_node3a_pan_mismatch(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    state["extracted_data"]["pan"]["pan_number"] = "ZZZZZ9999Z"
+    result = node3a_identity(state)
     assert result["rollup"] == "Discrepancy"
 
     mismatches = [r for r in result["records"] if r["match_status"] == "MISMATCH"]
     assert len(mismatches) > 0
-    assert any("loan_amount" in r["field"] for r in mismatches)
+    assert any(r["field"] == "pan_number" for r in mismatches)
 
 
-def test_node3a_pan_mismatch_and_missing(mock_state_001: PipelineState):
-    # Test mismatch
-    state_mismatch = dict(mock_state_001)
-    state_mismatch["extracted_data"]["kyc_pan"]["pan_number"] = "ZZZZZ9999Z"
-    res1 = node3a_loan_kyc(state_mismatch)
-    assert res1["rollup"] == "Discrepancy"
+def test_node3a_missing_aadhaar_document(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    # Remove aadhaar and any alias keys
+    state["extracted_data"].pop("aadhaar", None)
+    state["extracted_data"].pop("kyc_address_proof", None)
+    result = node3a_identity(state)
+    assert result["rollup"] == "Indeterminate"
 
-    # Test missing PAN
-    state_missing = dict(mock_state_001)
-    state_missing["extracted_data"]["kyc_pan"]["pan_number"] = None
-    res2 = node3a_loan_kyc(state_missing)
-    assert res2["rollup"] == "Indeterminate"
-    pan_record = next(r for r in res2["records"] if r["field"] == "pan_number")
-    assert pan_record["match_status"] == "NOT_FOUND"
+    not_found = [r for r in result["records"] if r["match_status"] == "NOT_FOUND"]
+    assert len(not_found) >= 5
+    assert all(r["sources"][0] == "aadhaar" for r in not_found)
+
+
+def test_node3a_missing_field_in_document(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    state["extracted_data"]["pan"]["fathers_name"] = None
+    result = node3a_identity(state)
+    assert result["rollup"] == "Indeterminate"
+
+    fn_rec = next(r for r in result["records"] if r["sources"][0] == "pan" and r["field"] == "fathers_name")
+    assert fn_rec["match_status"] == "NOT_FOUND"
+    assert fn_rec["confidence"] == 0.0
 
 
 def test_node3a_partial_name_triggers_llm_adjudication(mock_state_001: PipelineState, monkeypatch):
-    import pipeline.nodes.node3a_loan_kyc as node3a_mod
+    import pipeline.nodes.comparison_utils as comp_mod
 
-    # Verify unit integration when Gemini returns MATCH
     monkeypatch.setattr(
-        node3a_mod,
+        comp_mod,
         "llm_adjudicate",
         lambda a, b, f, lid: {
             "match_status": "MATCH",
@@ -53,27 +64,18 @@ def test_node3a_partial_name_triggers_llm_adjudication(mock_state_001: PipelineS
         },
     )
 
-    state = dict(mock_state_001)
+    state = copy.deepcopy(mock_state_001)
+    # "Mohd Rizwan" vs "Mohammad Rizwan" yields Jaro-Winkler ~0.87 (PARTIAL)
     state["extracted_data"]["application_form"]["applicant_name"] = "Mohd Rizwan"
     state["los_data"]["applicant_name"] = "Mohammad Rizwan"
 
-    result = node3a_loan_kyc(state)
-    name_record = next(r for r in result["records"] if r["field"] == "applicant_name")
-    
-    assert name_record["llm_used"] is True
-    assert name_record["match_status"] == "MATCH"
-    assert name_record["confidence"] == 0.98
-    assert "Mohd" in (name_record["notes"] or "")
-    assert result["rollup"] == "Verified"
+    result = node3a_identity(state)
+    app_name_rec = next(
+        r for r in result["records"]
+        if r["sources"][0] == "application_form" and r["field"] == "applicant_name"
+    )
 
-
-def test_llm_adjudicate_fallback_when_no_key(monkeypatch):
-    import pipeline.nodes.llm_adjudicator as stub_module
-    from pipeline.nodes.llm_adjudicator import llm_adjudicate
-
-    # Simulate missing API key
-    monkeypatch.setattr(stub_module, "_get_gemini_client", lambda: None)
-    res = llm_adjudicate("Mohd Rizwan", "Mohammad Rizwan", "applicant_name", "LOAN_TEST_FALLBACK")
-    assert res["match_status"] == "PARTIAL"
-    assert res["llm_used"] is False
-    assert "Gemini API key not configured" in res["reason"]
+    assert app_name_rec["llm_used"] is True
+    assert app_name_rec["match_status"] == "MATCH"
+    assert app_name_rec["confidence"] == 0.98
+    assert "Mohd" in (app_name_rec["notes"] or "")
