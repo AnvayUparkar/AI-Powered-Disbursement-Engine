@@ -77,8 +77,16 @@ class KeyValueExtractor:
         "consumer name", "consumer no", "bill number", "bill date", "billing period",
         "due date", "bu / subdivision", "billing address", "reference", "reference 1",
         "reference 2", "rederence1", "reference a", "bank a/c number", "bauka/cumber",
-        "application id", "loan id", "pan number", "pan", "applicant name"
+        "application id", "loan id", "pan number", "pan", "applicant name",
+        "permanent account number", "permanentaccountnumber", "permanent account no", "permanent account"
     }
+
+    CHECKBOX_OPTION_REGEX = re.compile(
+        r"\b(" + "|".join(
+            re.escape(pat) for pats in CHECKBOX_PATTERNS.values() for pat in pats
+        ) + r")\b",
+        re.IGNORECASE
+    )
 
     def __init__(
         self,
@@ -253,8 +261,8 @@ class KeyValueExtractor:
                 classified.append({"element": elem, "classification": ElementClassification.BRANDING})
                 continue
 
-            # 4. Checkbox control label check
-            if any(pat in clean_txt for pats in self.CHECKBOX_PATTERNS.values() for pat in pats):
+            # 4. Checkbox control label check (with word boundaries to avoid false positives on words like 'account')
+            if self.CHECKBOX_OPTION_REGEX.search(clean_txt):
                 classified.append({"element": elem, "classification": ElementClassification.CHECKBOX_LABEL})
                 continue
 
@@ -469,6 +477,11 @@ class KeyValueExtractor:
         if any(c in l_txt for c in ["code", "ifsc", "micr", "umrn", "reference", "ref"]):
             if bool(re.search(r"\d", v_txt)) and not bool(re.search(r"\s{2,}", v_txt)):
                 score += 0.30
+
+        # PAN / Identity / Permanent Account Number
+        if any(p in l_txt for p in ["pan", "permanent", "account"]):
+            if bool(re.search(r"[A-Z0-9]{10}", v_txt.upper())) or bool(re.search(r"\d", v_txt)):
+                score += 0.35
 
         # Date
         if "date" in l_txt:

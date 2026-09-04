@@ -26,6 +26,16 @@ class OCRConfidenceEvaluator:
     # 5. Invalid English Consonant-Vowel N-grams from Indic OCR misreads (e.g. "RROR", "HRAR", "3QRR")
     INVALID_NGRAM_MISREADS = re.compile(r"\b(RROR|HRAR|HRTRR|RHR|HTT|3T9T3πT&T|3QRR|mąhil|3×ML|oalh|2alalehule|3ITETT|31CT|3HTETR)\b", re.IGNORECASE)
 
+    # 6. Structured Financial & Identity Identifiers (PAN, IFSC, GSTIN)
+    IDENTIFIER_PATTERNS = re.compile(
+        r"\b("
+        r"[A-Z]{5}\s?[0-9]{4}[A-Z]"  # Indian PAN (e.g. CFVPM7810Q)
+        r"|[A-Z]{4}0[A-Z0-9]{6}"     # Indian IFSC (e.g. HDFC0001234)
+        r"|\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}"  # Indian GSTIN
+        r")\b",
+        re.IGNORECASE
+    )
+
     # Common financial, technical, and regulatory acronyms (whitelisted from consonant check)
     COMMON_ACRONYMS: Set[str] = {
         "HTML", "HTTP", "HTTPS", "PDF", "JSON", "KYC", "PAN", "VKYC", "IFSC", 
@@ -104,12 +114,15 @@ class OCRConfidenceEvaluator:
         # 5. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
         for match in self.PURE_CONSONANTS_PATTERN.finditer(cleaned):
             token = match.group(0).upper()
-            if token not in self.COMMON_ACRONYMS:
+            if token not in self.COMMON_ACRONYMS and not self.IDENTIFIER_PATTERNS.search(cleaned):
                 return True
 
         # 6. Statistical Latin Vowel-to-Consonant Ratio check for non-acronym words
         words = cleaned.split()
         for word in words:
+            # Exempt structured financial/identity identifiers (PAN, IFSC, GSTIN) and alphanumeric tokens
+            if self.IDENTIFIER_PATTERNS.search(cleaned) or self.IDENTIFIER_PATTERNS.search(word) or any(c.isdigit() for c in word):
+                continue
             latin_letters = self.LATIN_LETTER_REGEX.findall(word)
             if len(latin_letters) >= 4:
                 clean_token = "".join(latin_letters).upper()
