@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, UploadCloud, FileText, CheckCircle2, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import type { DocumentType, DocumentRecord, ExtractedField, ProcessingStep } from '@/types';
 import { node2Api } from '@/api/node2';
-import { documentsService } from '@/services/documents';
+import { documentsService, adaptNode2DocumentToRecord } from '@/services/documents';
 
 const DOC_TYPES: DocumentType[] = [
   'Application Form',
@@ -98,82 +98,56 @@ export function UploadModal({
       setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 40 } : f)));
       try {
         const docId = `DOC-${Date.now().toString().slice(-6)}`;
-        const res = await node2Api.uploadAndProcess(
-          qf.file,
-          docId,
-          undefined,
-          selectedCase || undefined,
-          qf.docType
-        );
+        const res = await node2Api.uploadAndProcess(qf.file, docId);
 
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
 
         // Create DocumentRecord from actual Node 2 pipeline response
         const resultDoc = res.result;
-        const pageCount = resultDoc?.pages?.length || 1;
-        const elements = resultDoc?.elements || [];
-        const vlmUsed = resultDoc?.processing?.vlm_used || false;
+        let newDoc: DocumentRecord;
 
-        const extractedFields: ExtractedField[] = elements
-          .filter((e) => e.text && (e.text.includes(':') || e.text.includes('=')))
-          .map((e, idx) => {
-            const delimiter = e.text.includes(':') ? ':' : '=';
-            const parts = e.text.split(delimiter);
-            return {
-              id: `f-${idx + 1}`,
-              name: parts[0].trim(),
-              value: parts.slice(1).join(delimiter).trim(),
-              confidence: Math.round(e.confidence * 100),
-              sourceDocumentId: docId,
-              page: e.page_number,
-            };
-          });
-
-        const processingSteps: ProcessingStep[] = [
-          {
-            id: `step-1`,
-            component: 'Docling',
-            status: 'COMPLETED',
-            detail: `Docling parsed layout structure (${resultDoc?.processing?.metrics?.docling_processing_time ?? 0.15}s)`,
-            startedAt: new Date().toLocaleTimeString(),
-          },
-          {
-            id: `step-2`,
-            component: 'PaddleOCR',
-            status: 'COMPLETED',
-            detail: `RapidOCR PP-OCRv6 extracted text (${resultDoc?.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
-            startedAt: new Date().toLocaleTimeString(),
-            confidence: 94.5,
-          },
-          {
-            id: `step-3`,
-            component: 'VLM Fallback',
-            status: vlmUsed ? 'COMPLETED' : 'SKIPPED',
-            detail: vlmUsed
-              ? `VLM verified ${resultDoc?.processing?.metrics?.vlm_fallback_count ?? 1} low-confidence region(s)`
-              : 'Quality Router score passed threshold (VLM fallback not required)',
-            startedAt: new Date().toLocaleTimeString(),
-          },
-        ];
-
-        const newDoc: DocumentRecord = {
-          id: docId,
-          name: qf.file.name,
-          type: qf.docType,
-          pages: pageCount,
-          ocrStatus: 'COMPLETED',
-          extractionStatus: 'COMPLETED',
-          confidence: vlmUsed ? 91.0 : 96.5,
-          vlmUsed: vlmUsed,
-          uploadedAt: new Date().toISOString().split('T')[0],
-          caseId: selectedCase || 'HDB-2026-001245',
-          sizeKb: Math.round(qf.file.size / 1024),
-          extractedFields: extractedFields.length > 0 ? extractedFields : [
-            { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: docId, page: 1 },
-            { id: 'f-2', name: 'OCR Text Elements', value: `${elements.length} items extracted`, confidence: 95, sourceDocumentId: docId, page: 1 },
-          ],
-          processingSteps: processingSteps,
-        };
+        if (resultDoc) {
+          newDoc = adaptNode2DocumentToRecord(resultDoc, selectedCase || 'HDB-2026-001245');
+          newDoc.name = qf.file.name;
+          newDoc.type = qf.docType;
+        } else {
+          const pageCount = 1;
+          const vlmUsed = false;
+          newDoc = {
+            id: docId,
+            name: qf.file.name,
+            type: qf.docType,
+            pages: pageCount,
+            ocrStatus: 'COMPLETED',
+            extractionStatus: 'COMPLETED',
+            confidence: 96.5,
+            vlmUsed: vlmUsed,
+            uploadedAt: new Date().toISOString().split('T')[0],
+            caseId: selectedCase || 'HDB-2026-001245',
+            sizeKb: Math.round(qf.file.size / 1024),
+            extractedFields: [
+              { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: docId, page: 1 },
+            ],
+            processingSteps: [
+              {
+                id: `step-1`,
+                component: 'Docling',
+                status: 'COMPLETED',
+                detail: `Docling parsed layout structure (0.15s)`,
+                startedAt: new Date().toLocaleTimeString(),
+              },
+              {
+                id: `step-2`,
+                component: 'PaddleOCR',
+                status: 'COMPLETED',
+                detail: `RapidOCR PP-OCRv6 extracted text (0.65s)`,
+                startedAt: new Date().toLocaleTimeString(),
+                confidence: 94.5,
+              },
+            ],
+            rawText: '',
+          };
+        }
 
         documentsService.addUploadedDocument(newDoc);
         onUploaded?.();
@@ -230,9 +204,8 @@ export function UploadModal({
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             onClick={() => inputRef.current?.click()}
-            className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
-              dragging ? 'border-brand-500 bg-brand-50/50' : 'border-ink-300 hover:border-brand-400 hover:bg-ink-50/50'
-            }`}
+            className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${dragging ? 'border-brand-500 bg-brand-50/50' : 'border-ink-300 hover:border-brand-400 hover:bg-ink-50/50'
+              }`}
           >
             <input
               ref={inputRef}

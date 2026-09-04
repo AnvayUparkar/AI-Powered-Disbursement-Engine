@@ -230,11 +230,41 @@ def _process_file_with_idp(file_path: Path, doc_id: str) -> Optional[Dict[str, A
                 full_text=parsed.text,
                 elements=[e.model_dump() for e in parsed.elements]
             )
+
+            # Convert parsed elements to dictionary list preserving bounding boxes, confidence, and source
+            raw_element_dicts = []
+            for elem in parsed.elements:
+                elem_dict = elem.model_dump()
+                raw_element_dicts.append(elem_dict)
+
+            # Run Layout-Aware Spatial Key-Value & Checkbox Extraction
+            from pipeline.nodes.key_value_extractor import KeyValueExtractor
+            kv_extractor = KeyValueExtractor()
+            spatial_results = kv_extractor.extract(raw_element_dicts, doc_type=doc_type)
+
+            tables_data = []
+            for tbl in (parsed.tables or []):
+                tables_data.append({
+                    "id": tbl.id,
+                    "page_number": tbl.page_number,
+                    "headers": tbl.headers,
+                    "rows": tbl.rows_raw
+                })
+
+            components = {
+                "document_type": doc_type,
+                "key_values": spatial_results.get("key_values", {}),
+                "checkboxes": spatial_results.get("checkboxes", {}),
+                "tables": tables_data,
+                "paragraphs": spatial_results.get("paragraphs", [])
+            }
+
             return {
                 **extracted_fields,
                 "_raw_text": parsed.text,
                 "_pages": len(parsed.pages),
                 "_elements_count": len(parsed.elements),
+                "_components": components,
             }
     except Exception as e:
         logger.warning("Native IDP processing encountered an issue for %s: %s", file_path, e)
@@ -257,10 +287,10 @@ def node2_extract(state: PipelineState) -> PipelineState:
     logger.info("Executing Node 2 (Native IDP & Field Extraction) for loan: %s", loan_id)
 
     raw_doc_paths = state.get("raw_doc_paths", {})
-    extracted_data: Dict[str, Any] = {}
-    face_embeddings: Dict[str, Any] = {}
-    dms_status: Dict[str, Any] = {}
-    otp_audit: Dict[str, Any] = {}
+    extracted_data: Dict[str, Any] = dict(state.get("extracted_data", {}))
+    face_embeddings: Dict[str, Any] = dict(state.get("face_embeddings", {}))
+    dms_status: Dict[str, Any] = dict(state.get("dms_status", {}))
+    otp_audit: Dict[str, Any] = dict(state.get("otp_audit", {}))
 
     # 1. Inspect raw documents from Node 1
     raw_dir = S3_RAW_DIR / loan_id
@@ -323,6 +353,8 @@ def node2_extract(state: PipelineState) -> PipelineState:
     extracted_dir = S3_EXTRACTED_DIR / loan_id
     if extracted_dir.exists():
         for json_file in extracted_dir.glob("*.json"):
+            if json_file.stem.endswith("_structured"):
+                continue
             try:
                 data = read_json(json_file)
                 key = json_file.stem
@@ -364,7 +396,12 @@ def node2_extract(state: PipelineState) -> PipelineState:
         if isinstance(doc_v, dict):
             try:
                 from pipeline.storage import write_json
+                # Write the standard file expected by downstream nodes (preserving backward compatibility)
                 write_json(extracted_out_dir / f"{doc_k}.json", doc_v)
+
+                # Save structured components (key-values, tables, paragraphs) in a dedicated new file
+                if "_components" in doc_v and isinstance(doc_v["_components"], dict):
+                    write_json(extracted_out_dir / f"{doc_k}_structured.json", doc_v["_components"])
             except Exception as save_err:
                 logger.debug("Failed caching extracted file %s for %s: %s", doc_k, loan_id, save_err)
 

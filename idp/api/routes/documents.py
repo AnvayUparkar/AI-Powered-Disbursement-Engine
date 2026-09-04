@@ -74,7 +74,10 @@ async def upload_and_process_document(
     """
     Accept direct browser multipart document upload, store raw file, and run Node 2 IDP pipeline.
     """
-    doc_id = document_id or f"DOC-{uuid.uuid4().hex[:8].upper()}"
+    doc_id = document_id if isinstance(document_id, str) and document_id.strip() else f"DOC-{uuid.uuid4().hex[:8].upper()}"
+    bucket = s3_bucket if isinstance(s3_bucket, str) and s3_bucket.strip() else None
+    case_val = case_id if isinstance(case_id, str) and case_id.strip() else None
+    dtype_val = doc_type if isinstance(doc_type, str) and doc_type.strip() else None
     logger.info(format_doc_log(doc_id, f"Received direct file upload for {file.filename}"))
 
     try:
@@ -83,14 +86,14 @@ async def upload_and_process_document(
             file_bytes=file_bytes,
             filename=file.filename or "uploaded_doc",
             document_id=doc_id,
-            s3_bucket=s3_bucket
+            s3_bucket=bucket
         )
 
         try:
             from pathlib import Path
             from config import S3_RAW_DIR
-            if case_id:
-                case_raw_dir = S3_RAW_DIR / case_id
+            if case_val:
+                case_raw_dir = S3_RAW_DIR / case_val
                 case_raw_dir.mkdir(parents=True, exist_ok=True)
                 raw_filename = Path(file.filename or "uploaded_doc.pdf").name
                 clean_name = raw_filename
@@ -107,8 +110,8 @@ async def upload_and_process_document(
             document_registry.register_uploaded_document(
                 doc_id=res["document_id"],
                 filename=file.filename or "uploaded_doc",
-                doc_type=doc_type,
-                case_id=case_id,
+                doc_type=dtype_val,
+                case_id=case_val,
                 file_size_bytes=len(file_bytes),
                 parsed_result=res.get("result"),
             )

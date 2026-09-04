@@ -5,7 +5,7 @@ from idp.services.vlm.router import ConfidenceRouter
 
 def test_confidence_evaluation_and_router():
     evaluator = OCRConfidenceEvaluator(threshold=0.70)
-    router = ConfidenceRouter(threshold=0.70)
+    router = ConfidenceRouter(threshold=0.70, vlm_enabled=True)
 
     high_conf_elem = OCRElement(
         id="1", text="Clean Text", bbox=[0, 0, 10, 10], confidence=0.95, page_number=1

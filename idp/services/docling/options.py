@@ -11,7 +11,7 @@ class DoclingOptions(BaseModel):
     ocr_model_name: str = " PP-OCRv6_medium"
     det_model_path: Optional[str] = None
     rec_model_path: Optional[str] = None
-    ocr_lang: List[str] = ["english"]
+    ocr_lang: List[str] = ["en", "hi", "devanagari", "english"]
     max_num_pages: int = 100
     images_scale: float = 2.0
 

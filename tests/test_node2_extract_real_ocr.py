@@ -123,3 +123,59 @@ def test_node2_extract_fallback_and_sidecars(tmp_path):
     assert "extract" in result["node_history"]
     assert isinstance(result["extracted_data"], dict)
     assert isinstance(result["errors"], list)
+
+
+def test_node2_extract_structured_components_persistence(tmp_path, monkeypatch):
+    import pipeline.nodes.node2_extract as node2_mod
+    from pipeline.storage import write_json, read_json
+
+    loan_id = "LOAN_TEST_COMPONENTS"
+    test_extracted_dir = tmp_path / "s3_extracted"
+    monkeypatch.setattr(node2_mod, "S3_EXTRACTED_DIR", test_extracted_dir)
+
+    # Simulate extracted data containing structured components
+    state: PipelineState = {
+        "loan_id": loan_id,
+        "los_data": {"loan_id": loan_id},
+        "raw_doc_paths": {},
+        "extracted_data": {
+            "application_form": {
+                "applicant_name": "Vikram Aditya Rao",
+                "loan_amount": 500000.0,
+                "_components": {
+                    "document_type": "application_form",
+                    "key_values": {"Applicant Name": "Vikram Aditya Rao", "Loan Amount": "500,000"},
+                    "tables": [{"id": "tbl-1", "headers": ["Item", "Cost"], "rows": [["Fee", "1000"]]}],
+                    "paragraphs": [{"id": "p-1", "text": "Terms and conditions apply.", "page_number": 1}]
+                }
+            }
+        },
+        "face_embeddings": {},
+        "dms_status": {},
+        "otp_audit": {},
+        "comparison_results": [],
+        "subnode_rollups": {},
+        "compiled_report": {},
+        "scorecard": {},
+        "retry_count": 0,
+        "checker_result": {},
+        "errors": [],
+        "node_history": ["fetch"],
+    }
+
+    result = node2_extract(state)
+
+    # 1. Standard original file exists untouched
+    orig_file = test_extracted_dir / loan_id / "application_form.json"
+    assert orig_file.exists()
+    assert read_json(orig_file)["applicant_name"] == "Vikram Aditya Rao"
+
+    # 2. Dedicated new structured components file exists with clean key_values & tables
+    struct_file = test_extracted_dir / loan_id / "application_form_structured.json"
+    assert struct_file.exists()
+    struct_data = read_json(struct_file)
+    assert struct_data["key_values"]["Applicant Name"] == "Vikram Aditya Rao"
+    assert len(struct_data["tables"]) == 1
+    assert struct_data["tables"][0]["headers"] == ["Item", "Cost"]
+    assert len(struct_data["paragraphs"]) == 1
+

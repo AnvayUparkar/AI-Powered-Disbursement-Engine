@@ -9,7 +9,8 @@ class OCRImagePreprocessor:
     def preprocess_image(
         self,
         image_bytes: bytes,
-        doc_id: str = "DOC"
+        doc_id: str = "DOC",
+        skip_preprocessing: bool = False
     ) -> Tuple[bytes, Dict[str, Any]]:
         """
         Evaluate image characteristics and apply conditional preprocessing.
@@ -21,8 +22,12 @@ class OCRImagePreprocessor:
             "rotation_applied": False,
             "rotation_angle": 0.0,
             "contrast_enhanced": False,
-            "grayscale_converted": False
+            "grayscale_converted": False,
+            "skipped": skip_preprocessing
         }
+
+        if skip_preprocessing:
+            return image_bytes, metadata
 
         try:
             import cv2

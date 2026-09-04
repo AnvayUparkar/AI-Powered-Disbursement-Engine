@@ -378,7 +378,7 @@ def node3b_kfs_sanction(state: PipelineState) -> dict:
             aadhaar_exists = bool(st.get("exists", False))
         except (json.JSONDecodeError, OSError):
             aadhaar_exists = False
-    elif ("aadhar_xml" in extracted or "aadhaar_xml" in extracted) or dms_status.get("aadhaar_xml", {}).get("exists"):
+    elif (bool(extracted.get("aadhar_xml")) or bool(extracted.get("aadhaar_xml"))) or bool(dms_status.get("aadhaar_xml", {}).get("exists")):
         aadhaar_exists = True
 
     check_id = "chk_aadhaar_xml_mandatory_presence"

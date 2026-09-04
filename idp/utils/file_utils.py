@@ -38,11 +38,13 @@ def detect_file_type(file_path: str) -> Tuple[str, str]:
     mime_type, _ = mimetypes.guess_type(file_path)
 
     category = None
+    # Primary check: match detected system MIME type
     if mime_type and mime_type in SUPPORTED_MIME_TYPES:
         category = SUPPORTED_MIME_TYPES[mime_type]
-    elif ext in SUPPORTED_EXTENSIONS:
-        category = SUPPORTED_EXTENSIONS[ext]
-        mime_type = mime_type or f"application/{ext.lstrip('.')}"
+    # Disabled fallback check:
+    # elif ext in SUPPORTED_EXTENSIONS:
+    #     category = SUPPORTED_EXTENSIONS[ext]
+    #     mime_type = mime_type or f"application/{ext.lstrip('.')}"
 
     if not category:
         raise UnsupportedFileType(f"Unsupported file type for {file_path}. Ext: '{ext}', Mime: '{mime_type}'")

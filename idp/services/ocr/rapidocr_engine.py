@@ -29,7 +29,8 @@ class RapidOCREngine:
         self,
         image_input: Union[str, bytes],
         page_number: int = 1,
-        doc_id: str = "DOC"
+        doc_id: str = "DOC",
+        skip_preprocessing: bool = False
     ) -> OCRResult:
         """
         Run PP-OCRv6 text detection & recognition on image file or bytes.
@@ -48,7 +49,9 @@ class RapidOCREngine:
             image_bytes = image_input
 
         # Apply image preprocessing (deskew, contrast, rotation metadata)
-        processed_bytes, prep_meta = self.preprocessor.preprocess_image(image_bytes, doc_id=doc_id)
+        processed_bytes, prep_meta = self.preprocessor.preprocess_image(
+            image_bytes, doc_id=doc_id, skip_preprocessing=skip_preprocessing
+        )
 
         engine = self._get_engine()
         elements: List[OCRElement] = []
@@ -64,32 +67,46 @@ class RapidOCREngine:
             img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
             if img_np is not None:
-                result, _ = engine(img_np)
+                raw_res = engine(img_np)
             else:
-                result, _ = engine(processed_bytes)
+                raw_res = engine(processed_bytes)
 
-            if result:
-                for line_idx, item in enumerate(result):
-                    # item structure: [dt_boxes, text, score]
-                    polygon = item[0]
-                    text = str(item[1]).strip()
-                    score = float(item[2])
+            boxes = []
+            txts = []
+            scores = []
 
-                    xs = [pt[0] for pt in polygon]
-                    ys = [pt[1] for pt in polygon]
-                    bbox = [float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))]
+            # Format 1: rapidocr 3.9+ RapidOCROutput dataclass
+            if hasattr(raw_res, 'boxes') and hasattr(raw_res, 'txts') and hasattr(raw_res, 'scores'):
+                boxes = raw_res.boxes if raw_res.boxes is not None else []
+                txts = raw_res.txts if raw_res.txts is not None else []
+                scores = raw_res.scores if raw_res.scores is not None else []
+            # Format 2: rapidocr_onnxruntime list/tuple format
+            elif isinstance(raw_res, (list, tuple)):
+                items = raw_res[0] if (len(raw_res) == 2 and isinstance(raw_res[0], (list, tuple))) else raw_res
+                for item in (items or []):
+                    if len(item) >= 3:
+                        boxes.append(item[0])
+                        txts.append(item[1])
+                        scores.append(item[2])
 
-                    elem = OCRElement(
-                        id=f"ocr-{uuid.uuid4().hex[:8]}",
-                        text=text,
-                        bbox=bbox,
-                        polygon=polygon,
-                        confidence=score,
-                        page_number=page_number,
-                        line_number=line_idx + 1,
-                        source="ocr"
-                    )
-                    elements.append(elem)
+            for line_idx, (polygon, text, score) in enumerate(zip(boxes, txts, scores)):
+                polygon_list = polygon.tolist() if hasattr(polygon, 'tolist') else polygon
+                xs = [pt[0] for pt in polygon_list]
+                ys = [pt[1] for pt in polygon_list]
+                bbox = [float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))]
+
+                elem = OCRElement(
+                    id=f"ocr-{uuid.uuid4().hex[:8]}",
+                    text=str(text).strip(),
+                    bbox=bbox,
+                    polygon=polygon_list,
+                    confidence=float(score),
+                    page_number=page_number,
+                    line_number=line_idx + 1,
+                    source="ocr"
+                )
+                elements.append(elem)
+
 
             ocr_res = OCRResult(
                 page_number=page_number,
@@ -140,21 +157,6 @@ class RapidOCREngine:
             doc.close()
         except Exception:
             pass
-
-        if not elements:
-            # Deterministic fallback text for testing / mock environment
-            elements.append(
-                OCRElement(
-                    id=f"ocr-fb-{page_number}-1",
-                    text="Mock Extracted Document Text",
-                    bbox=[10.0, 10.0, 300.0, 40.0],
-                    polygon=[[10.0, 10.0], [300.0, 10.0], [300.0, 40.0], [10.0, 40.0]],
-                    confidence=0.92,
-                    page_number=page_number,
-                    line_number=1,
-                    source="ocr"
-                )
-            )
 
         res = OCRResult(
             page_number=page_number,

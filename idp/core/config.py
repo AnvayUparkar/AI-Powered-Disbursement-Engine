@@ -9,11 +9,18 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(
+            ".env",
+            "../.env",
+            "../../.env",
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"),
+            os.path.join(os.path.dirname(__file__), "..", "..", ".env"),
+        ),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False
     )
+
 
     # General
     APP_ENV: str = "development"
@@ -35,6 +42,30 @@ class Settings(BaseSettings):
     OCR_ENGINE: str = "rapidocr"
     OCR_MODEL: str = "PP-OCRv6"
     OCR_CONFIDENCE_THRESHOLD: float = 0.70
+
+    # Multilingual OCR Router Settings
+    ENGLISH_OCR_ENABLED: bool = True
+    DEVANAGARI_OCR_ENABLED: bool = True
+    JAPANESE_OCR_ENABLED: bool = True
+    CHINESE_OCR_ENABLED: bool = False
+    KOREAN_OCR_ENABLED: bool = False
+    LATIN_MULTILINGUAL_OCR_ENABLED: bool = False
+    DEFAULT_OCR_ROUTE: str = "english"
+
+    # Script Routing & Profile Controls
+    OCR_SCRIPT_ROUTING_ENABLED: bool = True
+    OCR_DEFAULT_PROFILE: str = "english"
+    OCR_PREVIEW_ROUTING_ENABLED: bool = True
+    OCR_REGION_FALLBACK_ENABLED: bool = True
+
+    # Document Type OCR Profile Hints
+    DOCUMENT_OCR_PROFILES: dict = {
+        "aadhaar": {"preferred_script": "devanagari", "allow_multilingual": True},
+        "pan": {"preferred_script": "latin", "allow_multilingual": True},
+        "bank_statement": {"preferred_script": "latin", "allow_multilingual": False},
+        "loan_agreement": {"preferred_script": "latin", "allow_multilingual": False},
+    }
+
 
     # VLM Configuration
     VLM_ENABLED: bool = True
