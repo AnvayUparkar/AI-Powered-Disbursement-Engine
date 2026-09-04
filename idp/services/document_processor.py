@@ -1,6 +1,7 @@
 import os
 import time
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, List, Tuple, Any
 from idp.services.storage.s3 import S3Storage
 from idp.services.document_preprocessor import DocumentPreprocessor, PreprocessedDocument
@@ -86,9 +87,9 @@ class DocumentProcessor:
                 logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with OCR."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
 
-            # Step 4: RapidOCR + Multilingual Router execution
+            # Step 4: RapidOCR + Multilingual Router execution (Parallelized via ThreadPoolExecutor)
             ocr_start = time.time()
-            ocr_results = []
+            ocr_results: List[OCRResult] = []
             
             # Convert PDF to page images, capturing actual rendered image dimensions
             page_image_data = await self._get_page_images(local_file_path, prep_doc)
@@ -96,7 +97,8 @@ class DocumentProcessor:
             
             doc_type_hint = os.path.splitext(os.path.basename(local_file_path))[0]
 
-            for pidx, (page_bytes, img_width, img_height) in enumerate(page_image_data):
+            def _process_single_page(args: Tuple[int, bytes, float, float]) -> OCRResult:
+                pidx, page_bytes, img_width, img_height = args
                 pno = pidx + 1
                 preview_text = ""
                 if docling_result and docling_result.elements:
@@ -106,10 +108,24 @@ class DocumentProcessor:
                 ocr_res: OCRResult = self.ocr_router.process_page(
                     page_bytes, page_number=pno, doc_id=document_id, doc_type_hint=doc_type_hint, preview_text=preview_text
                 )
-                # Store actual rendered image dimensions for correct bbox normalization
                 ocr_res.image_width = float(img_width)
                 ocr_res.image_height = float(img_height)
-                ocr_results.append(ocr_res)
+                return ocr_res
+
+            max_page_workers = getattr(settings, "MAX_PAGE_WORKERS", 4)
+            page_tasks = [
+                (pidx, page_bytes, img_w, img_h)
+                for pidx, (page_bytes, img_w, img_h) in enumerate(page_image_data)
+            ]
+
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=min(len(page_tasks) or 1, max_page_workers), thread_name_prefix="idp_page_worker") as pool:
+                futures = [loop.run_in_executor(pool, _process_single_page, task_args) for task_args in page_tasks]
+                if futures:
+                    ocr_results = list(await asyncio.gather(*futures))
+
+            # Ensure page results remain strictly ordered by page_number
+            ocr_results.sort(key=lambda r: r.page_number)
 
 
 

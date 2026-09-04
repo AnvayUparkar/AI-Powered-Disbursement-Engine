@@ -284,14 +284,61 @@ class DocumentRegistry:
 
                 # Check extracted data if available
                 ext_file = None
+                struct_file = None
                 if case_ext_dir.exists():
-                    stem = Path(doc_filename).stem
-                    cand1 = case_ext_dir / f"{stem}.json"
-                    cand2 = case_ext_dir / f"{doc_type.lower().replace(' ', '_')}.json"
-                    if cand1.exists():
-                        ext_file = cand1
-                    elif cand2.exists():
-                        ext_file = cand2
+                    stem = Path(doc_filename).stem.lower().replace(" ", "_")
+                    type_clean = doc_type.lower().replace(" ", "_")
+
+                    # Compute mapped canonical type key (e.g. kyc_pan for PAN Card.png)
+                    mapped_key = ""
+                    fn_lower = doc_filename.lower()
+                    if "pan" in fn_lower:
+                        mapped_key = "kyc_pan"
+                    elif "application" in fn_lower:
+                        mapped_key = "application_form"
+                    elif "agreement" in fn_lower:
+                        mapped_key = "loan_agreement"
+                    elif "kfs" in fn_lower:
+                        mapped_key = "kfs"
+                    elif "sanction" in fn_lower:
+                        mapped_key = "sanction_letter"
+                    elif "aadhaar" in fn_lower or "kyc" in fn_lower or "address" in fn_lower:
+                        mapped_key = "kyc_address_proof"
+                    elif "bank" in fn_lower or "statement" in fn_lower:
+                        mapped_key = "bank_statement"
+                    elif "memo" in fn_lower or "disbursal" in fn_lower:
+                        mapped_key = "disbursal_memo"
+
+                    candidates = []
+                    if mapped_key:
+                        candidates.extend([f"{mapped_key}.json", f"{mapped_key}_structured.json"])
+                    candidates.extend([
+                        f"{stem}.json",
+                        f"{stem}_structured.json",
+                        f"{type_clean}.json",
+                        f"{type_clean}_structured.json",
+                    ])
+
+                    for cand_name in candidates:
+                        cand_path = case_ext_dir / cand_name
+                        if cand_path.exists():
+                            if cand_name.endswith("_structured.json"):
+                                struct_file = cand_path
+                            elif not ext_file:
+                                ext_file = cand_path
+
+                    # Fallback fuzzy matching in case_ext_dir if ext_file still None
+                    if not ext_file:
+                        for ef in sorted(case_ext_dir.glob("*.json")):
+                            if ef.name in (f"{c_id}.json", "status.json", "dms_status.json", "face_embeddings.json"):
+                                continue
+                            ef_stem = ef.stem.replace("_structured", "").lower()
+                            if ef_stem in fn_lower or ef_stem in mapped_key or (mapped_key and mapped_key in ef_stem):
+                                if ef.name.endswith("_structured.json"):
+                                    struct_file = ef
+                                else:
+                                    ext_file = ef
+                                    break
 
                 ext_data = {}
                 if ext_file and ext_file.exists():
@@ -300,7 +347,39 @@ class DocumentRegistry:
                     except Exception:
                         ext_data = {}
 
-                pages = ext_data.get("_pages") or ext_data.get("pages", 1)
+                struct_data = {}
+                if not struct_file and ext_file:
+                    cand_struct = ext_file.parent / f"{ext_file.stem}_structured.json"
+                    if cand_struct.exists():
+                        struct_file = cand_struct
+
+                if struct_file and struct_file.exists():
+                    try:
+                        struct_data = json.loads(struct_file.read_text(encoding="utf-8")) or {}
+                    except Exception:
+                        struct_data = {}
+
+                # Determine rawText
+                raw_text = (
+                    ext_data.get("_raw_text")
+                    or ext_data.get("rawText")
+                    or ext_data.get("raw_text")
+                    or struct_data.get("rawText")
+                    or struct_data.get("_raw_text")
+                )
+
+                # Check embedded components / paragraphs if raw_text not explicitly present
+                paragraphs = (
+                    struct_data.get("paragraphs")
+                    or ext_data.get("_components", {}).get("paragraphs")
+                    or []
+                )
+                if not raw_text and paragraphs:
+                    lines = [p.get("text", "") for p in paragraphs if isinstance(p, dict) and p.get("text")]
+                    if lines:
+                        raw_text = f"--- PAGE 1 ---\n" + "\n".join(lines)
+
+                pages = ext_data.get("_pages") or ext_data.get("pages") or struct_data.get("_pages") or 1
                 if isinstance(pages, list):
                     pages = len(pages)
                 else:
@@ -320,7 +399,29 @@ class DocumentRegistry:
                         "confidence": 97.0,
                         "sourceDocumentId": doc_id,
                         "page": 1,
+                        "type": "key_value",
                     })
+
+                # If paragraphs exist, append text blocks to extractedFields
+                if paragraphs:
+                    for idx, p in enumerate(paragraphs):
+                        if not isinstance(p, dict):
+                            continue
+                        p_text = (p.get("text") or "").strip()
+                        if not p_text:
+                            continue
+                        p_conf = p.get("confidence", 0.95)
+                        conf_val = round(p_conf * 100, 1) if p_conf <= 1.0 else round(p_conf, 1)
+                        extracted_fields.append({
+                            "id": p.get("id") or f"fld-{doc_id}-p-{idx + 1}",
+                            "name": p.get("classification", "paragraph").replace("_", " ").title(),
+                            "value": p_text,
+                            "confidence": conf_val,
+                            "sourceDocumentId": doc_id,
+                            "page": p.get("page_number", 1),
+                            "type": "text",
+                            "bbox": p.get("bbox"),
+                        })
 
                 if not extracted_fields:
                     extracted_fields = [
@@ -349,24 +450,27 @@ class DocumentRegistry:
                     except OSError:
                         size_kb = 45
 
+                has_data = bool(ext_data or struct_data or raw_text)
+
                 docs.append({
                     "id": doc_id,
                     "name": doc_filename,
                     "type": doc_type,
                     "pages": pages,
-                    "ocrStatus": "COMPLETED" if ext_data else "PENDING",
-                    "extractionStatus": "COMPLETED" if ext_data else "PENDING",
-                    "confidence": 98.0 if ext_data else 95.0,
+                    "ocrStatus": "COMPLETED" if has_data else "PENDING",
+                    "extractionStatus": "COMPLETED" if has_data else "PENDING",
+                    "confidence": 98.0 if has_data else 95.0,
                     "vlmUsed": bool(ext_data.get("_vlm_used", False)),
                     "uploadedAt": datetime.now().strftime("%Y-%m-%d"),
                     "caseId": c_id,
                     "sizeKb": size_kb,
                     "extractedFields": extracted_fields,
+                    "rawText": raw_text or f"Document Name: {doc_filename}\nType: {doc_type}",
                     "processingSteps": [
                         {
                             "id": f"stp-{doc_id}-1",
                             "component": "PaddleOCR",
-                            "status": "COMPLETED" if ext_data else "PENDING",
+                            "status": "COMPLETED" if has_data else "PENDING",
                             "detail": f"{doc_filename} OCR processing",
                             "startedAt": "10:30:00",
                             "confidence": 98.0,
