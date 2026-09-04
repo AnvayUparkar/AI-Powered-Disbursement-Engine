@@ -26,3 +26,12 @@ class TableStructure(BaseModel):
     csv_grid: Optional[str] = None
     headers: List[str] = Field(default_factory=list)
     rows_raw: List[List[str]] = Field(default_factory=list)
+
+
+class TableRegion(BaseModel):
+    """Represents a Docling-owned table region on a page for region-based OCR ownership."""
+    page_number: int
+    bbox: List[float]  # [x_min, y_min, x_max, y_max] normalized
+    table_id: str
+    table_data: Optional[TableStructure] = None
+

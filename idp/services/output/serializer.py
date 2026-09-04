@@ -10,6 +10,7 @@ from idp.models.processing import ProcessingMetadata, ProcessingMetrics
 from idp.services.docling.parser import DoclingParseResult
 from idp.services.vlm.client import VLMResult
 from idp.services.ocr.confidence import OCRConfidenceEvaluator
+from idp.services.fusion.region_mask import TableRegionMask
 from idp.utils.image_utils import normalize_bbox
 from idp.core.exceptions import SerializationError
 from idp.core.logging import logger, format_doc_log
@@ -41,10 +42,18 @@ class DocumentSerializer:
         """
         Merge extracted layout elements, OCR text, VLM corrected elements, and tables into ParsedDocument.
         """
-        logger.info(format_doc_log(doc_id, "Building canonical unified document representation"))
+        logger.info(format_doc_log(doc_id, "Building canonical unified document representation with Region-Based Ownership"))
 
         try:
             pages_map: Dict[int, PageInformation] = {}
+
+            # Create page-level table region masks from Docling table authority
+            pages_dims = docling_result.pages_dimensions if docling_result else None
+            page_table_masks = TableRegionMask.create_page_table_masks(
+                docling_result=docling_result,
+                page_count=page_count,
+                pages_dimensions=pages_dims
+            )
 
             # Initialize pages_map
             for pno in range(1, page_count + 1):
@@ -67,65 +76,9 @@ class DocumentSerializer:
                 page_info = pages_map[pno]
                 w = page_info.width
                 h = page_info.height
-                consumed_ocr_ids = set()
+                table_regions = page_table_masks.get(pno, [])
 
-                # 1. Direct ingestion of Docling structural & OCR elements (with optional legacy OCR spatial alignment)
-                if docling_result and docling_result.elements:
-                    for elem in docling_result.elements:
-                        if elem.page_number == pno:
-                            norm_box = normalize_bbox(elem.bbox, w, h)
-                            final_text = elem.text
-                            src = elem.source or "docling_ocr"
-                            ocr_orig = elem.ocr_original
-                            conf = elem.confidence
-
-                            # Legacy spatial mapping support when explicit ocr_results are provided (for rapidocr source or empty text)
-                            if ocr_results and (not (final_text and final_text.strip()) or src in ["rapidocr", "ocr"]):
-                                matched_ocr = []
-                                for ocr_res in ocr_results:
-                                    if ocr_res.page_number == pno:
-                                        img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
-                                        img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
-                                        for ocr in ocr_res.elements:
-                                            if ocr.id in consumed_ocr_ids:
-                                                continue
-                                            norm_ocr_box = normalize_bbox(ocr.bbox, img_w, img_h)
-                                            if self._compute_overlap_score(norm_ocr_box, norm_box) >= 0.35 or self._compute_iou(norm_ocr_box, norm_box) >= 0.20:
-                                                matched_ocr.append(ocr)
-                                if matched_ocr:
-                                    matched_ocr.sort(key=lambda o: (round(o.bbox[1], 2), o.bbox[0]))
-                                    final_text = " ".join([o.text for o in matched_ocr])
-                                    conf = sum([o.confidence for o in matched_ocr]) / len(matched_ocr)
-                                    src = "rapidocr" if matched_ocr[0].source == "ocr" else matched_ocr[0].source
-                                    for o in matched_ocr:
-                                        consumed_ocr_ids.add(o.id)
-
-                            # Apply VLM corrections in-place if element was flagged & re-analyzed
-                            if elem.id in vlm_corrections:
-                                vlm_res = vlm_corrections[elem.id]
-                                final_text = vlm_res.text
-                                src = "vlm_corrected"
-                                ocr_orig = elem.text
-                                conf = vlm_res.confidence
-
-                            final_text = self.evaluator.clean_bilingual_label_noise(final_text)
-
-                            layout_elem = LayoutElement(
-                                id=elem.id,
-                                type=elem.type,
-                                text=final_text,
-                                bbox=norm_box,
-                                confidence=round(conf, 4),
-                                page_number=pno,
-                                reading_order=elem.reading_order,
-                                level=elem.level,
-                                source=src,
-                                structure_source="docling",
-                                ocr_original=ocr_orig
-                            )
-                            page_info.elements.append(layout_elem)
-
-                # 2. Direct ingestion of Docling TableFormer tables (with optional legacy cell OCR alignment)
+                # 1. DOCLING TABLE AUTHORITY: Ingest Docling TableFormer tables
                 if docling_result and docling_result.tables:
                     for table in docling_result.tables:
                         if table.page_number == pno:
@@ -133,31 +86,9 @@ class DocumentSerializer:
                             table.bbox = norm_table_box
                             
                             rows_dict: Dict[int, List[str]] = {}
-                            # Normalize cell bounding boxes and apply cell-level VLM corrections or legacy OCR alignment
                             for cell in table.cells:
                                 norm_cell_box = normalize_bbox(cell.bbox or norm_table_box, w, h)
                                 cell.bbox = norm_cell_box
-
-                                if ocr_results and (not (cell.text and cell.text.strip()) or getattr(cell, "source", None) in ["rapidocr", "ocr"]):
-                                    matched_ocr = []
-                                    for ocr_res in ocr_results:
-                                        if ocr_res.page_number == pno:
-                                            img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
-                                            img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
-                                            for ocr in ocr_res.elements:
-                                                if ocr.id in consumed_ocr_ids:
-                                                    continue
-                                                norm_ocr_box = normalize_bbox(ocr.bbox, img_w, img_h)
-                                                if self._compute_overlap_score(norm_ocr_box, norm_cell_box) >= 0.40 or self._compute_iou(norm_ocr_box, norm_cell_box) >= 0.15:
-                                                    matched_ocr.append(ocr)
-                                    if matched_ocr:
-                                        matched_ocr.sort(key=lambda o: (round(o.bbox[1], 2), o.bbox[0]))
-                                        cell_texts = []
-                                        for o in matched_ocr:
-                                            t_txt = vlm_corrections[o.id].text if o.id in vlm_corrections else o.text
-                                            cell_texts.append(t_txt)
-                                            consumed_ocr_ids.add(o.id)
-                                        cell.text = " ".join(cell_texts)
 
                                 cell_key = f"cell-{table.id}-{cell.row_index}-{cell.col_index}"
                                 if cell_key in vlm_corrections:
@@ -176,18 +107,16 @@ class DocumentSerializer:
 
                             page_info.tables.append(table)
 
-                # 3. Defensive Fallback: Absorb unconsumed external OCR elements if present
+                # 2. RAPIDOCR NON-TABLE TEXT AUTHORITY: Ingest non-table text elements from RapidOCR
                 if ocr_results:
                     for ocr_res in ocr_results:
                         if ocr_res.page_number == pno:
                             ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
                             ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
                             for ocr_elem in ocr_res.elements:
-                                if ocr_elem.id in consumed_ocr_ids:
-                                    continue
                                 norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
                                 final_text = self.evaluator.clean_bilingual_label_noise(ocr_elem.text)
-                                src = "rapidocr" if ocr_elem.source == "ocr" else ocr_elem.source
+                                src = "RAPIDOCR" if ocr_elem.source in ["ocr", "rapidocr"] else ocr_elem.source
                                 ocr_orig = ocr_elem.ocr_original
                                 conf = ocr_elem.confidence
 
@@ -198,14 +127,46 @@ class DocumentSerializer:
                                     ocr_orig = ocr_elem.text
                                     conf = vlm_res.confidence
 
+                                # RapidOCR Non-Table Filtering against Docling Table Regions
+                                is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
+                                    rapidocr_bbox=norm_box,
+                                    table_regions=table_regions
+                                )
+
+                                if is_blocked:
+                                    logger.info(
+                                        format_doc_log(
+                                            doc_id,
+                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
+                                        )
+                                    )
+                                    continue
+
                                 if self.evaluator.is_garbled_text(final_text) and src != "vlm_corrected":
+                                    logger.info(
+                                        format_doc_log(
+                                            doc_id,
+                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_GARBLED_TEXT text='{final_text[:30]}'"
+                                        )
+                                    )
                                     continue
 
-                                if self._is_element_inside_tables(norm_box, page_info.tables):
+                                # Secondary page-scoped deduplication
+                                if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
+                                    logger.info(
+                                        format_doc_log(
+                                            doc_id,
+                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_DUPLICATE text='{final_text[:30]}'"
+                                        )
+                                    )
                                     continue
 
-                                if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.30, text=final_text):
-                                    continue
+                                logger.info(
+                                    format_doc_log(
+                                        doc_id,
+                                        f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
+                                    )
+                                )
 
                                 page_info.elements.append(
                                     LayoutElement(
@@ -220,6 +181,38 @@ class DocumentSerializer:
                                         ocr_original=ocr_orig
                                     )
                                 )
+
+                # Fallback: Ingest Docling text elements ONLY if RapidOCR is absent/empty
+                elif docling_result and docling_result.elements:
+                    for elem in docling_result.elements:
+                        if elem.page_number == pno:
+                            norm_box = normalize_bbox(elem.bbox, w, h)
+                            is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
+                                rapidocr_bbox=norm_box,
+                                table_regions=table_regions
+                            )
+                            if is_blocked:
+                                continue
+
+                            final_text = self.evaluator.clean_bilingual_label_noise(elem.text)
+                            if not final_text or self.evaluator.is_garbled_text(final_text):
+                                continue
+
+                            page_info.elements.append(
+                                LayoutElement(
+                                    id=elem.id,
+                                    type=elem.type,
+                                    text=final_text,
+                                    bbox=norm_box,
+                                    confidence=round(elem.confidence, 4),
+                                    page_number=pno,
+                                    reading_order=elem.reading_order,
+                                    level=elem.level,
+                                    source=elem.source or "DOCLING",
+                                    structure_source="docling",
+                                    ocr_original=elem.ocr_original
+                                )
+                            )
 
                 logger.info(
                     format_doc_log(
@@ -369,15 +362,10 @@ class DocumentSerializer:
         """
         if not elem_bbox or not tables or len(elem_bbox) < 4:
             return False
-
-        el_y1, el_y2 = elem_bbox[1], elem_bbox[3]
-        el_y_center = (el_y1 + el_y2) / 2.0
-
         for tbl in tables:
             if tbl.bbox and len(tbl.bbox) == 4:
-                tb_y1, tb_y2 = tbl.bbox[1], tbl.bbox[3]
-                # Check Y-center vertical containment or 2D overlap score >= 30%
-                if (tb_y1 <= el_y_center <= tb_y2) or DocumentSerializer._compute_overlap_score(elem_bbox, tbl.bbox) >= 0.30:
+                # If element overlaps >= 60% with table bbox, it is inside the table
+                if DocumentSerializer._compute_overlap_score(elem_bbox, tbl.bbox) >= 0.60:
                     return True
         return False
 
@@ -385,43 +373,19 @@ class DocumentSerializer:
     def _is_duplicate(
         ocr_bbox: List[float],
         existing_elements: List[LayoutElement],
-        iou_threshold: float = 0.30,
+        iou_threshold: float = 0.5,
         text: Optional[str] = None
     ) -> bool:
         """
         Check if an OCR element's bounding box spatially overlaps any existing
-        element on the same page with IoU >= threshold, overlap >= 20%, or matching text content.
+        element on the same page with IoU >= threshold or matching text content.
         """
-        if not ocr_bbox or len(ocr_bbox) < 4:
-            return False
-
-        norm_ocr_text = text.strip().lower().replace(" ", "") if text else ""
-
         for elem in existing_elements:
-            if not elem.bbox or len(elem.bbox) < 4:
-                continue
-
-            norm_elem_text = elem.text.strip().lower().replace(" ", "") if elem.text else ""
-
-            # 1. Exact or substring text match (ignoring whitespace differences)
-            if norm_ocr_text and norm_elem_text:
-                if norm_ocr_text == norm_elem_text or norm_ocr_text in norm_elem_text or norm_elem_text in norm_ocr_text:
-                    if DocumentSerializer._compute_iou(ocr_bbox, elem.bbox) >= 0.10 or DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox) >= 0.10:
-                        return True
-
-            # 2. IoU or 2D overlap threshold check
+            if text and elem.text and text.strip().lower() == elem.text.strip().lower():
+                if DocumentSerializer._compute_iou(ocr_bbox, elem.bbox) >= 0.20 or DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox) >= 0.20:
+                    return True
             if DocumentSerializer._compute_iou(ocr_bbox, elem.bbox) >= iou_threshold:
                 return True
-            if DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox) >= 0.25:
-                return True
-
-            # 3. Y-center horizontal line alignment check
-            ocr_y_center = (ocr_bbox[1] + ocr_bbox[3]) / 2.0
-            elem_y_center = (elem.bbox[1] + elem.bbox[3]) / 2.0
-            if abs(ocr_y_center - elem_y_center) < 0.025:
-                if DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox) >= 0.15:
-                    return True
-
         return False
 
     def parse_xml_fast_path(

@@ -9,6 +9,29 @@ from idp.core.exceptions import DoclingProcessingError
 from idp.core.logging import logger, format_doc_log
 
 
+def _extract_top_left_bbox(bbox_obj: Any, page_height: float = 842.0) -> List[float]:
+    """Convert Docling BoundingBox to TOP-LEFT origin [l, t, r, b] coordinate space."""
+    if not bbox_obj:
+        return [0.0, 0.0, 0.0, 0.0]
+    try:
+        if hasattr(bbox_obj, "to_top_left_origin"):
+            b_tl = bbox_obj.to_top_left_origin(page_height)
+            l = float(b_tl.l)
+            t = min(float(b_tl.t), float(b_tl.b))
+            r = float(b_tl.r)
+            b = max(float(b_tl.t), float(b_tl.b))
+            return [l, t, r, b]
+        elif hasattr(bbox_obj, "l"):
+            l = float(bbox_obj.l)
+            r = float(bbox_obj.r)
+            t1 = float(bbox_obj.t)
+            t2 = float(bbox_obj.b)
+            return [l, min(t1, t2), r, max(t1, t2)]
+    except Exception:
+        pass
+    return [0.0, 0.0, 0.0, 0.0]
+
+
 class DoclingParseResult(BaseModel):
     """Output structure returned by DoclingParser."""
     elements: List[LayoutElement] = Field(default_factory=list)
@@ -49,6 +72,12 @@ class DoclingParser:
             if not pages_dimensions:
                 pages_dimensions = [{"width": 595.0, "height": 842.0}]
 
+            # Helper for page height lookup
+            def _get_page_h(pno: int) -> float:
+                if 1 <= pno <= len(pages_dimensions):
+                    return pages_dimensions[pno - 1].get("height", 842.0)
+                return 842.0
+
             # Process layout elements (texts, headings, lists)
             reading_order = 0
             if hasattr(doc, "texts"):
@@ -67,8 +96,7 @@ class DoclingParser:
                         prov_item = item.prov[0]
                         pno = getattr(prov_item, "page_no", 1)
                         if hasattr(prov_item, "bbox") and prov_item.bbox:
-                            b = prov_item.bbox
-                            bbox_list = [float(b.l), float(b.t), float(b.r), float(b.b)]
+                            bbox_list = _extract_top_left_bbox(prov_item.bbox, _get_page_h(pno))
 
                     txt = getattr(item, "text", "") or ""
                     elements.append(
@@ -94,8 +122,7 @@ class DoclingParser:
                         prov_item = table.prov[0]
                         pno = getattr(prov_item, "page_no", 1)
                         if hasattr(prov_item, "bbox") and prov_item.bbox:
-                            b = prov_item.bbox
-                            bbox_list = [float(b.l), float(b.t), float(b.r), float(b.b)]
+                            bbox_list = _extract_top_left_bbox(prov_item.bbox, _get_page_h(pno))
 
                     cells: List[TableCell] = []
                     headers: List[str] = []
@@ -115,7 +142,7 @@ class DoclingParser:
                                 if hasattr(tc, "prov") and tc.prov:
                                     tb = tc.prov[0].bbox
                                     if tb:
-                                        c_bbox = [float(tb.l), float(tb.t), float(tb.r), float(tb.b)]
+                                        c_bbox = _extract_top_left_bbox(tb, _get_page_h(pno))
 
                                 cells.append(
                                     TableCell(

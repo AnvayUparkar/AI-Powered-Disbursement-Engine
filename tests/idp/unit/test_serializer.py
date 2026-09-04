@@ -35,33 +35,22 @@ def test_serializer_region_alignment_and_docling_text_ignored():
 
     serializer = DocumentSerializer()
 
-    # Docling structural elements (text is empty or placeholder - SHOULD BE IGNORED)
-    docling_elem = LayoutElement(
-        id="docling-head-1",
-        type=ElementType.HEADING,
-        text="Docling Original Text - Must Be Ignored",
-        bbox=[10.0, 10.0, 200.0, 50.0],
-        confidence=1.0,
-        page_number=1,
-        source="rapidocr",
-        structure_source="docling"
-    )
-
-    # Docling table structure (1 row, 2 cols)
+    # Docling structural elements
+    # Docling table structure (1 row, 2 cols) with cell texts
     docling_table = TableStructure(
         id="table-1",
         page_number=1,
         num_rows=1,
         num_cols=2,
         cells=[
-            TableCell(row_index=0, col_index=0, text="", bbox=[10.0, 100.0, 100.0, 150.0]),
-            TableCell(row_index=0, col_index=1, text="", bbox=[100.0, 100.0, 200.0, 150.0]),
+            TableCell(row_index=0, col_index=0, text="Applicant Name", bbox=[10.0, 100.0, 100.0, 150.0]),
+            TableCell(row_index=0, col_index=1, text="Rahul Sharrna", bbox=[100.0, 100.0, 200.0, 150.0]),
         ],
         bbox=[10.0, 100.0, 200.0, 150.0]
     )
 
     docling_res = DoclingParseResult(
-        elements=[docling_elem],
+        elements=[],
         tables=[docling_table],
         page_count=1,
         pages_dimensions=[{"width": 595.0, "height": 842.0}]
@@ -90,7 +79,7 @@ def test_serializer_region_alignment_and_docling_text_ignored():
 
     ocr_cell1 = OCRElement(
         id="ocr-3",
-        text="Rahul Sharrna",  # Low confidence, will be VLM corrected
+        text="Rahul Sharrna",
         bbox=[105.0, 105.0, 195.0, 145.0],
         confidence=0.60,
         page_number=1,
@@ -111,9 +100,9 @@ def test_serializer_region_alignment_and_docling_text_ignored():
 
     ocr_res = OCRResult(page_number=1, elements=[ocr_heading, ocr_cell0, ocr_cell1, ocr_standalone])
 
-    # VLM correction for low confidence cell
+    # VLM correction for cell
     vlm_corrections = {
-        "ocr-3": VLMResult(text="Rahul Sharma", confidence=0.99, verified=True)
+        "cell-table-1-0-1": VLMResult(text="Rahul Sharma", confidence=0.99, verified=True)
     }
 
     metrics = ProcessingMetrics()
@@ -130,14 +119,13 @@ def test_serializer_region_alignment_and_docling_text_ignored():
         metrics=metrics
     )
 
-    # 1. Heading element must take text from RapidOCR ("Experiment No. - 08") NOT Docling
-    heading_elements = [e for e in parsed_doc.elements if e.type == ElementType.HEADING]
+    # 1. Non-table heading element comes from RapidOCR
+    heading_elements = [e for e in parsed_doc.elements if "Experiment" in e.text]
     assert len(heading_elements) == 1
     assert heading_elements[0].text == "Experiment No. - 08"
-    assert heading_elements[0].source == "rapidocr"
-    assert heading_elements[0].structure_source == "docling"
+    assert heading_elements[0].source == "RAPIDOCR"
 
-    # 2. Table cell text must come from RapidOCR + VLM in-place correction
+    # 2. Table cell text comes from Docling Table Authority + VLM correction
     assert len(parsed_doc.tables) == 1
     tbl = parsed_doc.tables[0]
     assert tbl.cells[0].text == "Applicant Name"
@@ -145,16 +133,15 @@ def test_serializer_region_alignment_and_docling_text_ignored():
     assert tbl.rows_raw == [["Applicant Name", "Rahul Sharma"]]
 
     # 3. Standalone OCR element must be preserved
-    standalone = [e for e in parsed_doc.elements if e.structure_source == "none"]
+    standalone = [e for e in parsed_doc.elements if "Approved" in e.text]
     assert len(standalone) == 1
     assert standalone[0].text == "Handwritten Note: Approved"
-    assert standalone[0].source == "rapidocr"
+    assert standalone[0].source == "RAPIDOCR"
 
-    # 4. Overall text must contain RapidOCR text and NOT Docling text
-    assert "Experiment No. - 08" in parsed_doc.text
-    assert "Rahul Sharma" in parsed_doc.text
-    assert "Handwritten Note: Approved" in parsed_doc.text
-    assert "Docling Original Text" not in parsed_doc.text
+    # 4. RapidOCR table text (ocr_cell0, ocr_cell1) MUST BE SKIPPED from elements list (region ownership)
+    elements_text = [e.text for e in parsed_doc.elements]
+    assert "Applicant Name" not in elements_text
+    assert "Rahul Sharma" not in elements_text
 
 
 def test_serializer_ocr_duplicate_safety():
