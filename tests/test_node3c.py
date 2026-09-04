@@ -1,36 +1,86 @@
-from pipeline.nodes.node3c_topup_bt import node3c_topup_bt
+import copy
+
+import pytest
+
+from pipeline.nodes.node3c_dates_ids import node3c_dates_ids
 from pipeline.state import PipelineState
 
 
 def test_node3c_clean_match(mock_state_001: PipelineState):
-    result = node3c_topup_bt(mock_state_001)
+    result = node3c_dates_ids(mock_state_001)
+    assert result["rollup"] == "Verified"
     records = result["records"]
-    assert any(r["field"] == "application_id" and r["match_status"] == "MATCH" for r in records)
-    assert any(r["field"] == "disbursal_amount" and r["match_status"] == "MATCH" for r in records)
-    assert any(r["field"] == "bt_closure_vs_final_fc_amount" and r["match_status"] == "NOT_IMPLEMENTED" for r in records)
+    assert len(records) >= 5
+
+    # Check key checks are present and matched
+    assert any(r["field"] == "application_date" and r["match_status"] == "MATCH" for r in records)
+    assert any(r["field"] == "application_no" and r["match_status"] == "MATCH" for r in records)
+    assert any(r["field"] == "login_date" and r["match_status"] == "MATCH" for r in records)
+    assert any(r["field"] == "disbursement_date" and r["match_status"] == "MATCH" for r in records)
+    assert any(r["sources"][0] == "disbursal_memo" and r["field"] == "loan_no" and r["match_status"] == "MATCH" for r in records)
 
 
-def test_node3c_disbursal_memo_amount_below_threshold(mock_state_001: PipelineState):
-    state = dict(mock_state_001)
-    # 500,000 loan -> 90% is 450,000. Set memo to 400,000 (< 90%)
-    state["extracted_data"]["disbursal_memo"]["disbursal_amount"] = 400000.0
-    result = node3c_topup_bt(state)
-    amt_rec = next(r for r in result["records"] if r["field"] == "disbursal_amount")
-    assert amt_rec["match_status"] == "MISMATCH"
+def test_node3c_application_date_mismatch(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    state["extracted_data"]["application_form"]["application_date"] = "2024-02-28"
+    result = node3c_dates_ids(state)
     assert result["rollup"] == "Discrepancy"
 
+    date_rec = next(r for r in result["records"] if r["field"] == "application_date")
+    assert date_rec["match_status"] == "MISMATCH"
+    assert date_rec["confidence"] == 0.0
 
-def test_node3c_disbursal_memo_application_id_mismatch(mock_state_001: PipelineState):
-    state = dict(mock_state_001)
-    state["extracted_data"]["disbursal_memo"]["application_id"] = "APP_WRONG_999"
-    result = node3c_topup_bt(state)
-    app_id_rec = next(r for r in result["records"] if r["field"] == "application_id")
-    assert app_id_rec["match_status"] == "MISMATCH"
+
+def test_node3c_application_no_mismatch(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    state["extracted_data"]["application_form"]["application_no"] = "LOAN_WRONG_999"
+    result = node3c_dates_ids(state)
     assert result["rollup"] == "Discrepancy"
 
+    app_no_rec = next(r for r in result["records"] if r["field"] == "application_no")
+    assert app_no_rec["match_status"] == "MISMATCH"
+    assert app_no_rec["confidence"] == 0.0
 
-def test_node3c_bt_fc_stub_not_implemented(mock_state_001: PipelineState):
-    result = node3c_topup_bt(mock_state_001)
-    bt_rec = next(r for r in result["records"] if r["field"] == "bt_closure_vs_final_fc_amount")
-    assert bt_rec["match_status"] == "NOT_IMPLEMENTED"
-    assert "pending" in (bt_rec["notes"] or "").lower()
+
+def test_node3c_disbursal_memo_loan_no_mismatch(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    state["extracted_data"]["disbursal_memo"]["loan_no"] = "LOAN_MISMATCH_888"
+    result = node3c_dates_ids(state)
+    assert result["rollup"] == "Discrepancy"
+
+    memo_rec = next(r for r in result["records"] if r["sources"][0] == "disbursal_memo" and r["field"] == "loan_no")
+    assert memo_rec["match_status"] == "MISMATCH"
+
+
+def test_node3c_missing_application_form_emits_not_found(mock_state_001: PipelineState):
+    state = copy.deepcopy(mock_state_001)
+    del state["extracted_data"]["application_form"]
+    result = node3c_dates_ids(state)
+    assert result["rollup"] == "Indeterminate"
+
+    app_recs = [r for r in result["records"] if r["sources"][0] == "application_form"]
+    assert len(app_recs) == 4
+    assert all(r["match_status"] == "NOT_FOUND" for r in app_recs)
+
+
+def test_node3c_empty_state():
+    empty_state: PipelineState = {
+        "loan_id": "LOAN_EMPTY",
+        "los_data": {},
+        "raw_doc_paths": {},
+        "extracted_data": {},
+        "face_embeddings": {},
+        "dms_status": {},
+        "otp_audit": {},
+        "comparison_results": [],
+        "subnode_rollups": {},
+        "compiled_report": {},
+        "scorecard": {},
+        "retry_count": 0,
+        "checker_result": {},
+        "errors": [],
+        "node_history": [],
+    }
+    result = node3c_dates_ids(empty_state)
+    assert result["rollup"] == "Indeterminate"
+    assert all(r["match_status"] == "NOT_FOUND" for r in result["records"])

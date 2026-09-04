@@ -49,3 +49,10 @@ When fulfilling any task:
 2. **Implement:** Make minimal, focused, surgical edits directly addressing the objective.
 3. **Test:** Add or update concrete unit and integration tests covering the changes.
 4. **Verify:** Run the automated test runner (`pytest`) to confirm all tests pass cleanly.
+
+## Response Rules
+
+- Be concise. No preamble, no summaries of what you are about to do.
+- Show only changed lines/sections — do not echo entire files.
+- Do not explain obvious changes. Explain only non-obvious reasoning.
+- After completing a task, stop. Do not chain into unrequested follow-ups.

@@ -2,164 +2,202 @@
   "loan_id": "LOAN_003",
   "scoring_status": "NOT_IMPLEMENTED",
   "notes": "Scoring algorithm logic not yet defined — passthrough compiled report",
-  "preliminary_decision": "REJECT_OR_FLAG",
+  "preliminary_decision": "AUTO_APPROVE_ELIGIBLE",
   "subnode_rollups": {
-    "loan_kyc": "Indeterminate",
-    "kfs_sanction": "Discrepancy",
-    "topup_bt": "Indeterminate"
+    "loan_kyc": "Verified",
+    "kfs_sanction": "Verified",
+    "topup_bt": "Verified"
   },
   "compiled_report": {
     "loan_id": "LOAN_003",
     "subnode_rollups": {
-      "loan_kyc": "Indeterminate",
-      "kfs_sanction": "Discrepancy",
-      "topup_bt": "Indeterminate"
+      "loan_kyc": "Verified",
+      "kfs_sanction": "Verified",
+      "topup_bt": "Verified"
     },
     "summary": {
-      "total_checks": 20,
-      "match_count": 0,
-      "mismatch_count": 1,
+      "total_checks": 40,
+      "match_count": 40,
+      "mismatch_count": 0,
       "partial_count": 0,
-      "not_found_count": 17,
-      "captured_count": 1,
-      "not_implemented_count": 1
+      "not_found_count": 0,
+      "captured_count": 0,
+      "not_implemented_count": 0
     },
     "comparison_results": [
       {
-        "check_id": "chk_loan_amt_application_form_vs_loan_agreement",
+        "check_id": "chk_loan_kyc_aadhaar_applicant_name_vs_los",
         "subnode": "loan_kyc",
-        "field": "loan_amount",
+        "field": "applicant_name",
         "sources": [
-          "application_form",
-          "loan_agreement"
+          "aadhaar",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "Mohammad Rizwan",
+          "Mohammad Rizwan"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "zero_tolerance_numeric_compare",
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "jaro_winkler",
         "llm_used": false,
-        "notes": "Missing amount in application_form"
+        "notes": null
       },
       {
-        "check_id": "chk_loan_amt_application_form_vs_kfs",
+        "check_id": "chk_loan_kyc_aadhaar_address_vs_los",
         "subnode": "loan_kyc",
-        "field": "loan_amount",
+        "field": "address",
         "sources": [
-          "application_form",
-          "kfs"
+          "aadhaar",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001",
+          "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "zero_tolerance_numeric_compare",
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "tfidf_cosine",
         "llm_used": false,
-        "notes": "Missing amount in application_form"
+        "notes": null
       },
       {
-        "check_id": "chk_loan_amt_application_form_vs_sanction_letter",
+        "check_id": "chk_loan_kyc_aadhaar_aadhaar_number_vs_los",
         "subnode": "loan_kyc",
-        "field": "loan_amount",
+        "field": "aadhaar_number",
         "sources": [
-          "application_form",
-          "sanction_letter"
+          "aadhaar",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "112233445566",
+          "112233445566"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "zero_tolerance_numeric_compare",
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
         "llm_used": false,
-        "notes": "Missing amount in application_form"
+        "notes": null
       },
       {
-        "check_id": "chk_loan_amt_loan_agreement_vs_kfs",
+        "check_id": "chk_loan_kyc_aadhaar_mobile_no_vs_los",
         "subnode": "loan_kyc",
-        "field": "loan_amount",
+        "field": "mobile_no",
         "sources": [
-          "loan_agreement",
-          "kfs"
+          "aadhaar",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "9988776655",
+          "9988776655"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "zero_tolerance_numeric_compare",
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_string_equality",
         "llm_used": false,
-        "notes": "Missing amount in loan_agreement"
+        "notes": null
       },
       {
-        "check_id": "chk_loan_amt_loan_agreement_vs_sanction_letter",
+        "check_id": "chk_loan_kyc_aadhaar_dob_vs_los",
         "subnode": "loan_kyc",
-        "field": "loan_amount",
+        "field": "dob",
         "sources": [
-          "loan_agreement",
-          "sanction_letter"
+          "aadhaar",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "1988-11-25",
+          "1988-11-25"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "zero_tolerance_numeric_compare",
+        "match_type": "exact_date",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "normalized_date_equality",
         "llm_used": false,
-        "notes": "Missing amount in loan_agreement"
+        "notes": null
       },
       {
-        "check_id": "chk_loan_amt_kfs_vs_sanction_letter",
+        "check_id": "chk_loan_kyc_pan_applicant_name_vs_los",
         "subnode": "loan_kyc",
-        "field": "loan_amount",
+        "field": "applicant_name",
         "sources": [
-          "kfs",
-          "sanction_letter"
+          "pan",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "Mohd Rizwan",
+          "Mohammad Rizwan"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "zero_tolerance_numeric_compare",
-        "llm_used": false,
-        "notes": "Missing amount in kfs"
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
+        "confidence": 0.98,
+        "method": "jaro_winkler",
+        "llm_used": true,
+        "notes": "Similarity: 0.8741 | Adjudication: 'Mohd' is a standard and universally recognized abbreviation for 'Mohammad', indicating both names refer to the same individual."
       },
       {
-        "check_id": "chk_loan_validity_tenure",
+        "check_id": "chk_loan_kyc_pan_fathers_name_vs_los",
         "subnode": "loan_kyc",
-        "field": "tenure_months",
+        "field": "fathers_name",
         "sources": [
-          "application_form",
-          "sanction_letter"
+          "pan",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "Abdul Rizwan",
+          "Abdul Rizwan"
         ],
-        "match_type": "exact",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "normalized_tenure_compare",
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "jaro_winkler",
         "llm_used": false,
-        "notes": "Tenure missing in application or sanction letter"
+        "notes": null
       },
       {
-        "check_id": "chk_app_form_name_match",
+        "check_id": "chk_loan_kyc_pan_pan_number_vs_los",
+        "subnode": "loan_kyc",
+        "field": "pan_number",
+        "sources": [
+          "pan",
+          "los"
+        ],
+        "values": [
+          "MNOPQ5544Z",
+          "MNOPQ5544Z"
+        ],
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_pan_dob_vs_los",
+        "subnode": "loan_kyc",
+        "field": "dob",
+        "sources": [
+          "pan",
+          "los"
+        ],
+        "values": [
+          "1988-11-25",
+          "1988-11-25"
+        ],
+        "match_type": "exact_date",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "normalized_date_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_application_form_applicant_name_vs_los",
         "subnode": "loan_kyc",
         "field": "applicant_name",
         "sources": [
@@ -167,237 +205,583 @@
           "los"
         ],
         "values": [
-          null,
-          null
+          "Mohd Rizwan",
+          "Mohammad Rizwan"
         ],
         "match_type": "fuzzy",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
+        "match_status": "MATCH",
+        "confidence": 0.98,
         "method": "jaro_winkler",
-        "llm_used": false,
-        "notes": "Applicant name missing in application or LOS"
+        "llm_used": true,
+        "notes": "Similarity: 0.8741 | Adjudication: 'Mohd' is a standard abbreviation for 'Mohammad', and the rest of the name matches identically."
       },
       {
-        "check_id": "chk_kyc_pan",
+        "check_id": "chk_loan_kyc_application_form_fathers_name_vs_los",
+        "subnode": "loan_kyc",
+        "field": "fathers_name",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "Abdul Rizwan",
+          "Abdul Rizwan"
+        ],
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "jaro_winkler",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_application_form_dob_vs_los",
+        "subnode": "loan_kyc",
+        "field": "dob",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "1988-11-25",
+          "1988-11-25"
+        ],
+        "match_type": "exact_date",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "normalized_date_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_application_form_mobile_no_vs_los",
+        "subnode": "loan_kyc",
+        "field": "mobile_no",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "9988776655",
+          "9988776655"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_application_form_gender_vs_los",
+        "subnode": "loan_kyc",
+        "field": "gender",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "Male",
+          "Male"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "case_insensitive_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_application_form_pan_number_vs_los",
         "subnode": "loan_kyc",
         "field": "pan_number",
         "sources": [
-          "kyc_pan",
-          "application_form"
+          "application_form",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "MNOPQ5544Z",
+          "MNOPQ5544Z"
         ],
         "match_type": "exact_id",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "strip_spaces_equality",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
         "llm_used": false,
-        "notes": "PAN missing in KYC document or application form (Mandatory)"
+        "notes": null
       },
       {
-        "check_id": "chk_kyc_address_proof",
+        "check_id": "chk_loan_kyc_account_statement_applicant_name_vs_los",
         "subnode": "loan_kyc",
-        "field": "address",
+        "field": "applicant_name",
         "sources": [
-          "kyc_address_proof",
-          "application_form"
+          "account_statement",
+          "los"
         ],
         "values": [
-          null,
-          null
+          "Mohammad Rizwan",
+          "Mohammad Rizwan"
         ],
         "match_type": "fuzzy",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "jaro_winkler",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_account_statement_pan_number_vs_los",
+        "subnode": "loan_kyc",
+        "field": "pan_number",
+        "sources": [
+          "account_statement",
+          "los"
+        ],
+        "values": [
+          "MNOPQ5544Z",
+          "MNOPQ5544Z"
+        ],
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_account_statement_mobile_no_vs_los",
+        "subnode": "loan_kyc",
+        "field": "mobile_no",
+        "sources": [
+          "account_statement",
+          "los"
+        ],
+        "values": [
+          "9988776655",
+          "9988776655"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_loan_kyc_account_statement_account_no_vs_los",
+        "subnode": "loan_kyc",
+        "field": "account_no",
+        "sources": [
+          "account_statement",
+          "los"
+        ],
+        "values": [
+          "556677889900",
+          "556677889900"
+        ],
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_application_form_loan_amount_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_amount",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          300000.0,
+          300000.0
+        ],
+        "match_type": "threshold",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "threshold_90_compare",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_application_form_loan_validity_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_validity",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "12 months",
+          "12 months"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "case_insensitive_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_application_form_account_no_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "account_no",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "556677889900",
+          "556677889900"
+        ],
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_application_form_type_of_account_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "type_of_account",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "Savings",
+          "Savings"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "case_insensitive_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_application_form_loan_type_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_type",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "Two Wheeler Loan",
+          "Two Wheeler Loan"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "case_insensitive_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_application_form_current_address_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "current_address",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001",
+          "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001"
+        ],
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
+        "confidence": 1.0,
         "method": "tfidf_cosine",
         "llm_used": false,
-        "notes": "Address missing in address proof or application (Mandatory)"
+        "notes": null
       },
       {
-        "check_id": "chk_face_similarity_selfie",
+        "check_id": "chk_kfs_sanction_kfs_loan_amount_vs_los",
         "subnode": "kfs_sanction",
-        "field": "selfie_live_photo",
-        "sources": [
-          "selfie_live_photo",
-          "application_form_photo"
-        ],
-        "values": [
-          false,
-          false
-        ],
-        "match_type": "face_similarity",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "cosine_similarity_embeddings",
-        "llm_used": false,
-        "notes": "Face embedding missing for selfie or application photo"
-      },
-      {
-        "check_id": "chk_loan_agreement_digital_signature",
-        "subnode": "kfs_sanction",
-        "field": "loan_agreement_signature",
-        "sources": [
-          "loan_agreement.pdf"
-        ],
-        "values": [
-          "loan_agreement.pdf"
-        ],
-        "match_type": "cryptographic_verification",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "pyhanko_validate_pdf_signature",
-        "llm_used": false,
-        "notes": "Loan agreement PDF not found at D:\\Projects\\Automated Disbursment Scorecard\\poc_data\\dms\\LOAN_003\\loan_agreement.pdf"
-      },
-      {
-        "check_id": "chk_loan_agreement_otp_consent",
-        "subnode": "kfs_sanction",
-        "field": "loan_agreement_otp_consent",
-        "sources": [
-          "loan_agreement_otp_audit.json"
-        ],
-        "values": [
-          null
-        ],
-        "match_type": "presence",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "audit_trail_verification",
-        "llm_used": false,
-        "notes": "OTP audit trail file not found"
-      },
-      {
-        "check_id": "chk_kfs_vs_los_funding",
-        "subnode": "kfs_sanction",
-        "field": "funding_amount",
+        "field": "loan_amount",
         "sources": [
           "kfs",
           "los"
         ],
         "values": [
-          null,
-          null
+          300000.0,
+          300000.0
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "direct_numeric_compare",
+        "match_type": "threshold",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "threshold_90_compare",
         "llm_used": false,
-        "notes": "Missing funding amount in kfs"
+        "notes": null
       },
       {
-        "check_id": "chk_sanction_vs_los_funding",
+        "check_id": "chk_kfs_sanction_kfs_loan_validity_vs_los",
         "subnode": "kfs_sanction",
-        "field": "funding_amount",
+        "field": "loan_validity",
+        "sources": [
+          "kfs",
+          "los"
+        ],
+        "values": [
+          "12 months",
+          "12 months"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "case_insensitive_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_kfs_loan_type_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_type",
+        "sources": [
+          "kfs",
+          "los"
+        ],
+        "values": [
+          "Two Wheeler Loan",
+          "Two Wheeler Loan"
+        ],
+        "match_type": "exact_string",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "case_insensitive_string_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_kfs_loan_account_no_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_account_no",
+        "sources": [
+          "kfs",
+          "los"
+        ],
+        "values": [
+          "LOAN_003",
+          "LOAN_003"
+        ],
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_kfs_customer_consent_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "customer_consent",
+        "sources": [
+          "kfs"
+        ],
+        "values": [
+          true
+        ],
+        "match_type": "presence",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "presence_only",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_disbursal_memo_loan_no_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_no",
+        "sources": [
+          "disbursal_memo",
+          "los"
+        ],
+        "values": [
+          "LOAN_003",
+          "LOAN_003"
+        ],
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_disbursal_memo_loan_amount_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_amount",
+        "sources": [
+          "disbursal_memo",
+          "los"
+        ],
+        "values": [
+          285000.0,
+          300000.0
+        ],
+        "match_type": "threshold",
+        "match_status": "MATCH",
+        "confidence": 0.95,
+        "method": "threshold_90_compare",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_kfs_sanction_sanction_letter_applicant_name_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "applicant_name",
         "sources": [
           "sanction_letter",
           "los"
         ],
         "values": [
-          null,
-          null
+          "Mohammad Rizwan",
+          "Mohammad Rizwan"
         ],
-        "match_type": "exact_numeric",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "direct_numeric_compare",
-        "llm_used": false,
-        "notes": "Missing funding amount in sanction_letter"
-      },
-      {
-        "check_id": "chk_aadhaar_xml_mandatory_presence",
-        "subnode": "kfs_sanction",
-        "field": "aadhaar_xml",
-        "sources": [
-          "dms"
-        ],
-        "values": [
-          false
-        ],
-        "match_type": "presence",
-        "match_status": "MISMATCH",
+        "match_type": "fuzzy",
+        "match_status": "MATCH",
         "confidence": 1.0,
-        "method": "mandatory_presence_gate",
+        "method": "jaro_winkler",
         "llm_used": false,
-        "notes": "Aadhaar XML missing — mandatory hard gate failed"
+        "notes": null
       },
       {
-        "check_id": "chk_broken_period_interest_split",
-        "subnode": "topup_bt",
-        "field": "broken_period_interest",
+        "check_id": "chk_kfs_sanction_sanction_letter_loan_amount_vs_los",
+        "subnode": "kfs_sanction",
+        "field": "loan_amount",
         "sources": [
-          "kfs",
-          "sanction_letter"
+          "sanction_letter",
+          "los"
         ],
         "values": [
-          null,
-          null
+          300000.0,
+          300000.0
         ],
         "match_type": "threshold",
-        "match_status": "CAPTURED",
+        "match_status": "MATCH",
         "confidence": 1.0,
-        "method": "placeholder_split_rule",
+        "method": "threshold_90_compare",
         "llm_used": false,
-        "notes": "No broken period interest applicable for this loan"
+        "notes": null
       },
       {
-        "check_id": "chk_disbursal_memo_application_id",
-        "subnode": "topup_bt",
-        "field": "application_id",
+        "check_id": "chk_kfs_sanction_kfs_vs_disbursal_memo_bpi_charge",
+        "subnode": "kfs_sanction",
+        "field": "bpi_charge",
         "sources": [
-          "disbursal_memo",
-          "application_form"
+          "kfs",
+          "disbursal_memo"
         ],
         "values": [
-          null,
+          800.0,
+          800.0
+        ],
+        "match_type": "threshold",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "doc_to_doc_tolerance",
+        "llm_used": false,
+        "notes": "BPI matched within 10% tolerance (800.0 vs 800.0)"
+      },
+      {
+        "check_id": "chk_topup_bt_application_form_application_date_vs_los",
+        "subnode": "topup_bt",
+        "field": "application_date",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "2024-03-05",
+          "2024-03-05"
+        ],
+        "match_type": "exact_date",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "normalized_date_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_topup_bt_application_form_application_no_vs_los",
+        "subnode": "topup_bt",
+        "field": "application_no",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "LOAN_003",
           "LOAN_003"
         ],
         "match_type": "exact_id",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "string_equality",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
         "llm_used": false,
-        "notes": "Application ID missing in disbursal memo"
+        "notes": null
       },
       {
-        "check_id": "chk_disbursal_memo_amount_threshold",
+        "check_id": "chk_topup_bt_application_form_login_date_vs_los",
         "subnode": "topup_bt",
-        "field": "disbursal_amount",
+        "field": "login_date",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "2024-03-06",
+          "2024-03-06"
+        ],
+        "match_type": "exact_date",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "normalized_date_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_topup_bt_application_form_disbursement_date_vs_los",
+        "subnode": "topup_bt",
+        "field": "disbursement_date",
+        "sources": [
+          "application_form",
+          "los"
+        ],
+        "values": [
+          "2024-03-12",
+          "2024-03-12"
+        ],
+        "match_type": "exact_date",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "normalized_date_equality",
+        "llm_used": false,
+        "notes": null
+      },
+      {
+        "check_id": "chk_topup_bt_disbursal_memo_loan_no_vs_los",
+        "subnode": "topup_bt",
+        "field": "loan_no",
         "sources": [
           "disbursal_memo",
           "los"
         ],
         "values": [
-          null,
-          null
+          "LOAN_003",
+          "LOAN_003"
         ],
-        "match_type": "threshold",
-        "match_status": "NOT_FOUND",
-        "confidence": 0.0,
-        "method": "threshold_numeric_compare",
+        "match_type": "exact_id",
+        "match_status": "MATCH",
+        "confidence": 1.0,
+        "method": "exact_id_equality",
         "llm_used": false,
-        "notes": "Disbursal memo amount or valid loan amount missing"
-      },
-      {
-        "check_id": "chk_bt_closure_vs_final_fc",
-        "subnode": "topup_bt",
-        "field": "bt_closure_vs_final_fc_amount",
-        "sources": [
-          "disbursal_memo",
-          "final_fc_doc_pending"
-        ],
-        "values": [
-          null,
-          null
-        ],
-        "match_type": "threshold",
-        "match_status": "NOT_IMPLEMENTED",
-        "confidence": 0.0,
-        "method": "stub_pending_source_document",
-        "llm_used": false,
-        "notes": "Source document for final FC amount pending — implement when confirmed"
+        "notes": null
       }
     ]
   }
