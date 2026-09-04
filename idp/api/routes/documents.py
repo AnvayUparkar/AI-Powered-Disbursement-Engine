@@ -153,6 +153,14 @@ async def get_document_result(document_id: str):
     """
     parsed = await processor.get_parsed_document(document_id)
     if not parsed:
+        try:
+            from app.services.document_registry import document_registry
+            registry_doc = document_registry.get_by_id(document_id)
+            if registry_doc:
+                return registry_doc
+        except Exception as e:
+            logger.warning(f"Fallback to document_registry failed for {document_id}: {e}")
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "NotFound", "message": f"Parsed document for {document_id} not found."}

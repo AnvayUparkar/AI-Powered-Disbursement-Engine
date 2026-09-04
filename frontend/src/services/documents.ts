@@ -194,6 +194,9 @@ export const documentsService = {
     try {
       const parsed = await node2Api.getDocument(id);
       if (parsed) {
+        if ('extractedFields' in parsed) {
+          return parsed as unknown as DocumentRecord;
+        }
         return adaptNode2DocumentToRecord(parsed);
       }
     } catch {

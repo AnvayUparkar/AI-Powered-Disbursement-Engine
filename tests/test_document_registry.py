@@ -112,3 +112,24 @@ def test_api_documents_types():
     assert isinstance(types, list)
     assert "Sanction Letter" in types
     assert "Application Form" in types
+
+
+def test_case_document_raw_text_and_fields():
+    registry = DocumentRegistry()
+    doc = registry.get_by_id("doc-LOAN_014-pan_card")
+    assert doc is not None, "doc-LOAN_014-pan_card should be found in registry"
+    assert "rawText" in doc
+    assert len(doc["rawText"]) > 0
+    assert "INCOMETAXDEPARTMENT" in doc["rawText"] or "BEUPD8889K" in doc["rawText"]
+    assert len(doc["extractedFields"]) > 0
+    assert any("BEUPD8889K" in str(f.get("value")) for f in doc["extractedFields"])
+
+
+def test_idp_fallback_route_for_case_documents():
+    res = client.get("/api/v1/documents/doc-LOAN_014-pan_card")
+    assert res.status_code == 200, f"Expected 200 OK from /api/v1/documents/doc-LOAN_014-pan_card, got {res.status_code}"
+    data = res.json()
+    assert data.get("id") == "doc-LOAN_014-pan_card"
+    assert "rawText" in data
+    assert "BEUPD8889K" in data.get("rawText", "")
+

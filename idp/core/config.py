@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     VLM_MODEL: str = "gpt-4o-mini"
     VLM_API_KEY: Optional[str] = None
 
+    # Parallel Worker Concurrency
+    MAX_PAGE_WORKERS: int = 4
+    MAX_DOC_WORKERS: int = 4
+
     # Processing Limits
     MAX_DOCUMENT_SIZE_MB: int = 50
     TEMP_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "poc_data", "idp_temp")
