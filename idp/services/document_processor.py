@@ -78,13 +78,20 @@ class DocumentProcessor:
                     "processing_time_seconds": round(elapsed, 3)
                 }
 
-            # Step 3: Docling layout parsing
+            # Step 3: Docling layout parsing (bypassed for KYC and non-tabular image documents)
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
-            try:
-                docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
-            except Exception as e:
-                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with OCR."))
+            is_kyc_or_image = (
+                prep_doc.file_category == "image"
+                or any(k in document_id.lower() or k in local_file_path.lower() for k in ["pan", "aadhaar", "kyc", "photo", "sign"])
+            )
+            if not is_kyc_or_image:
+                try:
+                    docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
+                except Exception as e:
+                    logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with OCR."))
+            else:
+                logger.info(format_doc_log(document_id, f"Skipping Docling table analysis for KYC / image document: {document_id}"))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
 
             # Step 4: RapidOCR + Multilingual Router execution (Parallelized via ThreadPoolExecutor)
@@ -193,7 +200,7 @@ class DocumentProcessor:
                 metrics=metrics,
                 s3_bucket=bucket,
                 s3_key=s3_key,
-                docling_used=True,
+                docling_used=bool(docling_result is not None),
                 vlm_used=vlm_used,
                 vlm_provider=settings.VLM_PROVIDER if vlm_used else None
             )
