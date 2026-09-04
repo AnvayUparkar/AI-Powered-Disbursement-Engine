@@ -27,6 +27,7 @@ GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.0"))
 
 # OpenRouter LLM Field Extraction Configuration (Node 2 OCR → structured JSON)
 LLM_API_KEY = os.getenv("LLM_API_KEY")
-LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.0-flash-lite")
+LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.5-flash-lite")
+
 
 

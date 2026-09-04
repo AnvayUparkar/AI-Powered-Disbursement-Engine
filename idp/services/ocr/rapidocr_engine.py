@@ -1,9 +1,13 @@
 import uuid
-from typing import List, Union, Optional
+from typing import Any, List, Union, Optional
+
 from idp.models.ocr import OCRElement, OCRResult
 from idp.services.ocr.preprocessing import OCRImagePreprocessor
 from idp.services.ocr.confidence import OCRConfidenceEvaluator
 from idp.core.logging import logger, format_doc_log
+
+
+_shared_rapid_ocr: Optional[Any] = None
 
 
 class RapidOCREngine:
@@ -15,15 +19,22 @@ class RapidOCREngine:
         self._rapid_ocr = None
 
     def _get_engine(self):
+        global _shared_rapid_ocr
+        if _shared_rapid_ocr is not None:
+            return _shared_rapid_ocr
+
         if self._rapid_ocr is None:
             try:
                 from rapidocr_onnxruntime import RapidOCR
                 self._rapid_ocr = RapidOCR()
+                _shared_rapid_ocr = self._rapid_ocr
                 logger.info("RapidOCR PP-OCRv6 engine initialized successfully.")
             except Exception as e:
                 logger.warning(f"RapidOCR initialization note/fallback: {e}. RapidOCR library not imported or mock active.")
                 self._rapid_ocr = "MOCK"
+                _shared_rapid_ocr = "MOCK"
         return self._rapid_ocr
+
 
     def process(
         self,

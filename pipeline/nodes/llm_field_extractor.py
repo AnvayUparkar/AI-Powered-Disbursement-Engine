@@ -105,8 +105,9 @@ _OPENROUTER_URL: str = "https://openrouter.ai/api/v1/chat/completions"
 _OPENROUTER_HEADERS: dict[str, str] = {
     "Content-Type": "application/json",
     "HTTP-Referer": "https://disbursement-scorecard",
-    "X-Title": "Disbursement Scorecard — OCR Field Extraction",
+    "X-Title": "Disbursement Scorecard - OCR Field Extraction",
 }
+
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
