@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional,List,Tuple
 
 from config import DMS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR
 from idp.models.document import ParsedDocument
@@ -247,6 +247,7 @@ def _process_file_with_idp(file_path: Path, doc_id: str) -> Optional[Dict[str, A
                 tables_data.append({
                     "id": tbl.id,
                     "page_number": tbl.page_number,
+                    "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
                     "headers": tbl.headers,
                     "rows": tbl.rows_raw
                 })
@@ -299,6 +300,8 @@ def node2_extract(state: PipelineState) -> PipelineState:
             raw_doc_paths[f.name] = str(f)
 
     # 2. Process sidecar JSONs & binary documents
+    binary_doc_tasks: List[Tuple[str, Path, str, str]] = []  # (fname, fpath, doc_key, doc_id)
+
     for fname, fpath_str in raw_doc_paths.items():
         fpath = Path(fpath_str)
         if not fpath.exists():
@@ -339,15 +342,33 @@ def node2_extract(state: PipelineState) -> PipelineState:
                 errors.append(f"Failed reading JSON sidecar {fname}: {e}")
             continue
 
-        # Handle PDFs and Images via IDP
+        # Collect PDFs and Images for parallel IDP processing
         if fpath.suffix.lower() in [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".xml"]:
             doc_key = _map_doc_type_from_filename(fname)
             doc_id = f"{loan_id}_{doc_key}"
-            idp_result = _process_file_with_idp(fpath, doc_id=doc_id)
-            if idp_result:
-                extracted_data[doc_key] = idp_result
-            else:
-                logger.info("IDP yielded no output for %s; checking fallback stores", fname)
+            binary_doc_tasks.append((fname, fpath, doc_key, doc_id))
+
+    # Parallelize document ingestion via ThreadPoolExecutor
+    if binary_doc_tasks:
+        from concurrent.futures import ThreadPoolExecutor
+        from idp.core.config import settings
+
+        max_doc_workers = getattr(settings, "MAX_DOC_WORKERS", 4)
+        worker_count = min(len(binary_doc_tasks), max_doc_workers)
+
+        def _worker_task(task_tuple: Tuple[str, Path, str, str]) -> Tuple[str, str, Optional[Dict[str, Any]]]:
+            fname, fpath, doc_key, doc_id = task_tuple
+            res = _process_file_with_idp(fpath, doc_id=doc_id)
+            return fname, doc_key, res
+
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="idp_doc_worker") as executor:
+            futures = [executor.submit(_worker_task, task) for task in binary_doc_tasks]
+            for future in futures:
+                fname, doc_key, idp_result = future.result()
+                if idp_result:
+                    extracted_data[doc_key] = idp_result
+                else:
+                    logger.info("IDP yielded no output for %s; checking fallback stores", fname)
 
     # 3. Fallback / Merge with pre-extracted mock data if available
     extracted_dir = S3_EXTRACTED_DIR / loan_id
