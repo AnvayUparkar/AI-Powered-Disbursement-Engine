@@ -146,6 +146,7 @@ export function UploadModal({
               },
             ],
             rawText: '',
+            formattedText: '',
           };
         }
 

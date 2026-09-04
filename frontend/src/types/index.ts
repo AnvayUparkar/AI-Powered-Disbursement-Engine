@@ -68,7 +68,7 @@ export interface ExtractedField {
   page?: number;
   evidence?: Evidence[];
   type?: 'key_value' | 'text' | 'heading' | 'table';
-  source?: 'ocr' | 'vlm' | 'docling' | 'xml';
+  source?: 'ocr' | 'vlm' | 'docling' | 'xml' | 'llm' | 'OPENROUTER_LLM' | string;
   bbox?: number[];
   ocrOriginal?: string;
   headers?: string[];
@@ -116,7 +116,9 @@ export interface DocumentRecord {
   extractedFields: ExtractedField[];
   processingSteps: ProcessingStep[];
   rawText?: string;
+  formattedText?: string;
 }
+
 
 export interface Case {
   id: string;

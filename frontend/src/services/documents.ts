@@ -32,6 +32,28 @@ export function adaptNode2DocumentToRecord(
 
   const extractedFields: ExtractedField[] = [];
 
+  // 0. Prepend LLM structured fields if available
+  const llmFields =
+    (parsed as any).custom_metadata?.llm_extracted_fields ||
+    (parsed as any).processing?.custom_metadata?.llm_extracted_fields ||
+    (parsed as any).extracted_fields;
+  if (llmFields && typeof llmFields === 'object') {
+    Object.entries(llmFields).forEach(([k, v]) => {
+      if (v !== null && v !== undefined && typeof v !== 'object') {
+        extractedFields.push({
+          id: `llm-${docId}-${k}`,
+          name: k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+          value: String(v),
+          confidence: 99.0,
+          sourceDocumentId: docId,
+          page: 1,
+          type: 'key_value',
+          source: 'OPENROUTER_LLM',
+        });
+      }
+    });
+  }
+
   // 1. Process elements (key-values vs standalone text)
   elements.forEach((e, idx) => {
     if (!e.text || !e.text.trim()) return;
@@ -131,8 +153,14 @@ export function adaptNode2DocumentToRecord(
         startedAt: new Date().toLocaleTimeString(),
       },
     ],
-    rawText: parsed.text || '',
+    rawText: (parsed as any).raw_text || (parsed as any).rawText || parsed.text || '',
+    formattedText: (() => {
+      if ((parsed as any).formatted_text) return (parsed as any).formatted_text;
+      if ((parsed as any).formattedText) return (parsed as any).formattedText;
+      return llmFields && typeof llmFields === 'object' ? JSON.stringify(llmFields, null, 2) : '';
+    })(),
   };
+
 }
 
 export interface DocumentFilters {

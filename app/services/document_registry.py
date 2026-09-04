@@ -96,8 +96,24 @@ class DocumentRegistry:
                 vlm_used = bool(parsed_result.get("processing", {}).get("vlm_used", False))
                 confidence = 91.0 if vlm_used else 97.5
 
+                # Ingest LLM-extracted canonical fields if available
+                llm_meta = (parsed_result.get("custom_metadata") or {}).get("llm_extracted_fields") or {}
+                for lk, lv in llm_meta.items():
+                    if lv is not None:
+                        extracted_fields.append({
+                            "id": f"llm-{lk}",
+                            "name": lk.replace("_", " ").title(),
+                            "value": str(lv),
+                            "confidence": 98.0,
+                            "sourceDocumentId": doc_id,
+                            "page": 1,
+                            "type": "key_value",
+                            "source": "OPENROUTER_LLM",
+                        })
+
                 # Extract key values from parsed elements
                 elements = parsed_result.get("elements") or []
+
                 for idx, e in enumerate(elements):
                     text = e.get("text", "")
                     if not text or not text.strip():
@@ -185,7 +201,10 @@ class DocumentRegistry:
                 "sizeKb": max(1, round(file_size_bytes / 1024)) if file_size_bytes else 45,
                 "extractedFields": extracted_fields,
                 "processingSteps": processing_steps,
+                "rawText": (parsed_result.get("text") or parsed_result.get("raw_text") or parsed_result.get("rawText") or "").strip(),
+                "formattedText": json.dumps(llm_meta, indent=2) if llm_meta else (parsed_result.get("formatted_text") or parsed_result.get("formattedText") or ""),
             }
+
 
             self._dynamic_docs[doc_id] = record
 
@@ -400,6 +419,7 @@ class DocumentRegistry:
                         "sourceDocumentId": doc_id,
                         "page": 1,
                         "type": "key_value",
+                        "source": "OPENROUTER_LLM",
                     })
 
                 # If paragraphs exist, append text blocks to extractedFields
@@ -421,6 +441,7 @@ class DocumentRegistry:
                             "page": p.get("page_number", 1),
                             "type": "text",
                             "bbox": p.get("bbox"),
+                            "source": "OCR",
                         })
 
                 if not extracted_fields:
@@ -452,6 +473,18 @@ class DocumentRegistry:
 
                 has_data = bool(ext_data or struct_data or raw_text)
 
+                formatted_text = (
+                    ext_data.get("_formatted_text")
+                    or ext_data.get("formattedText")
+                    or struct_data.get("formattedText")
+                )
+                if not formatted_text:
+                    llm_extracted_dict = {
+                        k: v for k, v in ext_data.items()
+                        if not k.startswith("_") and v is not None and not isinstance(v, (dict, list))
+                    }
+                    formatted_text = json.dumps(llm_extracted_dict, indent=2) if llm_extracted_dict else ""
+
                 docs.append({
                     "id": doc_id,
                     "name": doc_filename,
@@ -466,6 +499,8 @@ class DocumentRegistry:
                     "sizeKb": size_kb,
                     "extractedFields": extracted_fields,
                     "rawText": raw_text or f"Document Name: {doc_filename}\nType: {doc_type}",
+                    "formattedText": formatted_text,
+
                     "processingSteps": [
                         {
                             "id": f"stp-{doc_id}-1",
