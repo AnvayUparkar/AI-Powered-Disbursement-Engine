@@ -1,5 +1,9 @@
 import os
+from datetime import timedelta, timezone
 from pathlib import Path
+
+# Indian Standard Time (IST, UTC+05:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 from dotenv import load_dotenv
 

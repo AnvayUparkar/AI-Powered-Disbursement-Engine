@@ -1,9 +1,10 @@
+from datetime import datetime, timedelta, timezone
 import logging
 
 from fastapi import APIRouter
 
 from app.serializers.case_serializer import serialize_all_cases
-from config import S3_RESULT_DIR
+from config import IST, S3_RESULT_DIR
 from pipeline.storage import list_loan_ids, read_json
 
 logger = logging.getLogger("disbursement_pipeline.api.dashboard_reports")
@@ -119,6 +120,23 @@ def get_report_summary():
     }
 
 
+def _format_ist_time(ts_val: str | None, default_time: str = "10:30:00") -> str:
+    if not ts_val:
+        return default_time
+    try:
+        if len(ts_val) <= 8 and ":" in ts_val and "T" not in ts_val and "-" not in ts_val:
+            return ts_val
+        cleaned = ts_val.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(cleaned)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(IST).strftime("%H:%M:%S")
+    except Exception:
+        if "T" in ts_val and len(ts_val) >= 19:
+            return ts_val[11:19]
+        return ts_val or default_time
+
+
 def _get_audit_events(target_case_id: str | None = None) -> list[dict]:
     loan_ids = [target_case_id] if target_case_id else list_loan_ids()
     events: list[dict] = []
@@ -138,7 +156,7 @@ def _get_audit_events(target_case_id: str | None = None) -> list[dict]:
                 if isinstance(entries, list):
                     for idx, item in enumerate(entries):
                         ts_raw = item.get("timestamp", "")
-                        ts_formatted = ts_raw[11:19] if "T" in ts_raw and len(ts_raw) >= 19 else (ts_raw or "10:00:00")
+                        ts_formatted = _format_ist_time(ts_raw, "10:00:00")
                         entry_type = item.get("type", "general")
 
                         if entry_type == "llm_adjudication":
@@ -183,11 +201,20 @@ def _get_audit_events(target_case_id: str | None = None) -> list[dict]:
 
         # 2. Pipeline status node events
         status_file = loan_dir / "status.json"
+        s_data = {}
         if status_file.exists():
             try:
                 s_data = read_json(status_file)
                 ts_raw = s_data.get("updated_at", "")
-                ts_formatted = ts_raw[11:19] if "T" in ts_raw and len(ts_raw) >= 19 else (ts_raw or "10:30:00")
+                base_dt = None
+                if ts_raw:
+                    try:
+                        base_dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                        if base_dt.tzinfo is None:
+                            base_dt = base_dt.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        pass
+
                 node_history = s_data.get("node_history", [])
 
                 node_labels = {
@@ -198,9 +225,14 @@ def _get_audit_events(target_case_id: str | None = None) -> list[dict]:
                     "scorecard": ("DGCL Scorecard Decision Generated", "DGCL Engine", "SUCCESS", "Weighted risk score and preliminary decision computed"),
                     "push": ("Downstream LOS Result Push", "System", "SUCCESS", "Scorecard artifacts delivered to S3 and LOS queue"),
                 }
-                for node_key in node_history:
+                for idx, node_key in enumerate(node_history):
                     if node_key in node_labels:
                         action, comp, res, desc = node_labels[node_key]
+                        if base_dt:
+                            offset_dt = base_dt - timedelta(seconds=(len(node_history) - 1 - idx) * 2)
+                            ts_formatted = offset_dt.astimezone(IST).strftime("%H:%M:%S")
+                        else:
+                            ts_formatted = _format_ist_time(ts_raw, "10:30:00")
                         events.append({
                             "id": f"audit-{lid}-node-{node_key}",
                             "timestamp": ts_formatted,
@@ -220,9 +252,12 @@ def _get_audit_events(target_case_id: str | None = None) -> list[dict]:
                 sc_data = read_json(sc_file)
                 dec = sc_data.get("preliminary_decision", "COMPLETED")
                 res = "SUCCESS" if dec == "AUTO_APPROVE_ELIGIBLE" else ("FAILED" if dec == "REJECT_OR_FLAG" else "WARNING")
+                sc_ts = _format_ist_time(s_data.get("updated_at") if status_file.exists() else None)
+                if not sc_ts or sc_ts == "10:30:00":
+                    sc_ts = datetime.fromtimestamp(sc_file.stat().st_mtime, tz=timezone.utc).astimezone(IST).strftime("%H:%M:%S")
                 events.append({
                     "id": f"audit-{lid}-scorecard-decision",
-                    "timestamp": "10:32:00",
+                    "timestamp": sc_ts,
                     "action": f"Scorecard Decision: {dec}",
                     "component": "DGCL Engine",
                     "result": res,

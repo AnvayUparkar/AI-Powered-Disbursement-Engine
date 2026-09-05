@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from config import LOS_LOANS_DIR, S3_RESULT_DIR
+from config import IST, LOS_LOANS_DIR, S3_RESULT_DIR
 
 
 logger = logging.getLogger("disbursement_pipeline.storage")
@@ -86,7 +86,7 @@ def update_status(
         "current_node": current_node,
         "node_history": node_history if node_history is not None else history,
         "errors": errs,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(IST).isoformat(),
     }
     write_json(status_path, status_data)
     return status_data

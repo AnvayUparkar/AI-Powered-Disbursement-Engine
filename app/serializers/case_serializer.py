@@ -1,10 +1,10 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from config import DMS_DIR, LOS_LOANS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR, S3_RESULT_DIR
+from config import DMS_DIR, IST, LOS_LOANS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR, S3_RESULT_DIR
 from pipeline.graph import run_pipeline
 from pipeline.storage import list_loan_ids, read_json
 
@@ -682,16 +682,35 @@ def serialize_case(loan_id: str) -> dict:
         ("push", "System", "LOS Result Push", 100.0),
     ]
 
+    raw_upd = status_data.get("updated_at")
+    base_time = None
+    if raw_upd:
+        try:
+            dt = datetime.fromisoformat(raw_upd.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            base_time = dt.astimezone(IST)
+            formatted_last_updated = base_time.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            formatted_last_updated = raw_upd
+    else:
+        formatted_last_updated = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+    if not base_time:
+        base_time = datetime.now(IST)
+
     proc_steps = []
     for i, (node_key, component, label, conf) in enumerate(step_defs):
         is_done = node_key in history or "done" in history
+        start_t = (base_time - timedelta(seconds=(len(step_defs) - i) * 3)).strftime("%H:%M:%S")
+        end_t = (base_time - timedelta(seconds=(len(step_defs) - i - 1) * 3)).strftime("%H:%M:%S")
         proc_steps.append({
             "id": f"step-{loan_id}-{node_key}",
             "component": component,
             "status": "COMPLETED" if is_done else "PENDING",
             "detail": f"{label} {'completed' if is_done else 'pending'}",
-            "startedAt": f"10:30:{i*3:02d}",
-            "completedAt": f"10:30:{i*3+2:02d}" if is_done else None,
+            "startedAt": start_t,
+            "completedAt": end_t if is_done else None,
             "confidence": conf,
         })
 
@@ -702,8 +721,8 @@ def serialize_case(loan_id: str) -> dict:
         "loanType": loan_type,
         "loanAmount": loan_amount,
         "disbursalAmount": disbursal_amount,
-        "loginDate": los_data.get("login_date") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "disbursalDate": (datetime.now(timezone.utc).strftime("%Y-%m-%d")) if overall_status == "VERIFIED" else None,
+        "loginDate": los_data.get("login_date") or datetime.now(IST).strftime("%Y-%m-%d"),
+        "disbursalDate": (datetime.now(IST).strftime("%Y-%m-%d")) if overall_status == "VERIFIED" else None,
         "documentCount": len(doc_ids),
         "processingTime": "2m 15s" if records else "—",
         "processingTimeSeconds": 135 if records else 0,
@@ -713,7 +732,7 @@ def serialize_case(loan_id: str) -> dict:
         "reviewCount": review_count,
         "status": overall_status,
         "riskLevel": risk_level,
-        "lastUpdated": status_data.get("updated_at", datetime.now(timezone.utc).isoformat()),
+        "lastUpdated": formatted_last_updated,
         "checkpoints": checkpoints,
         "documentIds": doc_ids,
         "processingSteps": proc_steps,
