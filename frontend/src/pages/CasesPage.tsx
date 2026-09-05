@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowRight, Search, Plus } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Pagination } from '@/components/ui/Pagination';
@@ -122,7 +122,7 @@ export default function CasesPage() {
       </div>
 
       {loading ? (
-        <TableSkeleton rows={6} cols={9} />
+        <TableSkeleton rows={6} cols={10} />
       ) : error ? (
         <ErrorState title="Unable to load cases" onRetry={load} />
       ) : !data || data.items.length === 0 ? (
@@ -144,13 +144,16 @@ export default function CasesPage() {
                     <th className="table-head">R</th>
                     <th className="table-head"><SortHeader label="Time" active={sort?.key === 'processingTimeSeconds'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('processingTimeSeconds')} /></th>
                     <th className="table-head"><SortHeader label="Status" active={sort?.key === 'status'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('status')} /></th>
-                    <th className="table-head"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
                   {data.items.map((c) => (
                     <tr key={c.id} className="hover:bg-ink-50/50">
-                      <td className="table-cell font-medium text-brand-700">{c.id}</td>
+                      <td className="table-cell font-medium">
+                        <Link to={`/cases/${c.id}`} className="text-brand-600 hover:text-brand-800 hover:underline">
+                          {c.id}
+                        </Link>
+                      </td>
                       <td className="table-cell">{c.applicant}</td>
                       <td className="table-cell">{c.loanType}</td>
                       <td className="table-cell tabular-nums">{c.documentCount}</td>
@@ -160,11 +163,6 @@ export default function CasesPage() {
                       <td className="table-cell text-review-700 tabular-nums">{c.reviewCount}</td>
                       <td className="table-cell tabular-nums">{c.processingTime}</td>
                       <td className="table-cell"><StatusBadge status={c.status} /></td>
-                      <td className="table-cell">
-                        <Link to={`/cases/${c.id}`} className="text-brand-600 hover:text-brand-700 text-xs font-medium inline-flex items-center gap-1">
-                          Open <ArrowRight className="h-3 w-3" />
-                        </Link>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
