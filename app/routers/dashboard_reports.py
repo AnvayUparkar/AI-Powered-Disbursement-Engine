@@ -3,6 +3,8 @@ import logging
 from fastapi import APIRouter
 
 from app.serializers.case_serializer import serialize_all_cases
+from config import S3_RESULT_DIR
+from pipeline.storage import list_loan_ids, read_json
 
 logger = logging.getLogger("disbursement_pipeline.api.dashboard_reports")
 
@@ -115,4 +117,126 @@ def get_report_summary():
             {"day": "Fri", "pct": 0.9},
         ],
     }
+
+
+def _get_audit_events(target_case_id: str | None = None) -> list[dict]:
+    loan_ids = [target_case_id] if target_case_id else list_loan_ids()
+    events: list[dict] = []
+
+    for lid in loan_ids:
+        loan_dir = S3_RESULT_DIR / lid
+        if not loan_dir.exists():
+            continue
+
+        # 1. Audit log entries (LLM adjudications & human reviewer decisions)
+        audit_file = loan_dir / "audit_log.json"
+        if audit_file.exists():
+            try:
+                entries = read_json(audit_file)
+                if isinstance(entries, dict):
+                    entries = [entries]
+                if isinstance(entries, list):
+                    for idx, item in enumerate(entries):
+                        ts_raw = item.get("timestamp", "")
+                        ts_formatted = ts_raw[11:19] if "T" in ts_raw and len(ts_raw) >= 19 else (ts_raw or "10:00:00")
+                        entry_type = item.get("type", "general")
+
+                        if entry_type == "llm_adjudication":
+                            status = item.get("adjudication_status")
+                            res = "SUCCESS" if status == "MATCH" else ("FAILED" if status == "NO_MATCH" else "WARNING")
+                            events.append({
+                                "id": f"audit-{lid}-llm-{idx}",
+                                "timestamp": ts_formatted,
+                                "action": f"LLM Adjudication: {item.get('field_type', 'Field')}",
+                                "component": "VLM Fallback",
+                                "result": res,
+                                "confidence": round(float(item.get("confidence", 0.85)) * 100, 1),
+                                "caseId": lid,
+                                "detail": f"Values: '{item.get('value_a')}' vs '{item.get('value_b')}' — {item.get('reason', '')}",
+                            })
+                        elif entry_type == "human_adjudication_decision":
+                            dec = str(item.get("decision", "APPROVE")).upper()
+                            res = "SUCCESS" if "APPROVE" in dec else "FAILED"
+                            events.append({
+                                "id": f"audit-{lid}-human-{idx}",
+                                "timestamp": ts_formatted,
+                                "action": f"Human review override: {item.get('checkpoint_name', 'Checkpoint')}",
+                                "component": "Validation",
+                                "result": res,
+                                "confidence": 100.0,
+                                "caseId": lid,
+                                "detail": f"Decision: {dec} by {item.get('adjudicated_by', 'Operator')}. Notes: {item.get('notes') or 'N/A'}",
+                            })
+                        elif entry_type == "llm_adjudication_error":
+                            events.append({
+                                "id": f"audit-{lid}-err-{idx}",
+                                "timestamp": ts_formatted,
+                                "action": f"LLM Adjudication Fallback: {item.get('field_type', 'Field')}",
+                                "component": "VLM Fallback",
+                                "result": "WARNING",
+                                "confidence": 50.0,
+                                "caseId": lid,
+                                "detail": f"Error: {item.get('error', 'Service error')}",
+                            })
+            except Exception as e:
+                logger.warning("Failed parsing audit_log.json for %s: %s", lid, e)
+
+        # 2. Pipeline status node events
+        status_file = loan_dir / "status.json"
+        if status_file.exists():
+            try:
+                s_data = read_json(status_file)
+                ts_raw = s_data.get("updated_at", "")
+                ts_formatted = ts_raw[11:19] if "T" in ts_raw and len(ts_raw) >= 19 else (ts_raw or "10:30:00")
+                node_history = s_data.get("node_history", [])
+
+                node_labels = {
+                    "fetch": ("Document & Metadata Fetch", "System", "SUCCESS", "LOS application data and DMS documents staged"),
+                    "extract": ("Docling Layout & RapidOCR Extraction", "Docling", "SUCCESS", "Document layout parsing and field extraction completed"),
+                    "comparison": ("DGCL Rule Verification Evaluation", "Validation", "SUCCESS", "Rules evaluated across identity, financial, and loan terms"),
+                    "checker": ("Cross-Checkpoint Consistency Check", "Validation", "WARNING" if s_data.get("errors") else "SUCCESS", "Validation gate and data presence audit"),
+                    "scorecard": ("DGCL Scorecard Decision Generated", "DGCL Engine", "SUCCESS", "Weighted risk score and preliminary decision computed"),
+                    "push": ("Downstream LOS Result Push", "System", "SUCCESS", "Scorecard artifacts delivered to S3 and LOS queue"),
+                }
+                for node_key in node_history:
+                    if node_key in node_labels:
+                        action, comp, res, desc = node_labels[node_key]
+                        events.append({
+                            "id": f"audit-{lid}-node-{node_key}",
+                            "timestamp": ts_formatted,
+                            "action": action,
+                            "component": comp,
+                            "result": res,
+                            "caseId": lid,
+                            "detail": desc,
+                        })
+            except Exception as e:
+                logger.warning("Failed parsing status.json for %s: %s", lid, e)
+
+        # 3. Scorecard summary event
+        sc_file = loan_dir / "scorecard.json"
+        if sc_file.exists():
+            try:
+                sc_data = read_json(sc_file)
+                dec = sc_data.get("preliminary_decision", "COMPLETED")
+                res = "SUCCESS" if dec == "AUTO_APPROVE_ELIGIBLE" else ("FAILED" if dec == "REJECT_OR_FLAG" else "WARNING")
+                events.append({
+                    "id": f"audit-{lid}-scorecard-decision",
+                    "timestamp": "10:32:00",
+                    "action": f"Scorecard Decision: {dec}",
+                    "component": "DGCL Engine",
+                    "result": res,
+                    "caseId": lid,
+                    "detail": f"DGCL Scorecard completed with preliminary decision: {dec}",
+                })
+            except Exception as e:
+                logger.warning("Failed parsing scorecard.json for %s: %s", lid, e)
+
+    return sorted(events, key=lambda x: (x.get("caseId", ""), x.get("timestamp", "")), reverse=True)
+
+
+@router.get("/audit", summary="Get audit events across loans")
+def get_audit_events(case_id: str | None = None):
+    return _get_audit_events(target_case_id=case_id)
+
 
