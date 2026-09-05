@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Menu, Bell, Clock, Activity } from 'lucide-react';
+import { Search, Menu, Activity } from 'lucide-react';
 import { useDebounced } from '@/hooks/useDebounced';
 import { useNavigate } from 'react-router-dom';
 import { node2Api } from '@/api/node2';
@@ -64,15 +64,6 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             Node 2 IDP: {node2Status === 'connected' ? 'Connected' : node2Status === 'offline' ? 'Offline' : 'Connecting...'}
           </span>
         </div>
-
-        <div className="hidden md:flex items-center gap-1.5 text-xs text-ink-500 px-2.5 py-1.5 rounded-md bg-ink-50 border border-ink-200">
-          <Clock className="h-3.5 w-3.5" aria-hidden />
-          Session 28:14
-        </div>
-        <button className="btn-ghost px-2 py-1.5 relative" aria-label="Notifications">
-          <Bell className="h-5 w-5" />
-          <span className="absolute top-1 right-1.5 h-2 w-2 rounded-full bg-discrepancy-500" />
-        </button>
       </div>
     </header>
   );

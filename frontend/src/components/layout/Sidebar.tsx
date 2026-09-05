@@ -8,8 +8,6 @@ import {
   BarChart3,
   History,
   Settings,
-  Activity,
-  ShieldAlert,
 } from 'lucide-react';
 
 const nav = [
@@ -60,29 +58,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             </NavLink>
           ))}
         </nav>
-
-        <div className="px-3 py-3 border-t border-ink-800 space-y-2">
-          <div className="flex items-center gap-2 px-2 text-xs">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-verified-500 opacity-60 animate-ping" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-verified-500" />
-            </span>
-            <span className="text-ink-400 flex items-center gap-1.5">
-              <Activity className="h-3.5 w-3.5" /> All systems operational
-            </span>
-          </div>
-          <div className="flex items-center gap-2.5 px-2 pt-1">
-            <div className="h-8 w-8 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-semibold">
-              SK
-            </div>
-            <div className="leading-tight min-w-0">
-              <p className="text-sm font-medium text-white truncate">S. Kulkarni</p>
-              <p className="text-[11px] text-ink-400 flex items-center gap-1">
-                <ShieldAlert className="h-3 w-3" /> Verification Officer
-              </p>
-            </div>
-          </div>
-        </div>
       </aside>
     </>
   );
