@@ -337,43 +337,97 @@ def serialize_case(loan_id: str) -> dict:
     )
 
     # CP 4: KYC
-    r4_pan = records_by_id.get("chk_kyc_pan") or records_by_id.get("chk_pan_number")
-    r4_addr = records_by_id.get("chk_kyc_address_proof")
-    st4 = "VERIFIED"
-    if (r4_pan and r4_pan.get("match_status") == "MISMATCH") or (r4_addr and r4_addr.get("match_status") == "MISMATCH"):
-        st4 = "DISCREPANCY"
-    elif (r4_pan and r4_pan.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r4_addr and r4_addr.get("match_status") in ("PARTIAL", "NOT_FOUND")):
-        st4 = "INDETERMINATE"
-    elif not r4_pan and not r4_addr and not kyc_pan and not kyc_addr:
-        st4 = "INDETERMINATE"
+    r4_pan = (
+        records_by_id.get("chk_loan_kyc_pan_pan_number_vs_los")
+        or records_by_id.get("chk_loan_kyc_application_form_pan_number_vs_los")
+        or records_by_id.get("chk_kyc_pan")
+        or records_by_id.get("chk_pan_number")
+    )
+    r4_addr = (
+        records_by_id.get("chk_loan_kyc_aadhaar_address_vs_los")
+        or records_by_id.get("chk_kfs_sanction_application_form_current_address_vs_los")
+        or records_by_id.get("chk_kyc_address_proof")
+    )
 
-    pan_num = kyc_pan.get("pan_number") or los_data.get("pan")
-    addr_val = kyc_addr.get("address_text") or app_form.get("address_text")
+    doc_pan = kyc_pan.get("pan_number") or app_form.get("pan_number") or (r4_pan.get("values")[0] if r4_pan and r4_pan.get("values") else None)
+    los_pan = los_data.get("applicant_pan_number") or los_data.get("pan") or (r4_pan.get("values")[1] if r4_pan and len(r4_pan.get("values", [])) > 1 else None)
+
+    doc_addr = kyc_addr.get("address_text") or kyc_addr.get("address") or app_form.get("current_address") or app_form.get("address_text") or (r4_addr.get("values")[0] if r4_addr and r4_addr.get("values") else None)
+    los_addr = los_data.get("current_address") or los_data.get("permanent_address") or (r4_addr.get("values")[1] if r4_addr and len(r4_addr.get("values", [])) > 1 else None)
+
+    has_pan_doc = bool(doc_pan)
+    has_addr_doc = bool(doc_addr)
+
+    # Determine status
+    if not has_pan_doc and not has_addr_doc:
+        st4 = "INDETERMINATE"
+    elif not has_pan_doc or not has_addr_doc:
+        # One of the mandatory KYC proofs is missing (e.g. only 1 PAN uploaded, no address proof)
+        if (r4_pan and r4_pan.get("match_status") == "MISMATCH") or (doc_pan and los_pan and str(doc_pan).strip().upper() != str(los_pan).strip().upper()):
+            st4 = "DISCREPANCY"
+        elif r4_addr and r4_addr.get("match_status") == "MISMATCH":
+            st4 = "DISCREPANCY"
+        else:
+            st4 = "INDETERMINATE"
+    else:
+        # Both PAN and Address documents/data are present
+        if (r4_pan and r4_pan.get("match_status") == "MISMATCH") or (r4_addr and r4_addr.get("match_status") == "MISMATCH"):
+            st4 = "DISCREPANCY"
+        elif doc_pan and los_pan and str(doc_pan).strip().upper() != str(los_pan).strip().upper():
+            st4 = "DISCREPANCY"
+        elif (r4_pan and r4_pan.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r4_addr and r4_addr.get("match_status") in ("PARTIAL", "NOT_FOUND")):
+            st4 = "INDETERMINATE"
+        else:
+            st4 = "VERIFIED"
 
     fields_4 = []
     ev_4 = []
-    if pan_num:
-        fields_4.append(build_field("PAN Number", str(pan_num), 99.0, f"doc-{loan_id}-pan"))
+    if doc_pan:
+        fields_4.append(build_field("PAN Number", str(doc_pan), 99.0, f"doc-{loan_id}-pan"))
         ev_4.append(build_evidence(f"doc-{loan_id}-pan", "PAN.pdf", "PAN Card Document", 1, "PAN"))
-    if addr_val:
-        fields_4.append(build_field("Address", str(addr_val)[:80], 95.0, f"doc-{loan_id}-kyc"))
+    if doc_addr:
+        fields_4.append(build_field("Address", str(doc_addr)[:80], 95.0, f"doc-{loan_id}-kyc"))
         ev_4.append(build_evidence(f"doc-{loan_id}-kyc", "Address_Proof.pdf", "Address Proof", 1, "Address"))
 
     if not fields_4:
         fields_4.append(build_field("KYC Documents", "Not Uploaded", 0.0, f"doc-{loan_id}"))
-        st4 = "INDETERMINATE"
+
+    pan_label = f"PAN ({doc_pan})" if doc_pan else "PAN (Missing)"
+    addr_label = "Address proof verified" if has_addr_doc else "Address proof missing"
+    if st4 == "VERIFIED":
+        kyc_notes = f"{pan_label} and {addr_label} verified against LOS."
+        conf_4 = 97.0
+    elif st4 == "DISCREPANCY":
+        kyc_notes = f"KYC discrepancy detected: {pan_label} or address does not match LOS."
+        conf_4 = 95.0
+    elif has_pan_doc and not has_addr_doc:
+        kyc_notes = f"{pan_label} present, but mandatory Address Proof document is missing."
+        conf_4 = 50.0
+    elif has_addr_doc and not has_pan_doc:
+        kyc_notes = "Address proof present, but mandatory PAN Card document is missing."
+        conf_4 = 50.0
+    else:
+        kyc_notes = "Mandatory KYC documents (PAN and Address Proof) not uploaded."
+        conf_4 = 0.0
+
+    left_val = str(doc_pan or "N/A")
+    right_val = str(los_pan or "N/A")
+    if doc_pan and los_pan and str(doc_pan).strip().upper() == str(los_pan).strip().upper():
+        val_result = "MATCH"
+    else:
+        val_result = "MISMATCH"
 
     checkpoints.append(
         build_checkpoint(
             4,
             "KYC",
             st4,
-            97.0 if st4 == "VERIFIED" else (0.0 if not fields_4 or fields_4[0]["confidence"] == 0.0 else 60.0),
-            f"PAN ({pan_num or 'Missing'}) and Address proof verification.",
+            conf_4,
+            kyc_notes,
             "PAN and Address proof are mandatory and must match application form.",
             fields_4,
             ev_4,
-            {"left": str(pan_num or "N/A"), "right": str(pan_num or "N/A"), "result": "MATCH" if st4 == "VERIFIED" else "MISMATCH"},
+            {"left": left_val, "right": right_val, "result": val_result},
         )
     )
 
