@@ -20,5 +20,6 @@
   "emi": null,
   "aadhaar_xml_present": false,
   "loan_agreement_present": true,
-  "loan_agreement_signed": true
+  "loan_agreement_signed": true,
+  "customer_consent": false
 }

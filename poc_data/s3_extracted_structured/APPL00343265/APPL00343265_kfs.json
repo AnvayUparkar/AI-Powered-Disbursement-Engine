@@ -20,5 +20,6 @@
   "emi": 35652,
   "aadhaar_xml_present": false,
   "loan_agreement_present": false,
-  "loan_agreement_signed": false
+  "loan_agreement_signed": false,
+  "customer_consent": true
 }

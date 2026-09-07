@@ -87,6 +87,8 @@ FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
 KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "aadhaar": [
         {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name", "full_name"]},
+        {"doc_field": "fathers_name", "los_field": "fathers_name", "method": "jaro_winkler", "aliases": ["father_name"]},
+        {"doc_field": "gender", "los_field": "applicant_gender", "method": "exact_string_ci", "aliases": ["applicant_gender"]},
         {"doc_field": "address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["current_address", "address_text"]},
         {"doc_field": "aadhaar_number", "los_field": "aadhaar_no", "method": "masked_aadhaar", "aliases": ["aadhaar", "aadhaar_no", "uid"]},
         {"doc_field": "mobile_no", "los_field": "applicant_mobile_no", "method": "exact_string", "aliases": ["applicant_mobile_no", "mobile", "phone"]},
@@ -129,6 +131,8 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["funding_amount", "amount"]},
         {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
         {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
+        {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
+        {"doc_field": "emi", "los_field": "emi", "method": "exact_numeric", "aliases": ["monthly_emi", "emi_amount"]},
         {"doc_field": "customer_consent", "los_field": None, "method": "presence_only", "aliases": ["consent", "is_consented"]},
     ],
     "disbursal_memo": [
@@ -138,6 +142,15 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "sanction_letter": [
         {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name"]},
         {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["funding_amount", "amount", "sanctioned_amount"]},
+        {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
+        {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
+        {"doc_field": "emi", "los_field": "emi", "method": "exact_numeric", "aliases": ["monthly_emi", "emi_amount"]},
+        {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
+        {"doc_field": "mobile_no", "los_field": "applicant_mobile_no", "method": "exact_string", "aliases": ["applicant_mobile_no", "mobile", "phone"]},
+        {"doc_field": "address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["current_address", "address_text"]},
+    ],
+    "account_statement": [
+        {"doc_field": "current_address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["address", "address_text"]},
     ],
 }
 
@@ -146,6 +159,14 @@ LOAN_APP_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "application_form": [
         {"doc_field": "application_date", "los_field": "application_date", "method": "exact_date", "aliases": ["date_of_application", "app_date"]},
         {"doc_field": "application_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["application_id", "loan_id"]},
+    ],
+    "kfs": [
+        {"doc_field": "application_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["application_id", "loan_id"]},
+        {"doc_field": "application_date", "los_field": "application_date", "method": "exact_date", "aliases": ["date_of_application", "app_date"]},
+    ],
+    "sanction_letter": [
+        {"doc_field": "application_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["application_id", "loan_id"]},
+        {"doc_field": "application_date", "los_field": "application_date", "method": "exact_date", "aliases": ["date_of_application", "app_date"]},
     ],
     "disbursal_memo": [
         {"doc_field": "loan_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["loan_id", "loan_number", "application_id"]},

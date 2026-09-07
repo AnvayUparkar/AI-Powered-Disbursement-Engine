@@ -507,6 +507,38 @@ def _evaluate_comparison(
             "notes": None if is_match else f"String mismatch: '{raw_doc_val}' vs '{raw_los_val}'",
         }
 
+    if method == "exact_numeric":
+        n_doc = clean_numeric(raw_doc_val)
+        n_los = clean_numeric(raw_los_val)
+        if n_doc is None or n_los is None:
+            return {
+                "check_id": check_id,
+                "subnode": subnode_name,
+                "field": doc_field,
+                "sources": [doc_type, "los"],
+                "values": [n_doc, n_los],
+                "match_type": "exact_numeric",
+                "match_status": "NOT_FOUND",
+                "confidence": 0.0,
+                "method": "exact_numeric",
+                "llm_used": False,
+                "notes": f"Could not parse numeric value: {raw_doc_val} vs {raw_los_val}",
+            }
+        is_match = abs(n_doc - n_los) < 0.01
+        return {
+            "check_id": check_id,
+            "subnode": subnode_name,
+            "field": doc_field,
+            "sources": [doc_type, "los"],
+            "values": [n_doc, n_los],
+            "match_type": "exact_numeric",
+            "match_status": "MATCH" if is_match else "MISMATCH",
+            "confidence": 1.0 if is_match else 0.0,
+            "method": "exact_numeric",
+            "llm_used": False,
+            "notes": None if is_match else f"Numeric mismatch: {n_doc} vs {n_los}",
+        }
+
     if method == "threshold_90":
         n_doc = clean_numeric(raw_doc_val)
         n_los = clean_numeric(raw_los_val)
