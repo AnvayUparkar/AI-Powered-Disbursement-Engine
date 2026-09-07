@@ -1,11 +1,102 @@
 """Case context and primitive building blocks for loan case serialization."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from config import FIELD_CRITICALITY_WEIGHTS
+from config import FIELD_CRITICALITY_WEIGHTS, IST
+
+
+def format_time_12h(dt_or_str: datetime | str | None) -> str:
+    """Formats datetime or time string into 12-hour format: '3:13 pm'."""
+    if not dt_or_str:
+        return ""
+    dt: datetime | None = None
+    if isinstance(dt_or_str, datetime):
+        dt = dt_or_str
+    elif isinstance(dt_or_str, str):
+        val = dt_or_str.strip()
+        if re.match(r"^\d{1,2}:\d{2}\s?(am|pm)$", val, re.I):
+            parts = val.split()
+            return f"{parts[0]} {parts[1].lower()}" if len(parts) == 2 else val.lower()
+        try:
+            dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(IST)
+        except (ValueError, TypeError):
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    parsed_t = datetime.strptime(val, fmt).time()
+                    now_ist = datetime.now(IST)
+                    dt = datetime.combine(now_ist.date(), parsed_t, tzinfo=IST)
+                    break
+                except ValueError:
+                    continue
+    if not dt:
+        return str(dt_or_str)
+
+    hour = dt.strftime("%I").lstrip("0") or "12"
+    minute_meridiem = dt.strftime("%M %p").lower()
+    return f"{hour}:{minute_meridiem}"
+
+
+def format_date_dmy(val: datetime | str | None) -> str | None:
+    """Formats datetime or date string into DD/MM/YYYY."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, datetime):
+        return val.strftime("%d/%m/%Y")
+    if isinstance(val, str):
+        v = val.strip()
+        if re.match(r"^\d{2}/\d{2}/\d{4}$", v):
+            return v
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+            try:
+                d = datetime.strptime(v.split("T")[0], fmt)
+                return d.strftime("%d/%m/%Y")
+            except ValueError:
+                continue
+        try:
+            d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            return d.strftime("%d/%m/%Y")
+        except (ValueError, TypeError):
+            pass
+    return str(val)
+
+
+def format_datetime_dmy_12h(val: datetime | str | None) -> str:
+    """Formats datetime into 'DD/MM/YYYY, 3:13 pm'."""
+    if val is None or val == "":
+        now = datetime.now(IST)
+        return f"{now.strftime('%d/%m/%Y')}, {format_time_12h(now)}"
+    dt: datetime | None = None
+    if isinstance(val, datetime):
+        dt = val
+    elif isinstance(val, str):
+        v = val.strip()
+        try:
+            parsed = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            dt = parsed.astimezone(IST)
+        except (ValueError, TypeError):
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(v, fmt).replace(tzinfo=IST)
+                    break
+                except ValueError:
+                    continue
+    if not dt:
+        now = datetime.now(IST)
+        return f"{now.strftime('%d/%m/%Y')}, {format_time_12h(now)}"
+
+    date_part = dt.strftime("%d/%m/%Y")
+    time_part = format_time_12h(dt)
+    return f"{date_part}, {time_part}"
 
 
 def inr_format(val: float | None) -> str:
@@ -13,6 +104,7 @@ def inr_format(val: float | None) -> str:
     if val is None:
         return "₹0"
     return f"₹{int(val):,}"
+
 
 
 def build_evidence(

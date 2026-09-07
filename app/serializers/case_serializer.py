@@ -29,6 +29,9 @@ from .case_context import (
     build_evidence,
     build_field,
     compute_checkpoint_confidence,
+    format_date_dmy,
+    format_datetime_dmy_12h,
+    format_time_12h,
     inr_format,
 )
 from .checkpoint_builders import build_all_checkpoints
@@ -166,13 +169,29 @@ def _discover_raw_document_names(loan_id: str, docs: dict[str, dict[str, Any]]) 
             ):
                 real_doc_names.append(f.name)
 
+    from config.doc_types import get_canonical_doc_type
+
     if not real_doc_names and docs:
         ignored_keys = {f"{loan_id}.json", "status.json", "dms_status.json", "face_embeddings.json"}
+        seen_keys: set[str] = set()
         for dk in docs:
-            if dk not in ignored_keys:
-                real_doc_names.append(f"{dk}.pdf")
+            if dk in ignored_keys:
+                continue
+            canon = get_canonical_doc_type(dk)
+            if canon not in seen_keys:
+                seen_keys.add(canon)
+                real_doc_names.append(f"{canon}.pdf")
 
-    return real_doc_names
+    # Deduplicate while preserving order across canonical document types
+    deduped: list[str] = []
+    seen_canon: set[str] = set()
+    for name in real_doc_names:
+        canon = get_canonical_doc_type(Path(name).stem)
+        if canon not in seen_canon:
+            seen_canon.add(canon)
+            deduped.append(name)
+
+    return deduped
 
 
 def _build_case_context(loan_id: str) -> CaseContext:
@@ -371,12 +390,12 @@ def _build_processing_steps(
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             base_time = dt.astimezone(IST)
-            formatted_last_updated = base_time.strftime("%Y-%m-%d %H:%M:%S")
+            formatted_last_updated = format_datetime_dmy_12h(base_time)
         except (ValueError, TypeError) as exc:
             logger.debug("Failed parsing updated_at '%s' for loan %s: %s", raw_upd, loan_id, exc)
-            formatted_last_updated = str(raw_upd)
+            formatted_last_updated = format_datetime_dmy_12h(raw_upd)
     else:
-        formatted_last_updated = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        formatted_last_updated = format_datetime_dmy_12h(datetime.now(IST))
 
     if not base_time:
         base_time = datetime.now(IST)
@@ -384,8 +403,10 @@ def _build_processing_steps(
     proc_steps: list[dict[str, Any]] = []
     for i, (node_key, component, label, conf) in enumerate(step_defs):
         is_done = node_key in history or "done" in history
-        start_t = (base_time - timedelta(seconds=(len(step_defs) - i) * 3)).strftime("%H:%M:%S")
-        end_t = (base_time - timedelta(seconds=(len(step_defs) - i - 1) * 3)).strftime("%H:%M:%S")
+        step_start_dt = base_time - timedelta(seconds=(len(step_defs) - i) * 3)
+        step_end_dt = base_time - timedelta(seconds=(len(step_defs) - i - 1) * 3)
+        start_t = format_time_12h(step_start_dt)
+        end_t = format_time_12h(step_end_dt)
         proc_steps.append({
             "id": f"step-{loan_id}-{node_key}",
             "component": component,
@@ -397,6 +418,44 @@ def _build_processing_steps(
         })
 
     return proc_steps, formatted_last_updated
+
+
+def _compute_dynamic_processing_time(
+    loan_id: str,
+    status_data: dict[str, Any],
+    doc_ids: list[str],
+    has_records: bool,
+) -> tuple[str, int]:
+    """Computes dynamic processing duration and formatted string."""
+    if not has_records and not doc_ids:
+        return "—", 0
+
+    started_at_str = status_data.get("started_at")
+    completed_at_str = status_data.get("completed_at") or status_data.get("updated_at")
+
+    elapsed_seconds: int | None = None
+    if started_at_str and completed_at_str:
+        try:
+            start_dt = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(completed_at_str.replace("Z", "+00:00"))
+            diff = (end_dt - start_dt).total_seconds()
+            if diff >= 0:
+                elapsed_seconds = max(1, round(diff))
+        except (ValueError, TypeError):
+            elapsed_seconds = None
+
+    if elapsed_seconds is None or elapsed_seconds <= 0:
+        history = status_data.get("node_history", [])
+        elapsed_seconds = max(1, len(history) * 2)
+
+    minutes = elapsed_seconds // 60
+    seconds = elapsed_seconds % 60
+    if minutes > 0:
+        time_str = f"{minutes}m {seconds:02d}s"
+    else:
+        time_str = f"{seconds}s"
+
+    return time_str, elapsed_seconds
 
 
 def serialize_case(loan_id: str) -> dict[str, Any]:
@@ -420,6 +479,19 @@ def serialize_case(loan_id: str) -> dict[str, Any]:
         dgcl_score=dgcl_score,
     )
 
+    proc_time_str, proc_time_sec = _compute_dynamic_processing_time(
+        loan_id=loan_id,
+        status_data=ctx.status_data,
+        doc_ids=ctx.doc_ids,
+        has_records=bool(ctx.records),
+    )
+
+    raw_login = ctx.los_data.get("login_date")
+    formatted_login = format_date_dmy(raw_login) or datetime.now(IST).strftime("%d/%m/%Y")
+    formatted_disbursal = (
+        datetime.now(IST).strftime("%d/%m/%Y") if overall_status == "VERIFIED" else None
+    )
+
     return {
         "id": loan_id,
         "applicant": ctx.applicant_name,
@@ -427,11 +499,11 @@ def serialize_case(loan_id: str) -> dict[str, Any]:
         "loanType": ctx.loan_type,
         "loanAmount": ctx.loan_amount,
         "disbursalAmount": ctx.disbursal_amount,
-        "loginDate": ctx.los_data.get("login_date") or datetime.now(IST).strftime("%Y-%m-%d"),
-        "disbursalDate": (datetime.now(IST).strftime("%Y-%m-%d")) if overall_status == "VERIFIED" else None,
+        "loginDate": formatted_login,
+        "disbursalDate": formatted_disbursal,
         "documentCount": len(ctx.doc_ids),
-        "processingTime": "2m 15s" if ctx.records else "—",
-        "processingTimeSeconds": 135 if ctx.records else 0,
+        "processingTime": proc_time_str,
+        "processingTimeSeconds": proc_time_sec,
         "dgclScore": round(dgcl_score, 1),
         "dgcl_score": round(dgcl_score, 1),
         "score": round(dgcl_score, 1),

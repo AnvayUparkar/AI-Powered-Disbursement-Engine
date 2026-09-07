@@ -233,7 +233,7 @@ export default function CaseDetailPage() {
         </div>
 
         {/* Summary grid */}
-        <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-3 mt-5 pt-5 border-t border-ink-100">
+        <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-x-6 gap-y-3 mt-5 pt-5 border-t border-ink-100">
           <div>
             <dt className="text-xs text-ink-500">Applicant</dt>
             <dd className="text-sm font-medium text-ink-800 mt-0.5">{c.applicant}</dd>
@@ -249,24 +249,8 @@ export default function CaseDetailPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-ink-500">Disbursal Amount</dt>
-            <dd className="text-sm font-medium text-ink-800 mt-0.5 tabular-nums">
-              {c.disbursalDate ? inr(c.disbursalAmount) : '—'}
-            </dd>
-          </div>
-          <div>
             <dt className="text-xs text-ink-500">Loan Type</dt>
             <dd className="text-sm font-medium text-ink-800 mt-0.5">{c.loanType}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-500">Login Date</dt>
-            <dd className="text-sm font-medium text-ink-800 mt-0.5">{c.loginDate}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-500">Disbursal Date</dt>
-            <dd className="text-sm font-medium text-ink-800 mt-0.5">
-              {c.disbursalDate ?? 'Pending'}
-            </dd>
           </div>
           <div>
             <dt className="text-xs text-ink-500">Documents</dt>

@@ -532,3 +532,99 @@ def test_serialize_all_cases_iterates_storage(tmp_path: Path, monkeypatch: pytes
     assert len(cases) == 2
     assert cases[0]["id"] == "LOAN_ITER_01"
     assert cases[1]["id"] == "LOAN_ITER_02"
+
+
+def test_dynamic_processing_time_computation():
+    """Validates dynamic calculation of processing time from timestamps and workload."""
+    from app.serializers.case_serializer import _compute_dynamic_processing_time
+
+    # 1. With explicit started_at and completed_at (e.g. 105 seconds = 1m 45s)
+    status_with_times = {
+        "started_at": "2026-09-07T10:00:00+05:30",
+        "completed_at": "2026-09-07T10:01:45+05:30",
+    }
+    time_str, time_sec = _compute_dynamic_processing_time(
+        loan_id="TEST_01",
+        status_data=status_with_times,
+        doc_ids=["doc1", "doc2"],
+        has_records=True,
+    )
+    assert time_sec == 105
+    assert time_str == "1m 45s"
+
+    # 2. Sub-minute duration (e.g. 42 seconds)
+    status_subminute = {
+        "started_at": "2026-09-07T10:00:00+05:30",
+        "completed_at": "2026-09-07T10:00:42+05:30",
+    }
+    time_str_sub, time_sec_sub = _compute_dynamic_processing_time(
+        loan_id="TEST_02",
+        status_data=status_subminute,
+        doc_ids=["doc1"],
+        has_records=True,
+    )
+    assert time_sec_sub == 42
+    assert time_str_sub == "42s"
+
+    # 3. Fallback when started_at is missing: dynamic based on doc count & history
+    status_fallback = {"node_history": ["fetch_los", "fetch_dms", "done"]}
+    time_str_fb, time_sec_fb = _compute_dynamic_processing_time(
+        loan_id="TEST_FALLBACK",
+        status_data=status_fallback,
+        doc_ids=["d1", "d2", "d3"],
+        has_records=True,
+    )
+    assert time_sec_fb > 0
+    assert time_str_fb != "2m 15s"  # Not hardcoded!
+
+    # 4. Empty case
+    time_str_empty, time_sec_empty = _compute_dynamic_processing_time(
+        loan_id="TEST_EMPTY",
+        status_data={},
+        doc_ids=[],
+        has_records=False,
+    )
+    assert time_sec_empty == 0
+    assert time_str_empty == "—"
+
+
+def test_date_and_time_formatting_helpers():
+    """Validates 12-hour time and DD/MM/YYYY date formatting across various inputs."""
+    import re
+    from datetime import datetime, timezone
+    from app.serializers.case_context import (
+        format_date_dmy,
+        format_datetime_dmy_12h,
+        format_time_12h,
+    )
+
+    # 1. 12-hour time tests (e.g. 3:13 pm)
+    time_regex = re.compile(r"^\d{1,2}:\d{2}\s(am|pm)$")
+    dt_afternoon = datetime(2026, 9, 7, 15, 13, 0)
+    assert format_time_12h(dt_afternoon) == "3:13 pm"
+    assert time_regex.match(format_time_12h(dt_afternoon))
+
+    dt_morning = datetime(2026, 9, 7, 9, 5, 0)
+    assert format_time_12h(dt_morning) == "9:05 am"
+
+    dt_midnight = datetime(2026, 9, 7, 0, 30, 0)
+    assert format_time_12h(dt_midnight) == "12:30 am"
+
+    dt_noon = datetime(2026, 9, 7, 12, 0, 0)
+    assert format_time_12h(dt_noon) == "12:00 pm"
+
+    assert format_time_12h("15:13:00") == "3:13 pm"
+    assert format_time_12h("03:13 pm") == "03:13 pm"
+
+    # 2. DD/MM/YYYY date tests
+    date_regex = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+    assert format_date_dmy("2026-09-07") == "07/09/2026"
+    assert format_date_dmy("2026-08-12") == "12/08/2026"
+    assert format_date_dmy(datetime(2026, 9, 7)) == "07/09/2026"
+    assert format_date_dmy(None) is None
+
+    # 3. Combined date and 12-hour time
+    dt_combined = datetime(2026, 9, 7, 15, 13, 0)
+    res_comb = format_datetime_dmy_12h(dt_combined)
+    assert res_comb == "07/09/2026, 3:13 pm"
+

@@ -92,15 +92,32 @@ def update_status(
             if e not in errs:
                 errs.append(e)
 
+    now_iso = datetime.now(IST).isoformat()
+    # Reset timestamps on a fresh pipeline execution
+    if current_node == "fetch_los":
+        started_at = now_iso
+        completed_at = None
+    else:
+        started_at = status_data.get("started_at") or now_iso
+        completed_at = status_data.get("completed_at")
+
+    if current_node == "done":
+        completed_at = now_iso
+
     status_data = {
         "loan_id": loan_id,
         "current_node": current_node,
         "node_history": node_history if node_history is not None else history,
         "errors": errs,
-        "updated_at": datetime.now(IST).isoformat(),
+        "started_at": started_at,
+        "updated_at": now_iso,
     }
+    if completed_at:
+        status_data["completed_at"] = completed_at
+
     write_json(status_path, status_data)
     return status_data
+
 
 
 def list_loan_ids() -> list[str]:

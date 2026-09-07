@@ -46,7 +46,10 @@ class DocumentRegistry:
         with self._lock:
             detected_type = doc_type or self._guess_doc_type(filename)
             assoc_case = case_id or "GENERAL"
-            upload_date = datetime.now().strftime("%Y-%m-%d")
+            now_dt = datetime.now()
+            upload_date = now_dt.strftime("%d/%m/%Y")
+            hour_str = now_dt.strftime("%I").lstrip("0") or "12"
+            time_12h = f"{hour_str}:{now_dt.strftime('%M %p').lower()}"
 
             pages_count = 1
             confidence = 96.5
@@ -58,14 +61,14 @@ class DocumentRegistry:
                     "component": "Docling",
                     "status": "COMPLETED",
                     "detail": "Docling parsed document structure",
-                    "startedAt": datetime.now().strftime("%H:%M:%S"),
+                    "startedAt": time_12h,
                 },
                 {
                     "id": f"stp-{doc_id}-2",
                     "component": "PaddleOCR",
                     "status": "COMPLETED",
                     "detail": "RapidOCR PP-OCRv6 extracted text",
-                    "startedAt": datetime.now().strftime("%H:%M:%S"),
+                    "startedAt": time_12h,
                     "confidence": 95.0,
                 },
             ]
@@ -478,7 +481,7 @@ class DocumentRegistry:
                     "extractionStatus": "COMPLETED" if has_data else "PENDING",
                     "confidence": 98.0 if has_data else 95.0,
                     "vlmUsed": bool(ext_data.get("_vlm_used", False)),
-                    "uploadedAt": datetime.now().strftime("%Y-%m-%d"),
+                    "uploadedAt": datetime.now().strftime("%d/%m/%Y"),
                     "caseId": c_id,
                     "sizeKb": size_kb,
                     "extractedFields": extracted_fields,
@@ -491,7 +494,7 @@ class DocumentRegistry:
                             "component": "PaddleOCR",
                             "status": "COMPLETED" if has_data else "PENDING",
                             "detail": f"{doc_filename} OCR processing",
-                            "startedAt": "10:30:00",
+                            "startedAt": "10:30 am",
                             "confidence": 98.0,
                         }
                     ],
