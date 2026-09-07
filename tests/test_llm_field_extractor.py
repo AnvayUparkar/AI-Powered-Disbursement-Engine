@@ -135,12 +135,9 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
         "loan_amount": "500000",
         "loan_validity": "24 months",
         "loan_type": "Personal Loan",
-        "loan_account_no": "LOAN_001",
         "loan_no": "LOAN_001",
         "application_no": "APP_001",
         "application_date": "2024-01-10",
-        "login_date": "2024-01-11",
-        "disbursement_date": "2024-01-15",
         "customer_consent": True,
     }
 
@@ -181,12 +178,9 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
         "loan_amount": None,
         "loan_validity": None,
         "loan_type": None,
-        "loan_account_no": None,
         "loan_no": None,
         "application_no": None,
         "application_date": None,
-        "login_date": None,
-        "disbursement_date": None,
         "customer_consent": None,
     }
 

@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent
 POC_DATA = BASE_DIR / "poc_data"
 
 # Ensure directories
-for folder in ["los/loans", "los/scorecards_received", "dms", "s3_raw", "s3_extracted", "s3_result"]:
+for folder in ["los/loans", "los/scorecards_received", "dms", "s3_los", "s3_raw", "s3_extracted", "s3_extracted_structured", "s3_result"]:
     (POC_DATA / folder).mkdir(parents=True, exist_ok=True)
 
 # Minimal valid PDF content
@@ -77,6 +77,7 @@ def create_loan_001():
         "application_id": "LOAN_001",
         "pan": "ABCDE1234F",
         "status": "APPROVED_FOR_DISBURSAL",
+        "balance_transfer": 0,
     }
     with open(POC_DATA / f"los/loans/{loan_id}.json", "w") as f:
         json.dump(los_data, f, indent=2)
@@ -109,8 +110,6 @@ def create_loan_001():
             "current_address": "123 MG Road, Bengaluru, Karnataka, 560001",
             "application_date": "2024-01-10",
             "application_no": "LOAN_001",
-            "login_date": "2024-01-11",
-            "disbursement_date": "2024-01-15",
             "tenure_months": 24,
             "address_text": "123 MG Road, Bengaluru, Karnataka, 560001",
             "application_id": "LOAN_001",
@@ -153,7 +152,6 @@ def create_loan_001():
             "funding_amount": 500000.0,
             "loan_validity": "24 months",
             "loan_type": "Personal Loan",
-            "loan_account_no": "LOAN_001",
             "customer_consent": True,
             "bpi_charge": 1500.0,
             "broken_period_interest": 1500.0,
@@ -221,6 +219,7 @@ def create_loan_002():
         "application_id": "LOAN_002",
         "pan": "XYZPK9988A",
         "status": "UNDER_REVIEW",
+        "balance_transfer": 0,
     }
     with open(POC_DATA / f"los/loans/{loan_id}.json", "w") as f:
         json.dump(los_data, f, indent=2)
@@ -251,8 +250,6 @@ def create_loan_002():
             "current_address": "45 Park Street, Kolkata, West Bengal, 700016",
             "application_date": "2024-02-01",
             "application_no": "LOAN_002",
-            "login_date": "2024-02-02",
-            "disbursement_date": "2024-02-10",
             "tenure_months": 36,
             "address_text": "45 Park Street, Kolkata, West Bengal, 700016",
             "application_id": "LOAN_002",
@@ -297,7 +294,6 @@ def create_loan_002():
             "funding_amount": 400000.0,
             "loan_validity": "36 months",
             "loan_type": "Home Loan",
-            "loan_account_no": "LOAN_002",
             "customer_consent": True,
             "bpi_charge": 2000.0,
             "broken_period_interest": 2000.0,
@@ -366,6 +362,7 @@ def create_loan_003():
         "application_id": "LOAN_003",
         "pan": "MNOPQ5544Z",
         "status": "APPROVED",
+        "balance_transfer": 0,
     }
     with open(POC_DATA / f"los/loans/{loan_id}.json", "w") as f:
         json.dump(los_data, f, indent=2)
@@ -397,8 +394,6 @@ def create_loan_003():
             "current_address": "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001",
             "application_date": "2024-03-05",
             "application_no": "LOAN_003",
-            "login_date": "2024-03-06",
-            "disbursement_date": "2024-03-12",
             "tenure_months": 12,
             "address_text": "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001",
             "application_id": "LOAN_003",
@@ -441,7 +436,6 @@ def create_loan_003():
             "funding_amount": 300000.0,
             "loan_validity": "12 months",
             "loan_type": "Two Wheeler Loan",
-            "loan_account_no": "LOAN_003",
             "customer_consent": True,
             "bpi_charge": 800.0,
             "broken_period_interest": 800.0,
@@ -484,7 +478,71 @@ def create_loan_003():
 
 
 if __name__ == "__main__":
+    import shutil
     create_loan_001()
     create_loan_002()
     create_loan_003()
-    print("Mock data generated successfully for LOAN_001, LOAN_002, LOAN_003")
+
+    # Mirror to s3_los and s3_extracted_structured
+    s3_los_dir = POC_DATA / "s3_los"
+    s3_los_dir.mkdir(parents=True, exist_ok=True)
+    for lf in (POC_DATA / "los/loans").glob("*.json"):
+        shutil.copy2(lf, s3_los_dir / lf.name)
+
+    s3_struct_dir = POC_DATA / "s3_extracted_structured"
+    s3_struct_dir.mkdir(parents=True, exist_ok=True)
+    for ext_case_dir in (POC_DATA / "s3_extracted").iterdir():
+        if ext_case_dir.is_dir():
+            target_case_dir = s3_struct_dir / ext_case_dir.name
+            target_case_dir.mkdir(parents=True, exist_ok=True)
+            for jf in ext_case_dir.glob("*.json"):
+                shutil.copy2(jf, target_case_dir / jf.name)
+
+    # Populate s3_result with baseline verification reports and scorecards
+    from pipeline.storage import get_s3_los, get_all_s3_extracted_structured
+    from pipeline.nodes.check_kyc import check_kyc
+    from pipeline.nodes.check_financial import check_financial
+    from pipeline.nodes.check_loan_application import check_loan_application
+    from pipeline.nodes.compile_report import compile_report
+    from pipeline.nodes.generate_scorecard import generate_scorecard
+    from pipeline.nodes.push_results import push_results
+
+    for loan_id in ["LOAN_001", "LOAN_002", "LOAN_003"]:
+        los_data = get_s3_los(loan_id) or {}
+        struct_data = get_all_s3_extracted_structured(loan_id)
+        state = {
+            "loan_id": loan_id,
+            "application_id": los_data.get("application_id", loan_id),
+            "los_data": los_data,
+            "raw_doc_paths": {},
+            "extracted_data": struct_data,
+            "extracted_structured_data": struct_data,
+            "face_embeddings": struct_data.get("face_embeddings", {}),
+            "dms_status": struct_data.get("dms_status", {}),
+            "otp_audit": {"otp_verified": True} if loan_id != "LOAN_002" else {"otp_verified": False},
+            "kyc_comparison_results": [],
+            "financial_comparison_results": [],
+            "loan_app_comparison_results": [],
+            "comparison_results": [],
+            "subnode_rollups": {},
+            "scorecard": {},
+            "audit_log": [],
+            "errors": [],
+            "node_history": ["fetch_los", "fetch_dms", "idp_scan", "llm_structure"],
+        }
+        s1 = check_kyc(state)
+        s2 = check_financial(state)
+        s3 = check_loan_application(state)
+        state["kyc_comparison_results"] = s1["records"]
+        state["financial_comparison_results"] = s2["records"]
+        state["loan_app_comparison_results"] = s3["records"]
+        state["kyc_rollup"] = s1["rollup"]
+        state["financial_rollup"] = s2["rollup"]
+        state["loan_app_rollup"] = s3["rollup"]
+        state = compile_report(state)
+        state = generate_scorecard(state)
+        state = push_results(state)
+
+    print("Mock data and s3_results generated successfully for LOAN_001, LOAN_002, LOAN_003 across all storage tiers")
+
+

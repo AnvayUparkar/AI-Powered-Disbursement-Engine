@@ -1,12 +1,19 @@
 import pytest
 
 from pipeline.nodes.comparison_utils import (
+    clean_aadhaar,
     clean_id,
     clean_numeric,
     clean_string,
+    compare_aadhaar,
     compare_bpi_doc_to_doc,
+    compare_tenure,
     compute_tfidf_cosine,
+    extract_field_value,
+    is_masked_aadhaar,
+    mask_aadhaar,
     normalize_date,
+    normalize_tenure_months,
     resolve_doc_data,
     run_field_checks,
 )
@@ -149,3 +156,116 @@ def test_compare_bpi_doc_to_doc():
     # Neither present -> None (optional gracefully skipped)
     rec_none = compare_bpi_doc_to_doc(None, None, "kfs_sanction")
     assert rec_none is None
+
+
+def test_aadhaar_helpers():
+    assert clean_aadhaar("XXXX XXXX 5552") == "XXXXXXXX5552"
+    assert clean_aadhaar("1234-5678-9012") == "123456789012"
+    assert clean_aadhaar(None) == ""
+    assert clean_aadhaar("") == ""
+
+    assert is_masked_aadhaar("XXXXXXXX5552") is True
+    assert is_masked_aadhaar("XXXX-XXXX-5552") is True
+    assert is_masked_aadhaar("****-****-5552") is True
+    assert is_masked_aadhaar("123456789012") is False
+    assert is_masked_aadhaar(None) is False
+
+    assert mask_aadhaar("123456789012") == "XXXXXXXX9012"
+    assert mask_aadhaar("123456789012", group_format=True) == "XXXX XXXX 9012"
+    assert mask_aadhaar("XXXXXXXX5552") == "XXXXXXXX5552"
+    assert mask_aadhaar("123") is None
+    assert mask_aadhaar(None) is None
+
+
+def test_compare_aadhaar():
+    # Masked vs Masked with identical last 4
+    m, note, conf = compare_aadhaar("XXXXXXXX 5552", "XXXXXXXX5552")
+    assert m is True
+    assert conf == 1.0
+
+    # Masked vs Full 12 digits with identical last 4
+    m, note, conf = compare_aadhaar("XXXXXXXX5552", "999988885552")
+    assert m is True
+    assert conf == 1.0
+
+    # Exact 12 digits match
+    m, note, conf = compare_aadhaar("123456789012", "123456789012")
+    assert m is True
+    assert conf == 1.0
+
+    # Last 4 mismatch
+    m, note, conf = compare_aadhaar("XXXXXXXX5552", "XXXXXXXX1234")
+    assert m is False
+    assert conf == 0.0
+
+    # Exact 12 digits mismatch
+    m, note, conf = compare_aadhaar("123456789012", "123456789099")
+    assert m is False
+    assert conf == 0.0
+
+    # Missing / None
+    m, note, conf = compare_aadhaar(None, "XXXXXXXX5552")
+    assert m is False
+    assert conf == 0.0
+
+
+def test_tenure_helpers():
+    assert normalize_tenure_months(36) == 36
+    assert normalize_tenure_months("36") == 36
+    assert normalize_tenure_months("36 months") == 36
+    assert normalize_tenure_months("36m") == 36
+    assert normalize_tenure_months("3 years") == 36
+    assert normalize_tenure_months("2.5 years") == 30
+    assert normalize_tenure_months("1 yr") == 12
+    assert normalize_tenure_months(None) is None
+    assert normalize_tenure_months("") is None
+    assert normalize_tenure_months("invalid") is None
+
+
+def test_compare_tenure():
+    m, note, conf = compare_tenure(36, "36")
+    assert m is True
+    assert conf == 1.0
+
+    m, note, conf = compare_tenure("36 months", "3 years")
+    assert m is True
+    assert conf == 1.0
+
+    m, note, conf = compare_tenure(36, 48)
+    assert m is False
+    assert conf == 0.0
+
+    m, note, conf = compare_tenure("invalid", 36)
+    assert m is False
+    assert conf == 0.0
+
+
+def test_extract_field_value_with_aliases():
+    # Uses centralized FIELD_ALIASES
+    assert extract_field_value({"tenure": 36}, "loan_validity") == 36
+    assert extract_field_value({"tenure_months": 24}, "loan_validity") == 24
+    assert extract_field_value({"loan_amount": 500000}, "loan_amount") == 500000
+    assert extract_field_value({"funding_amount": 500000}, "loan_amount") == 500000
+    assert extract_field_value({}, "loan_validity") is None
+    assert extract_field_value(None, "loan_validity") is None
+
+
+def test_run_field_checks_aadhaar_and_tenure():
+    # Masked Aadhaar check
+    doc_aadhaar = {"aadhaar_number": "XXXXXXXX 5552"}
+    los_aadhaar = {"aadhaar_number": "XXXXXXXX5552"}
+    kyc_checks = [{"doc_field": "aadhaar_number", "los_field": "aadhaar_number", "method": "masked_aadhaar"}]
+    rec_aadhaar = run_field_checks("aadhaar", doc_aadhaar, los_aadhaar, kyc_checks, "APPL00343265", "check_kyc")
+    assert len(rec_aadhaar) == 1
+    assert rec_aadhaar[0]["match_status"] == "MATCH"
+    assert rec_aadhaar[0]["match_type"] == "masked_id"
+
+    # Loan validity with alias resolution (doc has loan_validity, LOS has tenure)
+    doc_financial = {"loan_validity": 36}
+    los_financial = {"tenure": 36}
+    fin_checks = [{"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months"}]
+    rec_fin = run_field_checks("kfs", doc_financial, los_financial, fin_checks, "APPL00343265", "check_financial")
+    assert len(rec_fin) == 1
+    assert rec_fin[0]["match_status"] == "MATCH"
+    assert rec_fin[0]["match_type"] == "tenure"
+

@@ -98,7 +98,13 @@ export function UploadModal({
       setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 40 } : f)));
       try {
         const docId = `DOC-${Date.now().toString().slice(-6)}`;
-        const res = await node2Api.uploadAndProcess(qf.file, docId);
+        const res = await node2Api.uploadAndProcess(
+          qf.file,
+          docId,
+          undefined,
+          selectedCase || undefined,
+          qf.docType,
+        );
 
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
 

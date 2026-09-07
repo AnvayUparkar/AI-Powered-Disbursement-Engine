@@ -1,0 +1,9 @@
+{
+  "loan_amount": 500000.0,
+  "funding_amount": 500000.0,
+  "loan_validity": "24 months",
+  "loan_type": "Personal Loan",
+  "customer_consent": true,
+  "bpi_charge": 1500.0,
+  "broken_period_interest": 1500.0
+}

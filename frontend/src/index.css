@@ -91,3 +91,64 @@
   background: #a8b5c8;
   background-clip: content-box;
 }
+
+/* Print styles for PDF scorecard */
+@media screen {
+  #printable-scorecard-portal {
+    display: none !important;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 10mm 10mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+    color: #0f172a !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide entire React root application and any lingering backdrops */
+  #root,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Exclusively display the printable scorecard portal */
+  #printable-scorecard-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-avoid-break,
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+}
+

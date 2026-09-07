@@ -1,0 +1,19 @@
+{
+  "applicant_name": "Mohd Rizwan",
+  "fathers_name": "Abdul Rizwan",
+  "dob": "1988-11-25",
+  "mobile_no": "9988776655",
+  "gender": "Male",
+  "pan_number": "MNOPQ5544Z",
+  "loan_amount": "300000",
+  "loan_validity": "12 months",
+  "account_no": "556677889900",
+  "type_of_account": "Savings",
+  "loan_type": "Two Wheeler Loan",
+  "current_address": "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001",
+  "application_date": "2024-03-05",
+  "application_no": "LOAN_003",
+  "tenure_months": 12,
+  "address_text": "Flat 204, Green Heights, Lucknow, Uttar Pradesh, 226001",
+  "application_id": "LOAN_003"
+}

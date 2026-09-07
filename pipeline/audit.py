@@ -4,7 +4,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
-from config import S3_RESULT_DIR
+from config import IST, S3_RESULT_DIR
 from pipeline.storage import read_json, write_json
 
 
@@ -30,7 +30,7 @@ def append_audit_entry(loan_id: str, entry: dict[str, Any]) -> None:
                 audit_data = []
 
         timestamped_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(IST).isoformat(),
             **entry,
         }
         audit_data.append(timestamped_entry)

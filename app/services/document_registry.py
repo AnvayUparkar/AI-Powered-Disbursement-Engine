@@ -27,30 +27,9 @@ class DocumentRegistry:
         self._initialized = False
 
     def _guess_doc_type(self, filename: str) -> str:
-        n = filename.lower()
-        if "app" in n or "application" in n:
-            return "Application Form"
-        if "pan" in n:
-            return "PAN"
-        if "aadhaar" in n and "xml" in n:
-            return "Aadhaar XML"
-        if "aadhaar" in n:
-            return "Aadhaar"
-        if "kyc" in n:
-            return "KYC"
-        if "kfs" in n:
-            return "KFS"
-        if "sanction" in n:
-            return "Sanction Letter"
-        if "agreement" in n:
-            return "Loan Agreement"
-        if "memo" in n or "disbursal" in n:
-            return "Disbursal Memo"
-        if "bt" in n or "foreclosure" in n:
-            return "BT Details"
-        if "vkyc" in n:
-            return "VKYC Audit Trail"
-        return "Miscellaneous"
+        from config.doc_types import get_display_name
+        return get_display_name(filename)
+
 
     def register_uploaded_document(
         self,
@@ -67,7 +46,10 @@ class DocumentRegistry:
         with self._lock:
             detected_type = doc_type or self._guess_doc_type(filename)
             assoc_case = case_id or "GENERAL"
-            upload_date = datetime.now().strftime("%Y-%m-%d")
+            now_dt = datetime.now()
+            upload_date = now_dt.strftime("%d/%m/%Y")
+            hour_str = now_dt.strftime("%I").lstrip("0") or "12"
+            time_12h = f"{hour_str}:{now_dt.strftime('%M %p').lower()}"
 
             pages_count = 1
             confidence = 96.5
@@ -79,14 +61,14 @@ class DocumentRegistry:
                     "component": "Docling",
                     "status": "COMPLETED",
                     "detail": "Docling parsed document structure",
-                    "startedAt": datetime.now().strftime("%H:%M:%S"),
+                    "startedAt": time_12h,
                 },
                 {
                     "id": f"stp-{doc_id}-2",
                     "component": "PaddleOCR",
                     "status": "COMPLETED",
                     "detail": "RapidOCR PP-OCRv6 extracted text",
-                    "startedAt": datetime.now().strftime("%H:%M:%S"),
+                    "startedAt": time_12h,
                     "confidence": 95.0,
                 },
             ]
@@ -201,20 +183,25 @@ class DocumentRegistry:
                 "sizeKb": max(1, round(file_size_bytes / 1024)) if file_size_bytes else 45,
                 "extractedFields": extracted_fields,
                 "processingSteps": processing_steps,
-                "rawText": (parsed_result.get("text") or parsed_result.get("raw_text") or parsed_result.get("rawText") or "").strip(),
-                "formattedText": json.dumps(llm_meta, indent=2) if llm_meta else (parsed_result.get("formatted_text") or parsed_result.get("formattedText") or ""),
+                "rawText": (parsed_result.get("text") or parsed_result.get("raw_text") or parsed_result.get("rawText") or "").strip() if parsed_result else "",
+                "formattedText": (json.dumps(llm_meta, indent=2) if llm_meta else (parsed_result.get("formatted_text") or parsed_result.get("formattedText") or "")) if parsed_result else "",
             }
 
 
             self._dynamic_docs[doc_id] = record
 
-            # Also index under the filename-based ID the UI generates from s3_raw scan
-            # so GET /api/documents/<doc-CASE-stem> resolves correctly after upload.
+            # Also index under the filename-based ID and canonical aliases so
+            # GET /api/documents/<doc-CASE-stem> and synthetic references resolve correctly.
             if case_id and filename:
                 from pathlib import Path as _Path
-                alt_id = f"doc-{case_id}-{_Path(filename).stem.lower().replace(' ', '_')}"
-                if alt_id != doc_id:
-                    self._dynamic_docs[alt_id] = record
+                from config.doc_types import DOC_TYPE_ALIASES, get_canonical_doc_type
+                stem = _Path(filename).stem.lower().replace(" ", "_")
+                canonical = get_canonical_doc_type(detected_type or stem)
+                self._dynamic_docs[f"doc-{case_id}-{stem}"] = record
+                if canonical and canonical != "miscellaneous":
+                    self._dynamic_docs[f"doc-{case_id}-{canonical}"] = record
+                    for alias in DOC_TYPE_ALIASES.get(canonical, []):
+                        self._dynamic_docs[f"doc-{case_id}-{alias}"] = record
 
             logger.info("Registered document %s (%s) for case %s", doc_id, filename, assoc_case)
             return record
@@ -494,7 +481,7 @@ class DocumentRegistry:
                     "extractionStatus": "COMPLETED" if has_data else "PENDING",
                     "confidence": 98.0 if has_data else 95.0,
                     "vlmUsed": bool(ext_data.get("_vlm_used", False)),
-                    "uploadedAt": datetime.now().strftime("%Y-%m-%d"),
+                    "uploadedAt": datetime.now().strftime("%d/%m/%Y"),
                     "caseId": c_id,
                     "sizeKb": size_kb,
                     "extractedFields": extracted_fields,
@@ -507,7 +494,7 @@ class DocumentRegistry:
                             "component": "PaddleOCR",
                             "status": "COMPLETED" if has_data else "PENDING",
                             "detail": f"{doc_filename} OCR processing",
-                            "startedAt": "10:30:00",
+                            "startedAt": "10:30 am",
                             "confidence": 98.0,
                         }
                     ],
@@ -565,6 +552,27 @@ class DocumentRegistry:
             for d in case_docs:
                 if d.get("id") == doc_id:
                     return d
+
+            # Canonical alias fallback for synthetic references (e.g. doc-LOAN_004-sanction)
+            if doc_id.startswith("doc-"):
+                parts = doc_id.split("-", 2)
+                if len(parts) == 3:
+                    target_case, target_slug = parts[1], parts[2].lower()
+                    from config.doc_types import get_canonical_doc_type
+                    target_canon = get_canonical_doc_type(target_slug)
+
+                    all_candidates = list(self._dynamic_docs.values()) + case_docs
+                    for d in all_candidates:
+                        if str(d.get("caseId", "")).upper() == target_case.upper():
+                            d_canon = get_canonical_doc_type(d.get("name") or d.get("type") or "")
+                            clean_type = str(d.get("type") or "").lower().replace(" ", "_")
+                            clean_name = str(d.get("name") or "").lower()
+                            if (
+                                (target_canon != "miscellaneous" and d_canon == target_canon)
+                                or target_slug in clean_name
+                                or target_slug in clean_type
+                            ):
+                                return d
 
             return None
 

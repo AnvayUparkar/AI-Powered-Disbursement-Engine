@@ -1,0 +1,9 @@
+{
+  "loan_amount": 300000.0,
+  "funding_amount": 300000.0,
+  "loan_validity": "12 months",
+  "loan_type": "Two Wheeler Loan",
+  "customer_consent": true,
+  "bpi_charge": 800.0,
+  "broken_period_interest": 800.0
+}

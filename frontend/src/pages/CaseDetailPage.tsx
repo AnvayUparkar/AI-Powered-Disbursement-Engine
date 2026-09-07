@@ -11,6 +11,7 @@ import {
   Loader2,
   CheckCircle2,
   Sparkles,
+  Printer,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
@@ -18,6 +19,7 @@ import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { DGCLScorecard } from '@/components/verification/DGCLScorecard';
 import { CheckpointDrawer } from '@/components/verification/CheckpointDrawer';
+import { PrintScorecardModal } from '@/components/verification/PrintScorecardModal';
 import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
 import { UploadModal } from '@/components/documents/UploadModal';
 import { AnimatedPipelineStepper } from '@/components/pipeline/AnimatedPipelineStepper';
@@ -42,6 +44,7 @@ export default function CaseDetailPage() {
   const [drawer, setDrawer] = useState<Checkpoint | null>(null);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
   const autoRunHandled = useRef(false);
 
   const load = () => {
@@ -216,6 +219,13 @@ export default function CaseDetailPage() {
                   </>
                 )}
               </button>
+              <button
+                onClick={() => setPrintModalOpen(true)}
+                className="btn btn-secondary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all"
+                title="Print official HDB verification scorecard with 12 checkpoints and comparison audit"
+              >
+                <Printer className="h-3.5 w-3.5" /> Print PDF Scorecard
+              </button>
             </div>
             <p className="text-sm text-ink-500 mt-1">
               {c.loanType} · {c.applicant}
@@ -233,7 +243,7 @@ export default function CaseDetailPage() {
         </div>
 
         {/* Summary grid */}
-        <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-3 mt-5 pt-5 border-t border-ink-100">
+        <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-x-6 gap-y-3 mt-5 pt-5 border-t border-ink-100">
           <div>
             <dt className="text-xs text-ink-500">Applicant</dt>
             <dd className="text-sm font-medium text-ink-800 mt-0.5">{c.applicant}</dd>
@@ -249,24 +259,8 @@ export default function CaseDetailPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-ink-500">Disbursal Amount</dt>
-            <dd className="text-sm font-medium text-ink-800 mt-0.5 tabular-nums">
-              {c.disbursalDate ? inr(c.disbursalAmount) : '—'}
-            </dd>
-          </div>
-          <div>
             <dt className="text-xs text-ink-500">Loan Type</dt>
             <dd className="text-sm font-medium text-ink-800 mt-0.5">{c.loanType}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-500">Login Date</dt>
-            <dd className="text-sm font-medium text-ink-800 mt-0.5">{c.loginDate}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-500">Disbursal Date</dt>
-            <dd className="text-sm font-medium text-ink-800 mt-0.5">
-              {c.disbursalDate ?? 'Pending'}
-            </dd>
           </div>
           <div>
             <dt className="text-xs text-ink-500">Documents</dt>
@@ -367,6 +361,11 @@ export default function CaseDetailPage() {
         onClose={() => setUploadOpen(false)}
         caseId={c.id}
         onUploaded={load}
+      />
+      <PrintScorecardModal
+        isOpen={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        caseData={c}
       />
     </div>
   );

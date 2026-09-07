@@ -23,7 +23,15 @@ export const reportsService = {
 
 export const auditService = {
   async list(caseId?: string): Promise<AuditEvent[]> {
-    if (caseId) return auditEvents.filter((e) => e.caseId === caseId);
-    return auditEvents;
+    try {
+      return await apiClient.get<AuditEvent[]>('/audit', {
+        params: caseId ? { case_id: caseId } : undefined,
+      });
+    } catch (e) {
+      console.warn('API audit list failed, falling back to mock:', e);
+      if (caseId) return auditEvents.filter((e) => e.caseId === caseId);
+      return auditEvents;
+    }
   },
 };
+

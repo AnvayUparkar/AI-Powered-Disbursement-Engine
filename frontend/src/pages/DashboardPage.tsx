@@ -21,6 +21,7 @@ import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
 import { reportsService, casesService } from '@/services';
 import type { DashboardKpis, Case } from '@/types';
 import { checkpointPerformance } from '@/mock';
+import { formatTime12h } from '@/utils/formatters';
 
 export default function DashboardPage() {
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
@@ -181,7 +182,7 @@ export default function DashboardPage() {
                   <td className="table-cell"><span className="font-mono tabular-nums">{c.dgclScore.toFixed(1)}%</span></td>
                   <td className="table-cell"><StatusBadge status={c.status} /></td>
                   <td className="table-cell tabular-nums">{c.processingTime}</td>
-                  <td className="table-cell text-ink-500">{c.lastUpdated.split(' ')[1]}</td>
+                  <td className="table-cell text-ink-500">{formatTime12h(c.lastUpdated)}</td>
                   <td className="table-cell">
                     <Link to={`/cases/${c.id}`} className="text-brand-600 hover:text-brand-700 text-xs font-medium inline-flex items-center gap-1">
                       Open <ArrowRight className="h-3 w-3" />

@@ -34,6 +34,7 @@ class CreateCaseRequest(BaseModel):
     loan_type: Optional[str] = None
     loan_amount: Optional[float] = None
     tenure_months: Optional[int] = None
+    balance_transfer: Optional[int] = 0
 
 
 @router.get("/next-id", summary="Get next auto-assigned Case ID")
@@ -56,6 +57,7 @@ def create_case(payload: CreateCaseRequest):
         "loan_type": payload.loan_type or "Unspecified",
         "funding_amount": payload.loan_amount,
         "tenure_months": payload.tenure_months,
+        "balance_transfer": payload.balance_transfer if payload.balance_transfer is not None else 0,
         "login_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "status": "DRAFT",
     }
