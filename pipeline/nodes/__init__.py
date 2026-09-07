@@ -1,1 +1,1 @@
-# pipeline nodes package
+"""Pipeline verification nodes package."""

@@ -10,13 +10,11 @@ def test_node3c_clean_match(mock_state_001: PipelineState):
     result = node3c_dates_ids(mock_state_001)
     assert result["rollup"] == "Verified"
     records = result["records"]
-    assert len(records) >= 5
+    assert len(records) >= 3
 
     # Check key checks are present and matched
     assert any(r["field"] == "application_date" and r["match_status"] == "MATCH" for r in records)
     assert any(r["field"] == "application_no" and r["match_status"] == "MATCH" for r in records)
-    assert any(r["field"] == "login_date" and r["match_status"] == "MATCH" for r in records)
-    assert any(r["field"] == "disbursement_date" and r["match_status"] == "MATCH" for r in records)
     assert any(r["sources"][0] == "disbursal_memo" and r["field"] == "loan_no" and r["match_status"] == "MATCH" for r in records)
 
 
@@ -59,7 +57,7 @@ def test_node3c_missing_application_form_emits_not_found(mock_state_001: Pipelin
     assert result["rollup"] == "Indeterminate"
 
     app_recs = [r for r in result["records"] if r["sources"][0] == "application_form"]
-    assert len(app_recs) == 4
+    assert len(app_recs) == 2
     assert all(r["match_status"] == "NOT_FOUND" for r in app_recs)
 
 

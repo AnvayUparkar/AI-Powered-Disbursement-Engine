@@ -94,3 +94,29 @@ def test_seed_preserves_supplied_legacy_fields_and_nulls_missing_values(tmp_path
         "9916591658", "ECZPS3281J", "SURESH G S", "055801575041", "Personal Loan",
         "XXXXXXXX 0341", "03/ 08/ 2026", None, None, None, None, None,
     )
+
+
+def test_seed_balance_transfer_flag_values(tmp_path):
+    csv_path = tmp_path / "Test Data.csv"
+    db_path = tmp_path / "loans.db"
+    csv_path.write_text(
+        "Application No,Customer Name,Age,Date of Birth,Gender,Address,Loan Amount,Balance Transfer\n"
+        "APP010,BT Applicant,35,10/10/1988,Male,123 BT Road,500000,1\n"
+        "APP011,Non BT Applicant,40,11/11/1983,Female,456 Plain Ave,600000,0\n"
+        "APP012,Empty BT Flag,29,12/12/1994,Male,789 Blank St,300000,\n",
+        encoding="utf-8",
+    )
+
+    seed(csv_path, db_path)
+
+    connection = sqlite3.connect(db_path)
+    rows = connection.execute(
+        "SELECT loan_id, applicant_name, loan_amount, balance_transfer FROM loan_applications ORDER BY loan_id"
+    ).fetchall()
+    connection.close()
+
+    assert rows == [
+        ("APP010", "BT Applicant", 500000.0, 1),
+        ("APP011", "Non BT Applicant", 600000.0, 0),
+        ("APP012", "Empty BT Flag", 300000.0, 0),
+    ]
