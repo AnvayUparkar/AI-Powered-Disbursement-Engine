@@ -231,7 +231,70 @@ def test_build_kyc_checkpoint_unit(tmp_path: Path):
     ctx_full = make_test_context(tmp_path, docs=docs)
     cp4_full = build_kyc_checkpoint(ctx_full)
     assert cp4_full["status"] == "VERIFIED"
+    assert cp4_full["validation"]["left"] == "ABCDE1234F"
+    assert cp4_full["validation"]["right"] == "ABCDE1234F"
     assert cp4_full["validation"]["result"] == "MATCH"
+
+
+def test_build_kyc_checkpoint_account_statement_does_not_contaminate_kyc(tmp_path: Path):
+    """Account statement entity mismatch must not cause KYC to become DISCREPANCY or emit PAN MISMATCH PAN."""
+    docs = {
+        "kyc_pan": {"pan_number": "AOOPK6924P", "name": "Prakash Khatri"},
+        "aadhaar": {"address": "30/105, Sindhi Colony, Jaipur", "applicant_name": "Prakash Khatri"},
+    }
+    los_data = {
+        "loan_id": "APPL00343265",
+        "applicant_name": "PRAKASH KHATRI",
+        "applicant_pan_number": "AOOPK6924P",
+        "current_address": "30/105, Sindhi Colony, Jaipur",
+    }
+    # Include bank account statement mismatch record in comparison results
+    records = [
+        {
+            "check_id": "chk_check_financial_account_statement_applicant_name_vs_los",
+            "sources": ["account_statement", "los"],
+            "values": ["Kamla Udyog", "PRAKASH KHATRI"],
+            "match_status": "MISMATCH",
+            "result": "MISMATCH",
+        }
+    ]
+    ctx = make_test_context(tmp_path, los_data=los_data, docs=docs, records=records)
+    cp4 = build_kyc_checkpoint(ctx)
+    assert cp4["status"] == "VERIFIED"
+    assert cp4["validation"]["left"] == "AOOPK6924P"
+    assert cp4["validation"]["right"] == "AOOPK6924P"
+    assert cp4["validation"]["result"] == "MATCH"
+    assert "AOOPK6924P MISMATCH AOOPK6924P" not in f"{cp4['validation']['left']} {cp4['validation']['result']} {cp4['validation']['right']}"
+
+
+def test_build_kyc_checkpoint_mismatch_updates_left_right(tmp_path: Path):
+    """When a KYC mismatch occurs, left and right validation values reflect the mismatched field."""
+    docs = {
+        "kyc_pan": {"pan_number": "AOOPK6924P", "name": "Prakash Khatri"},
+        "aadhaar": {"address": "Different Street", "applicant_name": "Prakash Khatri"},
+    }
+    los_data = {
+        "loan_id": "APPL00343265",
+        "applicant_name": "PRAKASH KHATRI",
+        "applicant_pan_number": "AOOPK6924P",
+        "current_address": "30/105, Sindhi Colony, Jaipur",
+    }
+    records = [
+        {
+            "check_id": "chk_check_kyc_aadhaar_address_vs_los",
+            "field": "address",
+            "sources": ["aadhaar", "los"],
+            "values": ["Different Street", "30/105, Sindhi Colony, Jaipur"],
+            "match_status": "MISMATCH",
+            "result": "MISMATCH",
+        }
+    ]
+    ctx = make_test_context(tmp_path, los_data=los_data, docs=docs, records=records)
+    cp4 = build_kyc_checkpoint(ctx)
+    assert cp4["status"] == "DISCREPANCY"
+    assert cp4["validation"]["result"] == "MISMATCH"
+    assert cp4["validation"]["left"] == "Different Street"
+    assert cp4["validation"]["right"] == "30/105, Sindhi Colony, Jaipur"
 
 
 def test_build_bt_details_checkpoint_unit(tmp_path: Path):
@@ -323,12 +386,35 @@ def test_build_aadhaar_xml_presence_check_unit(tmp_path: Path):
     assert cp9_present["validation"]["left"] == "Present"
     assert cp9_present["validation"]["right"] == "Mandatory"
     assert cp9_present["validation"]["result"] == "MATCH"
+    field_names = [f["name"] for f in cp9_present["extractedFields"]]
+    assert field_names == ["Aadhaar XML Presence"]
+    assert "Aadhaar XML Name" not in field_names
 
     # 2. XML missing
     ctx_missing = make_test_context(tmp_path, docs={}, real_doc_names=[])
     cp9_missing = build_aadhaar_xml_checkpoint(ctx_missing)
     assert cp9_missing["status"] == "INDETERMINATE"
     assert cp9_missing["validation"]["left"] == "Missing"
+
+
+def test_build_loan_agreement_checkpoint_no_synthetic_fields(tmp_path: Path):
+    """Checkpoint 6 (Loan Agreement) must only surface real extracted fields without hardcoded Digital Signature or OTP Consent."""
+    docs = {
+        "loan_agreement": {
+            "loan_agreement_present": True,
+            "loan_agreement_signed": True,
+            "customer_consent": False,
+        }
+    }
+    ctx = make_test_context(tmp_path, docs=docs)
+    cp6 = build_loan_agreement_checkpoint(ctx)
+    assert cp6["id"] == 6
+    assert cp6["status"] == "VERIFIED"
+    field_names = [f["name"] for f in cp6["extractedFields"]]
+    assert "Loan Agreement Presence" in field_names
+    assert "Loan Agreement Signature" in field_names
+    assert "Digital Signature" not in field_names
+    assert "OTP Consent" not in field_names
 
 
 def test_build_all_checkpoints_returns_twelve_items(tmp_path: Path):

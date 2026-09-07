@@ -301,7 +301,7 @@ def test_checkpoint_9_dynamic_aadhaar_xml(tmp_path: Path, monkeypatch: pytest.Mo
     cp9 = next(cp for cp in case["checkpoints"] if cp["id"] == 9)
     assert cp9["status"] == "VERIFIED"
     assert len(cp9["evidence"]) == 1
-    assert any(f["name"] == "Aadhaar XML Name" and f["value"] == "Tanishq Parmar" for f in cp9["extractedFields"])
+    assert any(f["name"] == "Aadhaar XML Presence" and f["value"] == "Present" for f in cp9["extractedFields"])
 
     # Scenario 2: Absent -> INDETERMINATE
     (struct_dir / f"{loan_id}_aadhaar_xml.json").write_text(

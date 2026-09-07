@@ -108,12 +108,6 @@ KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "gender", "los_field": "applicant_gender", "method": "exact_string_ci", "aliases": ["applicant_gender"]},
         {"doc_field": "pan_number", "los_field": "applicant_pan_number", "method": "exact_id", "aliases": ["pan", "applicant_pan_number"]},
     ],
-    "account_statement": [
-        {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name", "account_holder_name"]},
-        {"doc_field": "pan_number", "los_field": "applicant_pan_number", "method": "exact_id", "aliases": ["pan", "applicant_pan_number"]},
-        {"doc_field": "mobile_no", "los_field": "applicant_mobile_no", "method": "exact_string", "aliases": ["applicant_mobile_no", "mobile"]},
-        {"doc_field": "account_no", "los_field": "applicant_bank_account_no", "method": "exact_id", "aliases": ["account_number", "bank_account_no", "applicant_bank_account_no"]},
-    ],
 }
 
 
@@ -150,6 +144,8 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["current_address", "address_text"]},
     ],
     "account_statement": [
+        {"doc_field": "account_no", "los_field": "applicant_bank_account_no", "method": "exact_id", "aliases": ["account_number", "bank_account_no", "applicant_bank_account_no"]},
+        {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name", "account_holder_name"]},
         {"doc_field": "current_address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["address", "address_text"]},
     ],
 }

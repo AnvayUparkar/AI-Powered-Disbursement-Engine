@@ -246,9 +246,13 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     kyc_records = [
         r for r in ctx.records
-        if r.get("subnode") in ("check_kyc", "loan_kyc", "aadhaar", "pan", "kyc")
-        or (r.get("check_id") and "kyc" in r.get("check_id", "").lower())
-        or r.get("checkpoint") in ("check_kyc", "loan_kyc")
+        if (
+            r.get("subnode") in ("check_kyc", "loan_kyc", "aadhaar", "pan", "kyc")
+            or (r.get("check_id") and "kyc" in r.get("check_id", "").lower())
+            or r.get("checkpoint") in ("check_kyc", "loan_kyc")
+        )
+        and not any(src in (r.get("sources") or []) for src in ("account_statement", "application_form"))
+        and not any(x in r.get("check_id", "").lower() for x in ("account_statement", "application_form"))
     ]
     mismatched_kyc = [
         r for r in kyc_records
@@ -296,15 +300,11 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         fields.append(build_field("Address", str(doc_addr)[:80], 95.0, f"doc-{ctx.loan_id}-kyc"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kyc", "Address_Proof.pdf", "Address Proof", 1, "Address"))
 
-    r4_acct = ctx.get_check_record("chk_check_kyc_account_statement_applicant_name_vs_los")
-    if r4_acct and r4_acct.get("match_status") == "MISMATCH":
-        evidence.append(build_evidence(f"doc-{ctx.loan_id}-acctstmt", "Account_Statement.pdf", "Account Statement — Entity Name", 1, "Applicant Name"))
-
     if not fields:
         fields.append(build_field("KYC Documents", "Not Uploaded", 0.0, f"doc-{ctx.loan_id}"))
 
     pan_label = f"PAN ({doc_pan})" if doc_pan else "PAN (Missing)"
-    addr_label = "Address proof verified" if has_addr_doc else "Address proof missing"
+    addr_label = "Address proof" if has_addr_doc else "Address proof missing"
 
     left_val = str(doc_pan or "N/A")
     right_val = str(los_pan or "N/A")
@@ -347,6 +347,12 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         kyc_notes = f"Discrepancies found: {fld_name} does not match LOS."
         conf = dyn_conf
         val_result = "MISMATCH"
+        if first_mismatch and first_mismatch.get("values"):
+            vals = first_mismatch["values"]
+            if len(vals) > 0 and vals[0] is not None:
+                left_val = str(vals[0])
+            if len(vals) > 1 and vals[1] is not None:
+                right_val = str(vals[1])
     elif status == "VERIFIED":
         kyc_notes = f"{pan_label} and {addr_label} verified against LOS."
         conf = dyn_conf
@@ -439,8 +445,6 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status = "DISCREPANCY"
 
     fields = [build_field("Aadhaar XML Presence", "Present" if has_xml else "Missing", 99.0 if has_xml else 0.0, f"doc-{ctx.loan_id}-aadhaarxml")]
-    if has_xml and xml_doc.get("applicant_name"):
-        fields.append(build_field("Aadhaar XML Name", str(xml_doc.get("applicant_name")), 98.0, f"doc-{ctx.loan_id}-aadhaarxml"))
 
     notes = (r9.get("notes") if r9 else "") or (
         "Aadhaar XML present in repository and verified." if has_xml else "Aadhaar XML missing from repository."

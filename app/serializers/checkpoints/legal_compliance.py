@@ -43,20 +43,17 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         fields = [
             build_field("Loan Agreement Presence", "Present", 99.0, f"doc-{ctx.loan_id}-agreement"),
             build_field("Loan Agreement Signature", "Signed", 98.0, f"doc-{ctx.loan_id}-agreement"),
-            build_field("Digital Signature", "Intact / Verified", 98.0, f"doc-{ctx.loan_id}-agreement"),
-            build_field("OTP Consent", "Verified", 99.0, f"doc-{ctx.loan_id}-agreement"),
         ]
-        evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Digital Signature")]
+        evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Agreement Signature")]
         val = {"left": "Present & Signed", "right": "Mandatory Signed Agreement", "result": "MATCH"}
         notes = "Loan agreement present and digitally signed."
     elif has_agree and not is_signed:
         status = "DISCREPANCY"
         fields = [
             build_field("Loan Agreement Presence", "Present", 99.0, f"doc-{ctx.loan_id}-agreement"),
-            build_field("Loan Agreement Signature", "Unsigned", 98.0, f"doc-{ctx.loan_id}-agreement"),
-            build_field("Digital Signature", "Missing / Unsigned", 0.0, f"doc-{ctx.loan_id}-agreement"),
+            build_field("Loan Agreement Signature", "Unsigned", 0.0, f"doc-{ctx.loan_id}-agreement"),
         ]
-        evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Unsigned", 1, "Digital Signature")]
+        evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Unsigned", 1, "Agreement Signature")]
         val = {"left": "Present & Unsigned", "right": "Mandatory Signed Agreement", "result": "MISMATCH"}
         notes = "Loan agreement uploaded but missing required digital signature."
     else:
@@ -66,7 +63,7 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         val = {"left": "Missing", "right": "Mandatory Signed Agreement", "result": "MISMATCH"}
         notes = "Loan agreement not uploaded."
 
-    conf = 97.5 if status == "VERIFIED" else (40.0 if has_agree else 0.0)
+    conf = 98.5 if status == "VERIFIED" else (40.0 if has_agree else 0.0)
 
     return build_checkpoint(
         6,
@@ -74,7 +71,7 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status,
         conf,
         notes,
-        "Loan agreement must contain valid untampered digital e-signature and OTP consent trail.",
+        "Loan agreement presence and execution signature verification.",
         fields,
         evidence,
         val,

@@ -397,7 +397,9 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         "chk_check_financial_disbursal_memo_loan_no_vs_los",
         "chk_check_loan_application_disbursal_memo_loan_no_vs_los",
     )
+    r11_acct_no = ctx.get_check_record("chk_check_financial_account_statement_account_no_vs_los")
     memo_doc = ctx.get_doc("disbursal_memo", "memo")
+    acct_doc = ctx.get_doc("account_statement", "acctstmt")
     has_memo = bool(memo_doc) or ctx.has_doc_matching("memo", "disbursal")
 
     fields: list[dict[str, Any]] = []
@@ -405,9 +407,16 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     if has_memo:
         status = "VERIFIED"
-        if (r11_amt and r11_amt.get("match_status") == "MISMATCH") or (r11_no and r11_no.get("match_status") == "MISMATCH"):
+        if (
+            (r11_amt and r11_amt.get("match_status") == "MISMATCH")
+            or (r11_no and r11_no.get("match_status") == "MISMATCH")
+            or (r11_acct_no and r11_acct_no.get("match_status") == "MISMATCH")
+        ):
             status = "DISCREPANCY"
-        elif (r11_amt and r11_amt.get("match_status") in ("PARTIAL", "NOT_FOUND")) or (r11_no and r11_no.get("match_status") in ("PARTIAL", "NOT_FOUND")):
+        elif (
+            (r11_amt and r11_amt.get("match_status") in ("PARTIAL", "NOT_FOUND"))
+            or (r11_no and r11_no.get("match_status") in ("PARTIAL", "NOT_FOUND"))
+        ):
             status = "INDETERMINATE"
 
         fields = [
@@ -416,8 +425,12 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         ]
         if memo_doc.get("loan_no"):
             fields.append(build_field("Loan Number", str(memo_doc["loan_no"]), 98.0, f"doc-{ctx.loan_id}-disbursalmemo"))
+        if acct_doc and (acct_doc.get("account_number") or acct_doc.get("account_no")):
+            fields.append(build_field("Bank Account No", str(acct_doc.get("account_number") or acct_doc.get("account_no")), 98.0, f"doc-{ctx.loan_id}-acctstmt"))
 
         evidence = [build_evidence(f"doc-{ctx.loan_id}-disbursalmemo", "Disbursal_Memo.pdf", "Disbursal Memo", 1)]
+        if acct_doc:
+            evidence.append(build_evidence(f"doc-{ctx.loan_id}-acctstmt", "Account_Statement.pdf", "Account Statement — Bank Details", 1, "Account Number"))
         notes = (r11_amt.get("notes") if r11_amt else "") or (
             f"Disbursal memo amount {inr_format(ctx.disbursal_amount)} meets threshold."
         )
@@ -426,7 +439,7 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status = "INDETERMINATE"
         notes = "Disbursal memo not uploaded."
 
-    memo_records = [r for r in [r11_amt, r11_no] if r is not None]
+    memo_records = [r for r in [r11_amt, r11_no, r11_acct_no] if r is not None]
     conf = compute_checkpoint_confidence(fields, memo_records if memo_records else None, default_conf=95.0) if has_memo else 0.0
 
     return build_checkpoint(
