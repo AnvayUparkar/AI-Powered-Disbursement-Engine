@@ -1,7 +1,6 @@
 import os
 import time
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, List, Tuple, Any
 from idp.services.storage.s3 import S3Storage
 from idp.services.document_preprocessor import DocumentPreprocessor, PreprocessedDocument
@@ -78,111 +77,66 @@ class DocumentProcessor:
                     "processing_time_seconds": round(elapsed, 3)
                 }
 
-            # Step 3: Docling layout parsing (bypassed for KYC and non-tabular image documents)
+            # Step 3: Docling layout + integrated OCR parsing (runs on all document types)
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
-            is_kyc_or_image = (
-                prep_doc.file_category == "image"
-                or any(k in document_id.lower() or k in local_file_path.lower() for k in ["pan", "aadhaar", "kyc", "photo", "sign"])
-            )
-            if not is_kyc_or_image:
-                try:
-                    docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
-                except Exception as e:
-                    logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with OCR."))
-            else:
-                logger.info(format_doc_log(document_id, f"Skipping Docling table analysis for KYC / image document: {document_id}"))
+            try:
+                docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
+            except Exception as e:
+                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
 
-            # Step 4: RapidOCR + Multilingual Router execution (Parallelized via ThreadPoolExecutor)
-            ocr_start = time.time()
-            ocr_results: List[OCRResult] = []
-            
-            # Convert PDF to page images, capturing actual rendered image dimensions
+            # Step 4: Capture page images for VLM region cropping (no standalone OCR)
             page_image_data = await self._get_page_images(local_file_path, prep_doc)
             page_images: List[bytes] = [item[0] for item in page_image_data]
-            
-            doc_type_hint = os.path.splitext(os.path.basename(local_file_path))[0]
+            ocr_results: List[OCRResult] = []
 
-            def _process_single_page(args: Tuple[int, bytes, float, float]) -> OCRResult:
-                pidx, page_bytes, img_width, img_height = args
-                pno = pidx + 1
-                preview_text = ""
-                if docling_result and docling_result.elements:
-                    p_elems = [e for e in docling_result.elements if e.page_number == pno and e.text]
-                    preview_text = " ".join([e.text for e in p_elems[:10]])
-
-                ocr_res: OCRResult = self.ocr_router.process_page(
-                    page_bytes, page_number=pno, doc_id=document_id, doc_type_hint=doc_type_hint, preview_text=preview_text
-                )
-                ocr_res.image_width = float(img_width)
-                ocr_res.image_height = float(img_height)
-                return ocr_res
-
-            max_page_workers = getattr(settings, "MAX_PAGE_WORKERS", 4)
-            page_tasks = [
-                (pidx, page_bytes, img_w, img_h)
-                for pidx, (page_bytes, img_w, img_h) in enumerate(page_image_data)
-            ]
-
-            loop = asyncio.get_event_loop()
-            with ThreadPoolExecutor(max_workers=min(len(page_tasks) or 1, max_page_workers), thread_name_prefix="idp_page_worker") as pool:
-                futures = [loop.run_in_executor(pool, _process_single_page, task_args) for task_args in page_tasks]
-                if futures:
-                    ocr_results = list(await asyncio.gather(*futures))
-
-            # Ensure page results remain strictly ordered by page_number
-            ocr_results.sort(key=lambda r: r.page_number)
-
-
-
-            metrics.ocr_processing_time = round(time.time() - ocr_start, 3)
-
-            # Step 5: Evaluate OCR quality and VLM fallback routing
+            # Step 5: Selective VLM Fallback Routing on Docling layout/OCR elements
             vlm_start = time.time()
             vlm_corrections: Dict[str, VLMResult] = {}
             vlm_used = False
 
-            for ocr_res in ocr_results:
-                if self.router.should_use_vlm(ocr_res, doc_id=document_id):
-                    low_conf_elements = self.router.get_low_confidence_elements(ocr_res)
-                    metrics.ocr_low_confidence_count += len(low_conf_elements)
+            if docling_result and docling_result.elements:
+                flagged_elements = self.router.get_low_confidence_layout_elements(
+                    docling_result.elements, doc_id=document_id
+                )
+                metrics.ocr_low_confidence_count = len(flagged_elements)
 
-                    pno = ocr_res.page_number
+                for elem in flagged_elements:
+                    pno = elem.page_number
                     page_bytes = page_images[pno - 1] if pno <= len(page_images) else b""
-                    # Use actual rendered image dims for VLM crop, not Docling doc-unit dims
-                    img_w = ocr_res.image_width if ocr_res.image_width > 0 else 595.0
-                    img_h = ocr_res.image_height if ocr_res.image_height > 0 else 842.0
+                    img_w = 595.0
+                    img_h = 842.0
+                    if pno <= len(docling_result.pages_dimensions):
+                        img_w = docling_result.pages_dimensions[pno - 1].get("width", 595.0)
+                        img_h = docling_result.pages_dimensions[pno - 1].get("height", 842.0)
 
-                    for elem in low_conf_elements:
-                        cropped_bytes = crop_image_region(
-                            image_bytes=page_bytes,
-                            bbox=elem.bbox,
-                            page_width=img_w,
-                            page_height=img_h
-                        )
+                    cropped_bytes = crop_image_region(
+                        image_bytes=page_bytes,
+                        bbox=elem.bbox,
+                        page_width=img_w,
+                        page_height=img_h
+                    )
 
-                        vlm_res = await self.vlm_client.analyze_region(
-                            image_bytes=cropped_bytes or page_bytes,
-                            ocr_element=elem,
-                            context_hint=f"Page {pno} line {elem.line_number}",
-                            doc_id=document_id
-                        )
+                    vlm_res = await self.vlm_client.analyze_region(
+                        image_bytes=cropped_bytes or page_bytes,
+                        ocr_element=elem,
+                        context_hint=f"Page {pno} element {elem.id}",
+                        doc_id=document_id
+                    )
 
-                        if vlm_res and elem.id:
-                            vlm_corrections[elem.id] = vlm_res
-                            # Update element in-place to ensure downstream serializers and alignment directly use the corrected text
-                            elem.ocr_original = elem.text
-                            elem.text = vlm_res.text
-                            elem.confidence = max(elem.confidence, vlm_res.confidence)
-                            elem.source = "vlm_corrected"
-                            elem.needs_vlm = False
-                            metrics.vlm_fallback_count += 1
-                            vlm_used = True
+                    if vlm_res and elem.id:
+                        vlm_corrections[elem.id] = vlm_res
+                        # Update element in-place so downstream serializers and alignment use the corrected text
+                        elem.ocr_original = elem.text
+                        elem.text = vlm_res.text
+                        elem.confidence = max(elem.confidence, vlm_res.confidence)
+                        elem.source = "vlm_corrected"
+                        metrics.vlm_fallback_count += 1
+                        vlm_used = True
 
-                            # Gentle pacing between VLM fallback calls to respect API quotas
-                            await asyncio.sleep(0.25)
-
+                        # Gentle pacing between VLM fallback calls to respect API quotas
+                        await asyncio.sleep(0.25)
 
             metrics.vlm_processing_time = round(time.time() - vlm_start, 3)
             metrics.total_processing_time = round(time.time() - start_time, 3)

@@ -107,8 +107,63 @@ class DocumentSerializer:
 
                             page_info.tables.append(table)
 
-                # 2. RAPIDOCR NON-TABLE TEXT AUTHORITY: Ingest non-table text elements from RapidOCR
-                if ocr_results:
+                # 2. DOCLING LAYOUT TEXT AUTHORITY: Ingest Docling text elements (primary)
+                docling_page_elems = [
+                    e for e in (docling_result.elements if docling_result else [])
+                    if e.page_number == pno
+                ]
+                if docling_page_elems:
+                    for elem in docling_page_elems:
+                        norm_box = normalize_bbox(elem.bbox, w, h)
+                        is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
+                            rapidocr_bbox=norm_box,
+                            table_regions=table_regions
+                        )
+                        if is_blocked:
+                            logger.info(
+                                format_doc_log(
+                                    doc_id,
+                                    f"docling_region_decision page={pno} elem={elem.id} decision={decision} text='{elem.text[:30]}'"
+                                )
+                            )
+                            continue
+
+                        final_text = self.evaluator.clean_bilingual_label_noise(elem.text)
+                        if not final_text or (self.evaluator.is_garbled_text(final_text) and elem.source != "vlm_corrected"):
+                            continue
+
+                        src = elem.source or "DOCLING"
+                        conf = elem.confidence
+                        ocr_orig = elem.ocr_original
+
+                        if elem.id in vlm_corrections:
+                            vlm_res = vlm_corrections[elem.id]
+                            final_text = self.evaluator.clean_bilingual_label_noise(vlm_res.text)
+                            src = "vlm_corrected"
+                            ocr_orig = elem.text
+                            conf = vlm_res.confidence
+
+                        if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
+                            continue
+
+                        page_info.elements.append(
+                            LayoutElement(
+                                id=elem.id or f"elem-{pno}-{len(page_info.elements)+1}",
+                                type=elem.type,
+                                text=final_text,
+                                bbox=norm_box,
+                                confidence=round(conf, 4),
+                                page_number=pno,
+                                reading_order=elem.reading_order,
+                                level=elem.level,
+                                source=src,
+                                structure_source="docling",
+                                ocr_original=ocr_orig
+                            )
+                        )
+
+                # 3. RAPIDOCR FALLBACK: Ingest RapidOCR text elements ONLY if Docling produced no elements for this page
+                elif ocr_results:
                     for ocr_res in ocr_results:
                         if ocr_res.page_number == pno:
                             ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
@@ -181,38 +236,6 @@ class DocumentSerializer:
                                         ocr_original=ocr_orig
                                     )
                                 )
-
-                # Fallback: Ingest Docling text elements ONLY if RapidOCR is absent/empty
-                elif docling_result and docling_result.elements:
-                    for elem in docling_result.elements:
-                        if elem.page_number == pno:
-                            norm_box = normalize_bbox(elem.bbox, w, h)
-                            is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
-                                rapidocr_bbox=norm_box,
-                                table_regions=table_regions
-                            )
-                            if is_blocked:
-                                continue
-
-                            final_text = self.evaluator.clean_bilingual_label_noise(elem.text)
-                            if not final_text or self.evaluator.is_garbled_text(final_text):
-                                continue
-
-                            page_info.elements.append(
-                                LayoutElement(
-                                    id=elem.id,
-                                    type=elem.type,
-                                    text=final_text,
-                                    bbox=norm_box,
-                                    confidence=round(elem.confidence, 4),
-                                    page_number=pno,
-                                    reading_order=elem.reading_order,
-                                    level=elem.level,
-                                    source=elem.source or "DOCLING",
-                                    structure_source="docling",
-                                    ocr_original=elem.ocr_original
-                                )
-                            )
 
                 logger.info(
                     format_doc_log(
