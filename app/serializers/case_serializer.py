@@ -518,6 +518,7 @@ def serialize_case(loan_id: str) -> dict[str, Any]:
         "checkpoints": checkpoints,
         "documentIds": ctx.doc_ids,
         "processingSteps": proc_steps,
+        "comparisonResults": ctx.records,
     }
 
 

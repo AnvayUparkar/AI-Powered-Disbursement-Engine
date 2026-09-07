@@ -11,6 +11,7 @@ import {
   Loader2,
   CheckCircle2,
   Sparkles,
+  Printer,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
@@ -18,6 +19,7 @@ import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { DGCLScorecard } from '@/components/verification/DGCLScorecard';
 import { CheckpointDrawer } from '@/components/verification/CheckpointDrawer';
+import { PrintScorecardModal } from '@/components/verification/PrintScorecardModal';
 import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
 import { UploadModal } from '@/components/documents/UploadModal';
 import { AnimatedPipelineStepper } from '@/components/pipeline/AnimatedPipelineStepper';
@@ -42,6 +44,7 @@ export default function CaseDetailPage() {
   const [drawer, setDrawer] = useState<Checkpoint | null>(null);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
   const autoRunHandled = useRef(false);
 
   const load = () => {
@@ -216,6 +219,13 @@ export default function CaseDetailPage() {
                   </>
                 )}
               </button>
+              <button
+                onClick={() => setPrintModalOpen(true)}
+                className="btn btn-secondary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all"
+                title="Print official HDB verification scorecard with 12 checkpoints and comparison audit"
+              >
+                <Printer className="h-3.5 w-3.5" /> Print PDF Scorecard
+              </button>
             </div>
             <p className="text-sm text-ink-500 mt-1">
               {c.loanType} · {c.applicant}
@@ -351,6 +361,11 @@ export default function CaseDetailPage() {
         onClose={() => setUploadOpen(false)}
         caseId={c.id}
         onUploaded={load}
+      />
+      <PrintScorecardModal
+        isOpen={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        caseData={c}
       />
     </div>
   );

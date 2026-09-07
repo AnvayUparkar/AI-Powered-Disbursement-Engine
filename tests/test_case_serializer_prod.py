@@ -510,7 +510,7 @@ def test_serialize_case_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         "processingTime", "processingTimeSeconds", "dgclScore", "dgcl_score",
         "score", "verifiedCount", "discrepancyCount", "reviewCount", "status",
         "riskLevel", "lastUpdated", "balanceTransfer", "isBalanceTransfer",
-        "checkpoints", "documentIds", "processingSteps"
+        "checkpoints", "documentIds", "processingSteps", "comparisonResults"
     ]
     for k in expected_keys:
         assert k in case, f"Missing expected key: {k}"
@@ -520,6 +520,7 @@ def test_serialize_case_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert case["loanAmount"] == 1000000.0
     assert len(case["checkpoints"]) == 12
     assert len(case["processingSteps"]) == 8
+    assert isinstance(case["comparisonResults"], list)
 
 
 def test_serialize_all_cases_iterates_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -627,4 +628,52 @@ def test_date_and_time_formatting_helpers():
     dt_combined = datetime(2026, 9, 7, 15, 13, 0)
     res_comb = format_datetime_dmy_12h(dt_combined)
     assert res_comb == "07/09/2026, 3:13 pm"
+
+
+def test_serialize_case_surfaces_comparison_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Validates that comparisonResults is surfaced with full field-level audit metadata."""
+    loan_id = "LOAN_COMP_SURF"
+    los_dir = tmp_path / "los"
+    res_dir = tmp_path / "result" / loan_id
+    los_dir.mkdir(parents=True)
+    res_dir.mkdir(parents=True)
+
+    los_record = {
+        "loan_id": loan_id,
+        "applicant_name": "Test Applicant",
+        "funding_amount": 500000.0,
+        "loan_type": "Personal Loan",
+    }
+    (los_dir / f"{loan_id}.json").write_text(json.dumps(los_record))
+
+    comp_records = [
+        {
+            "check_id": "chk_1",
+            "subnode": "check_kyc",
+            "field": "applicant_name",
+            "sources": ["aadhaar", "los"],
+            "values": ["Test Applicant", "Test Applicant"],
+            "match_type": "exact_string",
+            "match_status": "MATCH",
+            "confidence": 1.0,
+            "method": "case_insensitive_string_equality",
+            "notes": None,
+        }
+    ]
+    (res_dir / "comparison_results.json").write_text(json.dumps(comp_records))
+
+    monkeypatch.setattr("app.serializers.case_serializer.LOS_LOANS_DIR", los_dir)
+    monkeypatch.setattr("app.serializers.case_serializer.S3_EXTRACTED_DIR", tmp_path / "extracted")
+    monkeypatch.setattr("app.serializers.case_serializer.S3_EXTRACTED_STRUCTURED_DIR", tmp_path / "structured")
+    monkeypatch.setattr("app.serializers.case_serializer.S3_RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr("app.serializers.case_serializer.DMS_DIR", tmp_path / "dms")
+    monkeypatch.setattr("app.serializers.case_serializer.S3_RESULT_DIR", tmp_path / "result")
+
+    case = serialize_case(loan_id)
+    assert "comparisonResults" in case
+    assert len(case["comparisonResults"]) == 1
+    assert case["comparisonResults"][0]["check_id"] == "chk_1"
+    assert case["comparisonResults"][0]["field"] == "applicant_name"
+    assert case["comparisonResults"][0]["method"] == "case_insensitive_string_equality"
+
 

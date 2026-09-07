@@ -81,6 +81,7 @@ export interface Checkpoint {
   status: CheckpointStatus;
   confidence: number;
   reason: string;
+  summary?: string;
   rule: string;
   evidence: Evidence[];
   extractedFields: ExtractedField[];
@@ -120,6 +121,20 @@ export interface DocumentRecord {
 }
 
 
+export interface ComparisonResult {
+  check_id: string;
+  subnode: string;
+  field: string;
+  sources: string[];
+  values: (string | number | null)[];
+  match_type: string;
+  match_status: 'MATCH' | 'MISMATCH' | 'REVIEW';
+  confidence: number;
+  method: string;
+  llm_used?: boolean;
+  notes?: string | null;
+}
+
 export interface Case {
   id: string;
   applicant: string;
@@ -142,6 +157,7 @@ export interface Case {
   checkpoints: Checkpoint[];
   documentIds: string[];
   processingSteps: ProcessingStep[];
+  comparisonResults?: ComparisonResult[];
 }
 
 export interface ReviewItem {
