@@ -253,6 +253,53 @@ class DocumentSerializer:
             all_tables: List[TableStructure] = []
             full_text_parts = []
 
+            # NEW: Opt-in comb-box detection (feature flag controlled)
+            comb_box_enabled = getattr(self, 'enable_comb_box_detection', True)
+            if comb_box_enabled:
+                from idp.services.extraction.comb_box_detector import CombBoxDetector
+                from idp.models.layout import ElementType
+                
+                comb_detector = CombBoxDetector()
+                total_merged = 0
+                
+                for pno in sorted(pages_map.keys()):
+                    p = pages_map[pno]
+                    
+                    # Detect and merge comb-box sequences
+                    merged_tokens = comb_detector.detect_and_merge_comb_boxes(
+                        elements=p.elements,
+                        page_number=pno,
+                        doc_id=doc_id
+                    )
+                    
+                    # Add merged tokens as supplementary LayoutElements
+                    for mt in merged_tokens:
+                        merged_elem = LayoutElement(
+                            id=mt.id,
+                            text=mt.text,
+                            bbox=mt.bbox,
+                            page_number=mt.page_number,
+                            confidence=mt.confidence,
+                            source="comb_box_merged",
+                            type=ElementType.TEXT,
+                            reading_order=9999,  # Place after regular elements
+                            structure_source="spatial_clustering",
+                            metadata={
+                                "merge_method": mt.merge_method,
+                                "uniformity_score": mt.uniformity_score,
+                                "constituent_ids": mt.constituent_element_ids,
+                                "num_constituents": len(mt.constituent_element_ids)
+                            }
+                        )
+                        p.elements.append(merged_elem)
+                        total_merged += 1
+                
+                if total_merged > 0:
+                    logger.info(
+                        f"[{doc_id}] Comb-box detection: Added {total_merged} merged tokens "
+                        f"across {len(pages_map)} pages"
+                    )
+
             for pno in sorted(pages_map.keys()):
                 p = pages_map[pno]
                 all_elements.extend(p.elements)

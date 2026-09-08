@@ -70,23 +70,53 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                     from docling.datamodel.pipeline_options import RapidOcrOptions
                     ocr_opts = RapidOcrOptions(
                         backend="onnxruntime",
-                        force_full_page_ocr=True,
+                        force_full_page_ocr=options.force_full_page_ocr,
                         lang=options.ocr_lang
                     )
+                    
+                    # Custom model paths
                     if options.det_model_path:
                         ocr_opts.det_model_path = options.det_model_path
                     if options.rec_model_path:
                         ocr_opts.rec_model_path = options.rec_model_path
+                    if options.cls_model_path:
+                        ocr_opts.cls_model_path = options.cls_model_path
+                    
+                    # OCR quality/performance settings
+                    if hasattr(ocr_opts, "det_limit_side_len"):
+                        ocr_opts.det_limit_side_len = options.det_limit_side_len
+                    if hasattr(ocr_opts, "det_db_thresh"):
+                        ocr_opts.det_db_thresh = options.det_db_thresh
+                    if hasattr(ocr_opts, "det_db_box_thresh"):
+                        ocr_opts.det_db_box_thresh = options.det_db_box_thresh
+                    if hasattr(ocr_opts, "rec_batch_num"):
+                        ocr_opts.rec_batch_num = options.rec_batch_num
+                    
                     pipeline_options.ocr_options = ocr_opts
                     logger.info(
-                        f"[DoclingCache] Configured Docling-managed RapidOCR engine: {options.ocr_model_name}"
+                        f"[DoclingCache] Configured RapidOCR: {options.ocr_model_name}, "
+                        f"force_full_page={options.force_full_page_ocr}"
                     )
                 except Exception as ocr_err:
                     logger.warning(f"[DoclingCache] RapidOcrOptions config skipped: {ocr_err}")
 
-            # Configure TableFormer mode if available
+            # Configure TableFormer mode and thresholds
             if hasattr(pipeline_options, "table_structure_options"):
-                pipeline_options.table_structure_options.mode = options.table_mode
+                table_opts = pipeline_options.table_structure_options
+                table_opts.mode = options.table_mode
+                
+                # Apply table detection thresholds if available
+                if hasattr(table_opts, "min_confidence"):
+                    table_opts.min_confidence = options.table_confidence_threshold
+                if hasattr(table_opts, "min_rows"):
+                    table_opts.min_rows = options.table_min_rows
+                if hasattr(table_opts, "min_cols"):
+                    table_opts.min_cols = options.table_min_cols
+                
+                logger.info(
+                    f"[DoclingCache] TableFormer mode={options.table_mode}, "
+                    f"confidence>={options.table_confidence_threshold}"
+                )
 
             format_options = {"pdf": PdfFormatOption(pipeline_options=pipeline_options)}
             converter = DocumentConverter(format_options=format_options)
