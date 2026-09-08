@@ -33,10 +33,19 @@ export function adaptNode2DocumentToRecord(
   const extractedFields: ExtractedField[] = [];
 
   // 0. Prepend LLM structured fields if available
-  const llmFields =
+  let llmFields =
     (parsed as any).custom_metadata?.llm_extracted_fields ||
     (parsed as any).processing?.custom_metadata?.llm_extracted_fields ||
     (parsed as any).extracted_fields;
+
+  if (!llmFields && (parsed as any).formatted_text && typeof (parsed as any).formatted_text === 'string' && (parsed as any).formatted_text.trim().startsWith('{')) {
+    try {
+      llmFields = JSON.parse((parsed as any).formatted_text);
+    } catch {
+      // ignore
+    }
+  }
+
   if (llmFields && typeof llmFields === 'object') {
     Object.entries(llmFields).forEach(([k, v]) => {
       if (v !== null && v !== undefined && typeof v !== 'object') {
@@ -218,26 +227,40 @@ export const documentsService = {
   },
 
   async getById(id: string): Promise<DocumentRecord | null> {
+    let node2Record: DocumentRecord | null = null;
     // 1. Try fetching real extracted document from Node 2 FastAPI Backend
     try {
       const parsed = await node2Api.getDocument(id);
       if (parsed) {
         if ('extractedFields' in parsed) {
-          return parsed as unknown as DocumentRecord;
+          node2Record = parsed as unknown as DocumentRecord;
+        } else {
+          node2Record = adaptNode2DocumentToRecord(parsed);
         }
-        return adaptNode2DocumentToRecord(parsed);
       }
     } catch {
       // Backend not running or document not found in backend store; fallback to orchestrator API or mock
     }
 
-    // 2. Try orchestrator API
+    // If node2Record already has populated canonical formattedText, return immediately
+    if (node2Record && node2Record.formattedText && node2Record.formattedText.trim().startsWith('{')) {
+      return node2Record;
+    }
+
+    // 2. Try orchestrator API (which checks on-disk s3_extracted)
     try {
-      return await apiClient.get<DocumentRecord>(`/documents/${id}`);
+      const orchRecord = await apiClient.get<DocumentRecord>(`/documents/${id}`);
+      if (orchRecord) {
+        if (orchRecord.formattedText && orchRecord.formattedText.trim().startsWith('{')) {
+          return orchRecord;
+        }
+        return node2Record || orchRecord;
+      }
     } catch (e) {
       console.warn(`API get document ${id} failed, falling back to mock:`, e);
-      return mockDocs.find((d) => d.id === id || d.id.toLowerCase() === id.toLowerCase()) ?? null;
     }
+
+    return node2Record || (mockDocs.find((d) => d.id === id || d.id.toLowerCase() === id.toLowerCase()) ?? null);
   },
 
   async getByCaseId(caseId: string): Promise<DocumentRecord[]> {

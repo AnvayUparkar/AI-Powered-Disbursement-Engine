@@ -19,6 +19,7 @@ logger = logging.getLogger("disbursement_pipeline.llm_structure")
 
 def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: str) -> dict[str, Any]:
     """Applies LLM field extraction or merges structured fields for a document."""
+    from pipeline.nodes.llm_field_extractor import format_template_json
     raw_text = doc_data.get("_raw_text") or doc_data.get("rawText") or ""
     structured = {}
 
@@ -33,11 +34,42 @@ def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: 
             if k not in structured or structured[k] is None:
                 structured[k] = v
 
+    # Format into canonical 22-field template
+    template_fields = format_template_json(structured)
+    structured.update(template_fields)
+
     # Preserve essential layout metadata for frontend inspection
+    components = doc_data.get("_components", {})
     if "_components" in doc_data:
-        structured["_components"] = doc_data["_components"]
+        structured["_components"] = components
     if "_raw_text" in doc_data:
         structured["_raw_text"] = doc_data["_raw_text"]
+        structured["rawText"] = doc_data["_raw_text"]
+
+    # Preserve or compute field locations
+    if "_field_locations" in doc_data:
+        structured["_field_locations"] = doc_data["_field_locations"]
+    elif components and "raw_elements" in components:
+        try:
+            from idp.services.extraction.field_location_resolver import FieldLocationResolver
+            resolver = FieldLocationResolver()
+            field_locs = resolver.resolve_field_locations(
+                extracted_fields=template_fields,
+                ocr_elements=components.get("raw_elements", []),
+                table_cells=components.get("table_cells", []),
+                page_dimensions=components.get("page_dimensions", []),
+                debug_mode=True
+            )
+            field_locs_dict = {k: v.model_dump() for k, v in field_locs.items()}
+            structured["_field_locations"] = field_locs_dict
+            components["field_locations"] = field_locs_dict
+        except Exception as e:
+            logger.debug("Field location resolution skipped for %s: %s", doc_key, e)
+
+    import json
+    formatted_json = doc_data.get("_formatted_text") or doc_data.get("formattedText") or json.dumps(template_fields, indent=2)
+    structured["_formatted_text"] = formatted_json
+    structured["formattedText"] = formatted_json
 
     return structured
 

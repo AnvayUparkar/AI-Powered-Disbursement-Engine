@@ -197,3 +197,90 @@ def test_serializer_ocr_duplicate_safety():
     assert len(parsed_doc.elements) == 1
     assert parsed_doc.elements[0].text == "Duplicate Heading"
 
+
+def test_serializer_docling_primary_authority_over_rapidocr():
+    """Verify that Docling layout text elements take priority over RapidOCR elements."""
+    from idp.services.docling.parser import DoclingParseResult
+    from idp.models.layout import LayoutElement, ElementType
+    from idp.models.ocr import OCRResult, OCRElement
+    from idp.models.processing import ProcessingMetrics
+    from idp.services.vlm.client import VLMResult
+
+    serializer = DocumentSerializer()
+
+    docling_elem1 = LayoutElement(
+        id="elem-1",
+        type=ElementType.HEADING,
+        text="SANCTION LETTER",
+        bbox=[10.0, 10.0, 300.0, 50.0],
+        confidence=0.98,
+        page_number=1,
+        source="DOCLING",
+        structure_source="docling"
+    )
+    docling_elem2 = LayoutElement(
+        id="elem-2",
+        type=ElementType.TEXT,
+        text="Loan amount approved: INR 500,000",
+        bbox=[10.0, 60.0, 400.0, 90.0],
+        confidence=0.65,
+        page_number=1,
+        source="DOCLING",
+        structure_source="docling"
+    )
+
+    docling_res = DoclingParseResult(
+        elements=[docling_elem1, docling_elem2],
+        tables=[],
+        page_count=1,
+        pages_dimensions=[{"width": 595.0, "height": 842.0}]
+    )
+
+    ocr_elem = OCRElement(
+        id="ocr-1",
+        text="RAPIDOCR GARBLED TEXT",
+        bbox=[10.0, 100.0, 400.0, 130.0],
+        confidence=0.50,
+        page_number=1,
+        line_number=1,
+        source="ocr"
+    )
+    ocr_res = OCRResult(page_number=1, elements=[ocr_elem])
+
+    # VLM correction for elem-2
+    vlm_corrections = {
+        "elem-2": VLMResult(text="Loan amount approved: INR 500,000 (Corrected)", confidence=0.99, verified=True)
+    }
+
+    metrics = ProcessingMetrics()
+
+    parsed_doc = serializer.build_unified_document(
+        doc_id="TEST-DOCLING-PRIMARY",
+        filename="sanction.pdf",
+        mime_type="application/pdf",
+        file_size_bytes=2048,
+        page_count=1,
+        docling_result=docling_res,
+        ocr_results=[ocr_res],
+        vlm_corrections=vlm_corrections,
+        metrics=metrics,
+        docling_used=True
+    )
+
+    # 1. Elements come from Docling
+    assert len(parsed_doc.elements) == 2
+    assert parsed_doc.elements[0].text == "SANCTION LETTER"
+    assert parsed_doc.elements[0].source == "DOCLING"
+    assert parsed_doc.elements[0].structure_source == "docling"
+
+    # 2. elem-2 has VLM correction applied
+    assert parsed_doc.elements[1].text == "Loan amount approved: INR 500,000 (Corrected)"
+    assert parsed_doc.elements[1].source == "vlm_corrected"
+    assert parsed_doc.elements[1].confidence == 0.99
+
+    # 3. RapidOCR fallback elements are NOT ingested because Docling elements were present
+    assert not any("RAPIDOCR" in e.text for e in parsed_doc.elements)
+    assert "SANCTION LETTER" in parsed_doc.text
+    assert "INR 500,000 (Corrected)" in parsed_doc.text
+
+

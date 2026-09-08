@@ -5,7 +5,7 @@ from pydantic import BaseModel
 class DoclingOptions(BaseModel):
     """Configuration options for Docling document converter."""
     table_mode: str = "ACCURATE"  # 'ACCURATE' or 'FAST' (Node 2 requires ACCURATE)
-    do_ocr: bool = False           # Docling-managed OCR engine (RapidOCR PP-OCRv6)
+    do_ocr: bool = True           # Docling-managed OCR engine (RapidOCR PP-OCRv6)
     do_table_structure: bool = True
     ocr_engine_name: str = "rapidocr"
     ocr_model_name: str = " PP-OCRv6_medium"

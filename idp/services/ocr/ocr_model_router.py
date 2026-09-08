@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 from pydantic import BaseModel
 from idp.models.ocr import OCRElement, OCRResult
 from idp.services.ocr.rapidocr_engine import RapidOCREngine
+from idp.services.ocr.preprocessing import OCRImagePreprocessor
 from idp.services.ocr.script_detector import ScriptDetector, ScriptCategory, ScriptDetectionResult
 from idp.services.ocr.confidence import OCRConfidenceEvaluator
 from idp.core.config import settings
@@ -30,6 +31,7 @@ class OCRModelRouter:
 
     def __init__(self, default_engine: Optional[RapidOCREngine] = None):
         self.default_engine = default_engine or RapidOCREngine()
+        self.preprocessor = OCRImagePreprocessor()
         self.detector = ScriptDetector()
         self.evaluator = OCRConfidenceEvaluator()
         
@@ -173,16 +175,44 @@ class OCRModelRouter:
         decision = self.resolve_routing_decision(doc_type_hint=doc_type_hint, preview_text=preview_text)
         selected_engine, model_name = self.select_engine_for_decision(decision)
 
-        # Fast-path determination: skip heavy CV2 preprocessing (deskewing/rotation) for known clean English docs
+        # Extract image bytes for lightweight quality assessment
+        image_bytes = b""
+        if isinstance(image_input, str):
+            try:
+                with open(image_input, "rb") as f:
+                    image_bytes = f.read()
+            except Exception:
+                image_bytes = b""
+        elif isinstance(image_input, bytes):
+            image_bytes = image_input
+
+        # Quality-driven determination: skip preprocessing only if already sharp AND well-contrasted
         if skip_preprocessing is None:
-            is_english_hint = decision.model_profile == "english" and doc_type_hint is not None
-            skip_preprocessing = is_english_hint
+            if image_bytes:
+                quality = self.preprocessor.assess_quality(image_bytes)
+                if quality.get("is_sharp", False) and quality.get("is_well_contrasted", False):
+                    skip_preprocessing = True
+                    prep_reason = (
+                        f"Image sharp (blur={quality.get('blur_score', 0.0):.1f}) and "
+                        f"well-contrasted (std={quality.get('contrast_std', 0.0):.1f}); skipping preprocessing"
+                    )
+                else:
+                    skip_preprocessing = False
+                    prep_reason = (
+                        f"Image degraded/unverified (blur={quality.get('blur_score', 0.0):.1f}, "
+                        f"std={quality.get('contrast_std', 0.0):.1f}); running preprocessing"
+                    )
+            else:
+                skip_preprocessing = False
+                prep_reason = "No image bytes available for quality check; defaulting to preprocessing"
+        else:
+            prep_reason = f"Explicitly set to skip_preprocessing={skip_preprocessing}"
 
         logger.info(
             format_doc_log(
                 doc_id,
                 f"Page {page_number} OCR Routing: profile='{decision.model_profile}', engine='{model_name}', "
-                f"skip_preprocessing={skip_preprocessing}, reason='{decision.routing_reason}'"
+                f"skip_preprocessing={skip_preprocessing}, reason='{decision.routing_reason}', prep_reason='{prep_reason}'"
             )
         )
 

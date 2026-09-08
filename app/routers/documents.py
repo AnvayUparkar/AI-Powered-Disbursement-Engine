@@ -43,7 +43,12 @@ def get_document(doc_id: str):
 
 
 @router.get("/preview/{case_id}/{doc_name}", summary="Preview document stream")
-def preview_document(case_id: str, doc_name: str):
+def preview_document(
+    case_id: str,
+    doc_name: str,
+    page: int = Query(1, description="Page number (1-indexed)"),
+    format: str | None = Query(None, description="Set to 'image' to render as PNG image"),
+):
     # Reject suspicious path characters explicitly
     if "/" in doc_name or "\\" in doc_name or "/" in case_id or "\\" in case_id or "\x00" in doc_name or "\x00" in case_id:
         raise HTTPException(status_code=400, detail="Invalid document or case path identifier")
@@ -68,6 +73,29 @@ def preview_document(case_id: str, doc_name: str):
         target_path = target_dms
 
     if target_path is not None:
+        name_lower = doc_name.lower()
+        # If image format requested or file is an image
+        if format == "image" or name_lower.endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):
+            if name_lower.endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):
+                try:
+                    content = target_path.read_bytes()
+                    mtype = "image/png" if name_lower.endswith(".png") else "image/jpeg"
+                    return Response(content=content, media_type=mtype)
+                except OSError as e:
+                    logger.error("Failed reading document %s: %s", target_path, e)
+                    raise HTTPException(status_code=500, detail="Error reading document file")
+            elif name_lower.endswith(".pdf"):
+                try:
+                    import fitz
+                    doc_fitz = fitz.open(target_path)
+                    p_idx = max(0, min(len(doc_fitz) - 1, page - 1))
+                    pix = doc_fitz[p_idx].get_pixmap(dpi=150)
+                    img_bytes = pix.tobytes("png")
+                    doc_fitz.close()
+                    return Response(content=img_bytes, media_type="image/png")
+                except Exception as e:
+                    logger.warning("PDF page image rendering exception for %s: %s", target_path, e)
+
         try:
             content = target_path.read_bytes()
             media_type = "application/pdf" if doc_name.endswith(".pdf") else "application/octet-stream"
@@ -77,4 +105,17 @@ def preview_document(case_id: str, doc_name: str):
             raise HTTPException(status_code=500, detail="Error reading document file")
 
     raise HTTPException(status_code=404, detail="Document not found")
+
+
+@router.get("/{doc_id}/page/{page_number}/image", summary="Get rendered page image for document ID")
+def get_document_page_image(doc_id: str, page_number: int = 1):
+    """Renders and returns a page of a document as a PNG image."""
+    doc = document_registry.get_by_id(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+    case_id = doc.get("caseId")
+    doc_name = doc.get("name")
+    if not case_id or not doc_name:
+        raise HTTPException(status_code=400, detail="Document lacks caseId or filename")
+    return preview_document(case_id=case_id, doc_name=doc_name, page=page_number, format="image")
 
