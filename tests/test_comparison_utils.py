@@ -43,6 +43,8 @@ def test_normalize_date():
     assert normalize_date("2024-01-15") == "2024-01-15"
     assert normalize_date("15-01-2024") == "2024-01-15"
     assert normalize_date("15/01/2024") == "2024-01-15"
+    assert normalize_date("22061976") == "1976-06-22"
+    assert normalize_date("19760622") == "1976-06-22"
     assert normalize_date(None) is None
     assert normalize_date("Unparseable Date") == "unparseable date"
 

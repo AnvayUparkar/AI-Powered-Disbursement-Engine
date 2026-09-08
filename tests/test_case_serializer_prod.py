@@ -677,3 +677,60 @@ def test_serialize_case_surfaces_comparison_results(tmp_path: Path, monkeypatch:
     assert case["comparisonResults"][0]["method"] == "case_insensitive_string_equality"
 
 
+def test_appl00343265_field_and_comparison_surfacing_invariants():
+    """Validates that APPL00343265 checkpoints never surface A != A mismatches,
+    binds to actual divergent values with source attribution, and attaches comparisons."""
+    case = serialize_case("APPL00343265")
+    checkpoints = {cp["name"]: cp for cp in case["checkpoints"]}
+
+    # CP 1: Loan Amount must show the divergent Application Amount vs LOS / Sanction
+    cp1 = checkpoints["Loan Amount"]
+    assert cp1["status"] == "DISCREPANCY"
+    assert cp1["validation"]["left"] == "₹10,000"
+    assert cp1["validation"]["right"] == "₹1,000,000"
+    assert cp1["validation"]["result"] == "MISMATCH"
+    assert cp1["validation"]["leftSource"] == "application_form"
+    assert cp1["validation"]["rightSource"] == "los"
+    assert len(cp1["comparisons"]) > 0
+
+    # CP 2: Loan Validity must show 3 Months vs 36 Months
+    cp2 = checkpoints["Loan Validity"]
+    assert cp2["status"] == "DISCREPANCY"
+    assert cp2["validation"]["left"] == "3 Months"
+    assert cp2["validation"]["right"] == "36 Months"
+    assert cp2["validation"]["result"] == "MISMATCH"
+    assert len(cp2["comparisons"]) > 0
+
+    # CP 4: KYC must be MATCH for identical PANs (never AOOPK6924P MISMATCH AOOPK6924P)
+    cp4 = checkpoints["KYC"]
+    assert cp4["validation"]["left"] == "AOOPK6924P"
+    assert cp4["validation"]["right"] == "AOOPK6924P"
+    assert cp4["validation"]["result"] == "MATCH"
+    assert "Mandatory KYC documents (PAN and Address Proof) not uploaded" not in cp4["reason"]
+    assert len(cp4["comparisons"]) > 0
+
+    # CP 7: KFS must show the IRR mismatch, not loan amount mismatch
+    cp7 = checkpoints["KFS"]
+    assert cp7["status"] == "DISCREPANCY"
+    assert cp7["validation"]["left"] == "17.9%"
+    assert cp7["validation"]["right"] == "17.0%"
+    assert cp7["validation"]["result"] == "MISMATCH"
+    assert len(cp7["comparisons"]) > 0
+
+    # Missing documents must not show N/A != N/A
+    for name in ("Selfie / Live Photo", "Disbursal Memo", "Loan Agreement", "Aadhaar XML"):
+        cp = checkpoints[name]
+        val = cp["validation"]
+        assert not (val["left"] == "N/A" and val["right"] == "N/A" and val["result"] == "MISMATCH"), (
+            f"{name} produced invalid N/A != N/A validation"
+        )
+
+    # Inviolable Invariant across all checkpoints in the case:
+    for cp in case["checkpoints"]:
+        val = cp.get("validation")
+        if val and val.get("result") == "MISMATCH":
+            assert val["left"] != val["right"], (
+                f"Checkpoint '{cp['name']}' violated identity invariant: {val['left']} MISMATCH {val['right']}"
+            )
+
+

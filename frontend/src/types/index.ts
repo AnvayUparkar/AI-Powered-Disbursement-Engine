@@ -121,7 +121,10 @@ export interface Checkpoint {
     left: string;
     right: string;
     result: 'MATCH' | 'MISMATCH' | 'INCONCLUSIVE';
+    leftSource?: string;
+    rightSource?: string;
   };
+  comparisons?: ComparisonResult[];
 }
 
 export interface ProcessingStep {

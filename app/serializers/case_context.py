@@ -143,6 +143,75 @@ def build_field(
     }
 
 
+def resolve_checkpoint_validation(
+    status: str,
+    default_left: str,
+    default_right: str,
+    records: list[dict[str, Any]] | None = None,
+    default_left_source: str | None = None,
+    default_right_source: str | None = None,
+    fallback_result: str | None = None,
+) -> dict[str, Any]:
+    """Resolves a validation block enforcing production invariants:
+    - If status == 'DISCREPANCY', bind left/right to the primary failing check's values & sources.
+    - Identity invariant: left == right NEVER produces result == 'MISMATCH'.
+    - Symmetrical missing states (N/A vs N/A) are mapped to semantic indicators or INCONCLUSIVE.
+    """
+    mismatched_check = None
+    if records:
+        for r in records:
+            if isinstance(r, dict) and (r.get("match_status") == "MISMATCH" or r.get("result") == "MISMATCH"):
+                mismatched_check = r
+                break
+
+    if status == "DISCREPANCY" and mismatched_check is not None:
+        vals = mismatched_check.get("values") or []
+        srcs = mismatched_check.get("sources") or []
+        left_val = str(vals[0]) if len(vals) > 0 and vals[0] is not None else default_left
+        right_val = str(vals[1]) if len(vals) > 1 and vals[1] is not None else default_right
+        left_src = str(srcs[0]) if len(srcs) > 0 and srcs[0] else default_left_source
+        right_src = str(srcs[1]) if len(srcs) > 1 and srcs[1] else default_right_source
+
+        # If values happen to be identical (e.g. format nuance), ensure left != right
+        result = "MISMATCH" if left_val != right_val else "MATCH"
+        val_block: dict[str, Any] = {
+            "left": left_val,
+            "right": right_val,
+            "result": result,
+        }
+        if left_src:
+            val_block["leftSource"] = left_src
+        if right_src:
+            val_block["rightSource"] = right_src
+        return val_block
+
+    if status == "VERIFIED" or status == "NOT_APPLICABLE":
+        result = "MATCH"
+    elif status == "DISCREPANCY":
+        # Ensure identity invariant: if left == right, do not display MISMATCH
+        result = "MISMATCH" if default_left != default_right else "MATCH"
+    else:  # INDETERMINATE
+        if fallback_result is not None:
+            result = fallback_result
+        elif default_left in ("N/A", "Missing") and default_right in ("N/A", "Missing"):
+            result = "INCONCLUSIVE"
+        elif default_left == default_right:
+            result = "MATCH"
+        else:
+            result = "MISMATCH"
+
+    val_block = {
+        "left": default_left,
+        "right": default_right,
+        "result": result,
+    }
+    if default_left_source:
+        val_block["leftSource"] = default_left_source
+    if default_right_source:
+        val_block["rightSource"] = default_right_source
+    return val_block
+
+
 def build_checkpoint(
     cp_id: int,
     name: str,
@@ -154,6 +223,7 @@ def build_checkpoint(
     evidence: list[dict[str, Any]],
     validation: dict[str, Any] | None = None,
     match_score: float | None = None,
+    comparisons: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Builds a standardized checkpoint record."""
     cp_data: dict[str, Any] = {
@@ -166,6 +236,7 @@ def build_checkpoint(
         "extractedFields": fields,
         "evidence": evidence,
         "validation": validation,
+        "comparisons": comparisons or [],
     }
     if match_score is not None:
         cp_data["matchScore"] = round(match_score, 1)
