@@ -5,8 +5,8 @@ from idp.services.document_preprocessor import PreprocessedDocument
 
 
 @pytest.mark.asyncio
-async def test_kyc_image_bypasses_docling():
-    """Verify that KYC / image documents bypass Docling table analysis."""
+async def test_kyc_image_invokes_docling():
+    """Verify that KYC / image documents now invoke Docling layout and integrated OCR."""
     processor = DocumentProcessor()
     processor.storage = MagicMock()
     processor.storage.download = AsyncMock(return_value=True)
@@ -31,29 +31,23 @@ async def test_kyc_image_bypasses_docling():
     processor._get_page_images = AsyncMock(return_value=[(b"img_bytes", 500.0, 300.0)])
     processor._save_and_upload_output = AsyncMock(return_value="s3://bucket/parsed.json")
 
-    # Mock OCR and Serializer
-    mock_ocr = MagicMock()
-    mock_ocr.page_number = 1
-    mock_ocr.elements = []
-    mock_ocr.average_confidence = 0.95
-    mock_ocr.low_confidence_count = 0
-    mock_ocr.image_width = 500.0
-    mock_ocr.image_height = 300.0
-    processor.ocr_router.process_page.return_value = mock_ocr
-    processor.router.should_use_vlm.return_value = False
+    mock_docling_result = MagicMock()
+    mock_docling_result.elements = []
+    processor.docling_parser.parse.return_value = mock_docling_result
+    processor.router.get_low_confidence_layout_elements.return_value = []
     processor.serializer.build_unified_document.return_value = MagicMock()
 
     with patch("os.path.exists", return_value=True):
         res = await processor.process_document("doc-kyc-pan", "mock_pan.png")
 
     assert res["status"] == "completed"
-    # Docling parser should NOT be called for KYC / image
-    processor.docling_parser.parse.assert_not_called()
+    # Docling parser SHOULD be called for KYC / image
+    processor.docling_parser.parse.assert_called_once()
 
-    # Verify serializer was called with docling_used=False
+    # Verify serializer was called with docling_used=True
     call_kwargs = processor.serializer.build_unified_document.call_args.kwargs
-    assert call_kwargs["docling_used"] is False
-    assert call_kwargs["docling_result"] is None
+    assert call_kwargs["docling_used"] is True
+    assert call_kwargs["docling_result"] is mock_docling_result
 
 
 @pytest.mark.asyncio

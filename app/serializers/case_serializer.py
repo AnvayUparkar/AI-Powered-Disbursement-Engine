@@ -331,11 +331,7 @@ def _resolve_case_status_and_score(
         overall_status = "PROCESSING"
         risk_level = "LOW"
         dgcl_score = 0.0
-    elif (
-        review_count > 0
-        or scorecard_decision == "MANUAL_REVIEW"
-        or scorecard_tier == "MEDIUM_RISK"
-    ):
+    elif review_count > 0:
         overall_status = "INDETERMINATE"
         risk_level = "MEDIUM"
         dgcl_score = (

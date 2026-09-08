@@ -7,6 +7,7 @@ from idp.models.layout import LayoutElement, ElementType
 from idp.models.table import TableStructure, TableCell
 from idp.core.exceptions import DoclingProcessingError
 from idp.core.logging import logger, format_doc_log
+from idp.services.ocr.confidence import compute_text_confidence
 
 
 def _extract_top_left_bbox(bbox_obj: Any, page_height: float = 842.0) -> List[float]:
@@ -99,16 +100,21 @@ class DoclingParser:
                             bbox_list = _extract_top_left_bbox(prov_item.bbox, _get_page_h(pno))
 
                     txt = getattr(item, "text", "") or ""
+                    
+                    # Capture ALL text - no filtering at extraction
+                    if not txt or not txt.strip():
+                        continue
+                    
                     elements.append(
                         LayoutElement(
                             id=f"docling-{uuid.uuid4().hex[:8]}",
                             type=elem_type,
-                            text=txt,
+                            text=txt,  # RAW text - clean later
                             bbox=bbox_list,
-                            confidence=1.0,
+                            confidence=compute_text_confidence(txt),
                             page_number=pno,
                             reading_order=reading_order,
-                            source="docling_ocr" if txt else "docling_ocr",
+                            source="docling_ocr",
                             structure_source="docling"
                         )
                     )
@@ -128,16 +134,38 @@ class DoclingParser:
                     headers: List[str] = []
                     rows_raw: List[List[str]] = []
 
-                    # 1. Native Docling TableData cell grid extraction
+                    # 1. Native Docling TableData cell grid extraction (span-aware)
                     if hasattr(table, "data") and hasattr(table.data, "table_cells") and table.data.table_cells:
                         try:
-                            row_cell_map: Dict[int, List[Any]] = {}
-                            for tc in table.data.table_cells:
-                                r_idx = getattr(tc, "start_row_offset_idx", 0)
-                                c_idx = getattr(tc, "start_col_offset_idx", 0)
+                            tc_list = table.data.table_cells
+
+                            # Determine grid dimensions from span attributes
+                            n_rows = getattr(table.data, "num_rows", 0)
+                            n_cols = getattr(table.data, "num_cols", 0)
+                            if not n_rows or not n_cols:
+                                for tc in tc_list:
+                                    end_r = getattr(tc, "end_row_offset_idx", getattr(tc, "start_row_offset_idx", 0))
+                                    end_c = getattr(tc, "end_col_offset_idx", getattr(tc, "start_col_offset_idx", 0))
+                                    n_rows = max(n_rows, end_r + 1)
+                                    n_cols = max(n_cols, end_c + 1)
+
+                            # Build NxM grid; each slot holds the cell text for that (row, col) position.
+                            # Merged cells stamp their text into every slot they span so that
+                            # rows_raw[r] always has exactly n_cols entries.
+                            grid: List[List[str]] = [[""] * n_cols for _ in range(n_rows)]
+                            occupied: set = set()
+
+                            for tc in tc_list:
+                                r0 = getattr(tc, "start_row_offset_idx", 0)
+                                c0 = getattr(tc, "start_col_offset_idx", 0)
+                                r1 = getattr(tc, "end_row_offset_idx", r0)
+                                c1 = getattr(tc, "end_col_offset_idx", c0)
                                 c_txt = str(getattr(tc, "text", "")).strip()
-                                is_hdr = bool(getattr(tc, "column_header", False)) or (r_idx == 0)
                                 
+                                # Capture ALL table cell text - no filtering
+                                
+                                is_hdr = bool(getattr(tc, "column_header", False)) or (r0 == 0)
+
                                 c_bbox = None
                                 if hasattr(tc, "prov") and tc.prov:
                                     tb = tc.prov[0].bbox
@@ -146,23 +174,32 @@ class DoclingParser:
 
                                 cells.append(
                                     TableCell(
-                                        row_index=r_idx,
-                                        col_index=c_idx,
+                                        row_index=r0,
+                                        col_index=c0,
                                         text=c_txt,
                                         is_header=is_hdr,
                                         bbox=c_bbox
                                     )
                                 )
-                                if r_idx not in row_cell_map:
-                                    row_cell_map[r_idx] = []
-                                row_cell_map[r_idx].append((c_idx, c_txt))
 
-                            for r_idx in sorted(row_cell_map.keys()):
-                                r_cells = sorted(row_cell_map[r_idx], key=lambda x: x[0])
-                                row_vals = [c_txt for _, c_txt in r_cells]
+                                # Write text only at the origin slot.
+                                # Mark all spanned slots as occupied so a later
+                                # non-spanning cell cannot overwrite them.
+                                # Continuation slots stay empty — this prevents
+                                # row-spanning header text from bleeding into
+                                # sub-header and data rows below.
+                                if (r0, c0) not in occupied:
+                                    grid[r0][c0] = c_txt
+                                for sr in range(r0, min(r1 + 1, n_rows)):
+                                    for sc in range(c0, min(c1 + 1, n_cols)):
+                                        occupied.add((sr, sc))
+
+                            # Read rows off the grid
+                            for r_idx, row_vals in enumerate(grid):
                                 rows_raw.append(row_vals)
                                 if r_idx == 0:
                                     headers = row_vals
+
                         except Exception as ex:
                             logger.debug(f"Native table cell extraction fallback: {ex}")
 
@@ -206,6 +243,7 @@ class DoclingParser:
                     )
 
             logger.info(format_doc_log(doc_id, f"Docling successfully extracted {len(elements)} structural elements and {len(tables)} tables."))
+            
             return DoclingParseResult(
                 elements=elements,
                 tables=tables,
@@ -245,7 +283,7 @@ class DoclingParser:
                             confidence=0.9,
                             page_number=pno,
                             reading_order=reading_order,
-                            source="rapidocr",
+                            source="docling_ocr",
                             structure_source="docling"
                         )
                     )

@@ -50,6 +50,18 @@ class OCRConfidenceEvaluator:
     LATIN_VOWEL_REGEX = re.compile(r"[aeiouyAEIOUY]")
     SYMBOL_REGEX = re.compile(r"[^a-zA-Z0-9\u0900-\u097F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\s]")
 
+    # 7. OCR Artifact & Quality Patterns
+    CAMEL_OR_GLUED_PATTERN = re.compile(r"[a-z][A-Z]")
+    SANDWICHED_LOWERCASE_PATTERN = re.compile(r"[A-Z]{1,}[a-z]+[A-Z]+")
+    SUSPICIOUS_INITIAL_PATTERN = re.compile(r"\b[bcdfghjklmnpqrstvwxz]{2}[a-z]{3,}\b")
+    PUNCT_NOISE_PATTERN = re.compile(r"([,.;:!?_\-\/\\|]){2,}")
+    DIGIT_INSIDE_WORD_PATTERN = re.compile(r"\b[A-Za-z]+[0-9]+[A-Za-z]+\b")
+    VALID_INITIAL_CONSONANTS = (
+        "th", "sh", "ch", "wh", "ph", "sc", "sk", "sl", "sm", "sn",
+        "sp", "st", "sw", "tr", "pr", "br", "cr", "dr", "fr", "gr",
+        "pl", "cl", "bl", "fl", "gl"
+    )
+
     def __init__(self, threshold: float = settings.OCR_CONFIDENCE_THRESHOLD):
         self.threshold = threshold
 
@@ -76,10 +88,40 @@ class OCRConfidenceEvaluator:
 
         # 2. Remove standalone English misread noise tokens for PAN & Aadhaar headers
         cleaned = re.sub(r"\b(FarHToT|3RRTO|HRAHRR|PA ROR)\b", "", cleaned, flags=re.IGNORECASE)
+        
+        # 3. Remove leading single-letter noise before words (e.g., "s Brih" -> "Brih", "a Government" -> "Government")
+        cleaned = re.sub(r"^[a-z]\s+(?=[A-Z])", "", cleaned)
+        
+        # 4. Remove standalone garbled tokens: TE, RAA, HOTRT, Signralid, HAR, etc.
+        cleaned = re.sub(r"\b(TE|RAA|HOTRT|Signralid|HAR|Hin|Wuy|Nane|Empioyee|OSV)\b", "", cleaned)
+        
+        # 5. Remove Chinese/CJK characters and full-width punctuation entirely
+        cleaned = re.sub(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\uff00-\uffef]", "", cleaned)
+        
+        # 6. Remove Devanagari-to-Latin garbled patterns: "3TET", "TT3T", "3TR3", "334"
+        # Matches: digits+letters+digits OR letters+digits+letters OR pure digits with letters mixed
+        cleaned = re.sub(r"\b\d+[A-Z]{2,}\d*\b", "", cleaned)  # e.g., "3TET", "334"
+        cleaned = re.sub(r"\b[A-Z]{2,}\d+\s?\d*\b", "", cleaned)  # e.g., "TT3T 3"
+        
+        # 7. Remove standalone short noise: single letters/digits on their own or with minimal context
+        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", "", cleaned)  # Single uppercase letters: "R", "A"
+        cleaned = re.sub(r"\b\d{1,4}\b(?!\d)", "", cleaned)  # Standalone 1-4 digit numbers: "12", "105", "333", "4011"
+        
+        # 8. Remove random character sequences with mixed punctuation
+        cleaned = re.sub(r"\b[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{5,}\b", "", cleaned)  # e.g., "ee , a fr ) s4 H4"
+        
+        # 9. Remove leading digit+slash patterns from fields like "9/MALE" -> "MALE", "Paf4/DOB" -> "DOB"
+        cleaned = re.sub(r"^[A-Za-z]*\d+/", "", cleaned)
+        
+        # 10. Remove patterns like "RT 3HTET" or "3 34" (mixed letter-digit garbage)
+        cleaned = re.sub(r"\b[A-Z]{1,2}\s+\d[A-Z]+\b", "", cleaned)
 
         # Clean up double spaces or dangling leading slashes
         cleaned = re.sub(r"^\s*/\s*", "", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        
+        # Remove leading/trailing punctuation or symbols
+        cleaned = re.sub(r"^[^\w\s]+|[^\w\s]+$", "", cleaned, flags=re.UNICODE)
 
         return cleaned
 
@@ -110,14 +152,41 @@ class OCRConfidenceEvaluator:
         # 4. Check for known Indic OCR misread n-grams
         if self.INVALID_NGRAM_MISREADS.search(cleaned):
             return True
+        
+        # 5. Check for Chinese/CJK characters and full-width punctuation
+        if re.search(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\uff00-\uffef]", cleaned):
+            return True
+        
+        # 6. Check for specific garbage tokens seen in Aadhaar/PAN misreads
+        garbage_tokens = r"\b(TE|RAA|HOTRT|Signralid|Brih|HAR(?!I)|Hin|Wuy|Nane|Empioyee|OSV)\b"
+        if re.search(garbage_tokens, cleaned, re.IGNORECASE):
+            return True
+        
+        # 7. Check for Devanagari misread patterns: "3TET", "TT3T", "334", "3 34"
+        if re.search(r"\b\d+[A-Z]{2,}\d*\b", cleaned):  # "3TET", "334"
+            return True
+        if re.search(r"\b[A-Z]{2,}\d+\s?\d*\b", cleaned):  # "TT3T 3"
+            return True
+        
+        # 8. Check for random character sequences with excessive punctuation
+        if re.search(r"[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{8,}", cleaned):
+            return True
+        
+        # 9. Standalone very short tokens (1-2 chars) that are just noise
+        if total_len <= 2 and cleaned.isalpha() and cleaned.isupper():
+            return True  # Single letters like "R", "A"
+        
+        # 10. Pure standalone numbers without context (likely page numbers or noise)
+        if cleaned.isdigit() and 1 <= len(cleaned) <= 4:
+            return True  # Catches "12", "105", "333", "4011"
 
-        # 5. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
+        # 8. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
         for match in self.PURE_CONSONANTS_PATTERN.finditer(cleaned):
             token = match.group(0).upper()
             if token not in self.COMMON_ACRONYMS and not self.IDENTIFIER_PATTERNS.search(cleaned):
                 return True
 
-        # 6. Statistical Latin Vowel-to-Consonant Ratio check for non-acronym words
+        # 9. Statistical Latin Vowel-to-Consonant Ratio check for non-acronym words
         words = cleaned.split()
         for word in words:
             # Exempt structured financial/identity identifiers (PAN, IFSC, GSTIN) and alphanumeric tokens
@@ -133,11 +202,11 @@ class OCRConfidenceEvaluator:
                     if vowel_ratio < 0.15:
                         return True
 
-        # 7. Check zero valid script characters
+        # 10. Check zero valid script characters
         if not self.VALID_SCRIPT_REGEX.search(cleaned):
             return True
 
-        # 8. Excessive symbol ratio (> 40% non-alphanumeric symbols)
+        # 11. Excessive symbol ratio (> 40% non-alphanumeric symbols)
         symbols_count = len(self.SYMBOL_REGEX.findall(cleaned))
         letters_count = len(self.LETTER_REGEX.findall(cleaned))
         if total_len > 4 and letters_count > 0:
@@ -180,7 +249,85 @@ class OCRConfidenceEvaluator:
 
         result.low_confidence_count = low_count
         result.total_elements = len(result.elements)
-        result.average_confidence = (total_conf / len(result.elements)) if result.elements else 1.0
+        if result.elements:
+            result.average_confidence = (total_conf / len(result.elements))
+            result.extraction_failed = False
+        else:
+            result.average_confidence = 0.0
+            result.extraction_failed = True
 
         return result
 
+    def compute_text_confidence(self, text: str, bbox: Optional[List[float]] = None) -> float:
+        """
+        Dynamically calculates confidence score (0.0 to 0.99) for extracted text
+        based on linguistic, casing, character distribution, and OCR artifact heuristics.
+        """
+        if not text or not text.strip():
+            return 0.0
+
+        cleaned = text.strip()
+
+        # 1. Immediate severe penalty if garbled or corrupted
+        if self.is_garbled_text(cleaned):
+            return 0.35
+
+        score = 0.96  # High-confidence baseline for clean OCR text
+
+        words = cleaned.split()
+        penalties: float = 0.0
+
+        for word in words:
+            # Skip structured identifiers (PAN, IFSC, GSTIN) and known acronyms
+            if self.IDENTIFIER_PATTERNS.search(word) or word.upper() in self.COMMON_ACRONYMS:
+                continue
+
+            # Check 1: Sandwiched lowercase in uppercase (e.g. "KAmLA", "NAMeS")
+            if self.SANDWICHED_LOWERCASE_PATTERN.search(word):
+                penalties += 0.18
+
+            # Check 2: Glued words / casing jump without space (e.g. "NamePRAKASHKHATRI")
+            if self.CAMEL_OR_GLUED_PATTERN.search(word):
+                penalties += 0.15
+
+            # Check 3: Suspicious initial double consonant from clipped leading letter (e.g. "pplicant", "ddress")
+            if self.SUSPICIOUS_INITIAL_PATTERN.search(word) and not word.lower().startswith(self.VALID_INITIAL_CONSONANTS):
+                penalties += 0.15
+
+            # Check 4: Digit inside word (e.g. "L0AN", "F0RM")
+            if self.DIGIT_INSIDE_WORD_PATTERN.search(word):
+                penalties += 0.12
+
+            # Check 5: Unusually long token without spaces/hyphens (likely run-on OCR concatenation)
+            if len(word) > 22 and not any(c in word for c in "-_./\\@"):
+                penalties += 0.10
+
+        # Check 6: Consecutive punctuation / noise characters
+        if self.PUNCT_NOISE_PATTERN.search(cleaned) and not any(k in cleaned for k in ["--", "..."]):
+            penalties += 0.08
+
+        # Check 7: Extremely short single-character tokens (unless digit or valid single letter)
+        if len(cleaned) == 1 and cleaned not in "0123456789aAiI":
+            penalties += 0.20
+
+        # Check 8: Small/Degenerate BBox anomaly (when bbox coordinates are actually present)
+        if bbox and len(bbox) >= 4 and any(c > 0 for c in bbox):
+            w = abs(bbox[2] - bbox[0])
+            h = abs(bbox[3] - bbox[1])
+            if w <= 0.001 or h <= 0.001:
+                penalties += 0.15
+
+        # Clean bonus for standard titles / clean standard multi-word uppercase names
+        if cleaned in {"Mr.", "Mrs.", "Ms.", "Dr.", "Shri", "Smt."} or (cleaned.isupper() and 2 <= len(words) <= 5 and penalties == 0.0):
+            score = 0.98
+
+        final_score = max(0.15, min(0.99, score - penalties))
+        return round(final_score, 4)
+
+
+_default_evaluator = OCRConfidenceEvaluator()
+
+
+def compute_text_confidence(text: str, bbox: Optional[List[float]] = None) -> float:
+    """Module-level helper: delegates to OCRConfidenceEvaluator.compute_text_confidence."""
+    return _default_evaluator.compute_text_confidence(text, bbox=bbox)

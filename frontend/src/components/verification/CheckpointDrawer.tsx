@@ -97,14 +97,82 @@ export function CheckpointDrawer({
           {cp.validation && (
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500 mb-2">
-                Validation
+                Validation Summary
               </h3>
-              <div className={`rounded-md p-4 flex items-center justify-center gap-3 ${resultColor}`}>
-                <span className="font-mono text-sm font-medium tabular-nums">{cp.validation.left}</span>
-                <span className="text-xs font-semibold uppercase tracking-wide">
+              <div className={`rounded-md p-4 flex items-center justify-between gap-3 ${resultColor}`}>
+                <div className="flex flex-col items-start min-w-0">
+                  {cp.validation.leftSource && (
+                    <span className="text-[10px] uppercase tracking-wider font-semibold opacity-75 mb-0.5">
+                      {cp.validation.leftSource.replace('_', ' ')}
+                    </span>
+                  )}
+                  <span className="font-mono text-sm font-medium tabular-nums break-all">{cp.validation.left}</span>
+                </div>
+                <span className="text-xs font-bold uppercase tracking-wide px-2.5 py-1 rounded bg-white/70 dark:bg-black/30 shadow-xs shrink-0">
                   {cp.validation.result}
                 </span>
-                <span className="font-mono text-sm font-medium tabular-nums">{cp.validation.right}</span>
+                <div className="flex flex-col items-end min-w-0 text-right">
+                  {cp.validation.rightSource && (
+                    <span className="text-[10px] uppercase tracking-wider font-semibold opacity-75 mb-0.5">
+                      {cp.validation.rightSource.replace('_', ' ')}
+                    </span>
+                  )}
+                  <span className="font-mono text-sm font-medium tabular-nums break-all">{cp.validation.right}</span>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Granular Pipeline Comparison Checks */}
+          {cp.comparisons && cp.comparisons.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500 mb-2">
+                Pipeline Comparison Checks ({cp.comparisons.length})
+              </h3>
+              <div className="space-y-2">
+                {cp.comparisons.map((c, idx) => (
+                  <div key={c.check_id || idx} className="card p-3 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-ink-800 capitalize">
+                        {c.field ? c.field.replace(/_/g, ' ') : 'Verification Check'}
+                      </span>
+                      <span
+                        className={`chip text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                          c.match_status === 'MATCH'
+                            ? 'bg-verified-50 text-verified-700 ring-1 ring-verified-500/20'
+                            : c.match_status === 'MISMATCH'
+                              ? 'bg-discrepancy-50 text-discrepancy-700 ring-1 ring-discrepancy-500/20'
+                              : 'bg-review-50 text-review-700 ring-1 ring-review-500/20'
+                        }`}
+                      >
+                        {c.match_status}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-ink-50/60 p-2 rounded">
+                      <div>
+                        <span className="text-ink-400 block text-[10px] uppercase font-sans">
+                          {c.sources?.[0] || 'Source A'}
+                        </span>
+                        <span className="text-ink-800 truncate block">
+                          {c.values?.[0] !== null && c.values?.[0] !== undefined ? String(c.values[0]) : '—'}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-ink-400 block text-[10px] uppercase font-sans">
+                          {c.sources?.[1] || 'Source B'}
+                        </span>
+                        <span className="text-ink-800 truncate block">
+                          {c.values?.[1] !== null && c.values?.[1] !== undefined ? String(c.values[1]) : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    {c.notes && (
+                      <p className="text-[11px] text-ink-600 mt-1 italic leading-relaxed">
+                        {c.notes}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             </section>
           )}

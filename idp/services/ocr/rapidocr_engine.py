@@ -169,6 +169,56 @@ class RapidOCREngine:
         except Exception:
             pass
 
+        # If fitz extracted no blocks (e.g. scanned image with no text layer), attempt pytesseract fallback
+        if not elements:
+            try:
+                import pytesseract
+                from PIL import Image
+                import io
+
+                pil_img = Image.open(io.BytesIO(image_bytes))
+                tess_data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
+                n_boxes = len(tess_data.get("text", []))
+                for i in range(n_boxes):
+                    word = str(tess_data["text"][i] or "").strip()
+                    conf_raw = tess_data.get("conf", ["-1"])[i]
+                    try:
+                        conf_val = float(conf_raw)
+                    except (ValueError, TypeError):
+                        conf_val = -1.0
+
+                    if word and conf_val > 0:
+                        l = float(tess_data["left"][i])
+                        t = float(tess_data["top"][i])
+                        w = float(tess_data["width"][i])
+                        h = float(tess_data["height"][i])
+                        r = l + w
+                        b = t + h
+                        norm_conf = round(conf_val / 100.0, 4) if conf_val > 1.0 else round(conf_val, 4)
+                        line_num = int(tess_data.get("line_num", [1])[i]) if "line_num" in tess_data else len(elements) + 1
+                        elements.append(
+                            OCRElement(
+                                id=f"ocr-tess-{len(elements) + 1}",
+                                text=word,
+                                bbox=[l, t, r, b],
+                                polygon=[[l, t], [r, t], [r, b], [l, b]],
+                                confidence=norm_conf,
+                                page_number=page_number,
+                                line_number=line_num,
+                                source="ocr"
+                            )
+                        )
+            except Exception as e:
+                logger.debug(format_doc_log(doc_id, f"pytesseract fallback pass failed or not installed: {e}"))
+
+        if not elements:
+            logger.warning(
+                format_doc_log(
+                    doc_id,
+                    f"OCR fully failed for page {page_number}: no text could be extracted from image layer or fallbacks."
+                )
+            )
+
         res = OCRResult(
             page_number=page_number,
             elements=elements,

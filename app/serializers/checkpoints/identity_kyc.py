@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from config import FIELD_CRITICALITY_WEIGHTS
+from pipeline.engines.comparison import normalize_date
 
 from ..case_context import (
     CaseContext,
@@ -12,6 +13,7 @@ from ..case_context import (
     build_field,
     compute_checkpoint_confidence,
     inr_format,
+    resolve_checkpoint_validation,
 )
 
 
@@ -75,8 +77,7 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     app_form_checks = [
         r for r in ctx.records
-        if r.get("subnode") == "check_loan_application"
-        or "application_form" in (r.get("sources") or [])
+        if "application_form" in (r.get("sources") or [])
         or (r.get("check_id") and "application_form" in r.get("check_id", "").lower())
     ]
     left_app_name = str(app_form.get("applicant_name") or "N/A")
@@ -120,6 +121,10 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                     d_digits = _digits_only(doc_v)
                     l_digits = _digits_only(los_v)
                     is_fld_match = (d_digits[-10:] == l_digits[-10:]) if len(d_digits) >= 10 and len(l_digits) >= 10 else (d_str == l_str)
+                elif fld_name in ("dob", "application_date"):
+                    norm_d = normalize_date(doc_v)
+                    norm_l = normalize_date(los_v)
+                    is_fld_match = (norm_d == norm_l) if (norm_d and norm_l) else (d_str == l_str)
                 elif fld_name in ("loan_amount", "loan_validity"):
                     try:
                         is_fld_match = float(doc_v) == float(los_v)
@@ -144,11 +149,11 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         fields = [build_field("Application Form", "Not Uploaded", 0.0, f"doc-{ctx.loan_id}")]
         status = "INDETERMINATE"
         notes = "Application Form not uploaded."
-        val = {"left": "N/A", "right": right_los_name, "result": "MISMATCH"}
+        val = {"left": "Missing", "right": right_los_name, "result": "MISMATCH", "leftSource": "application_form", "rightSource": "los"}
     elif name_mismatch:
         status = "DISCREPANCY"
         notes = f"Application Form applicant name ('{left_app_name}') does not match LOS ('{right_los_name}') ({matched_field_count}/{total_field_count} fields verified, {match_score}% match fidelity)."
-        val = {"left": left_app_name, "right": right_los_name, "result": "MISMATCH"}
+        val = {"left": left_app_name, "right": right_los_name, "result": "MISMATCH", "leftSource": "application_form", "rightSource": "los"}
     elif mismatched_app_checks or detected_mismatches:
         status = "DISCREPANCY"
         if mismatched_app_checks:
@@ -163,15 +168,15 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             left_v = str(first_mis_doc)
             right_v = str(first_mis_los)
         notes = f"Application Form discrepancy detected in {mis_field}: '{left_v}' vs '{right_v}' ({matched_field_count}/{total_field_count} fields verified, {match_score}% match fidelity)."
-        val = {"left": left_v, "right": right_v, "result": "MISMATCH"}
-    elif any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in app_form_checks):
+        val = {"left": left_v, "right": right_v, "result": "MISMATCH", "leftSource": "application_form", "rightSource": "los"}
+    elif any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in app_form_checks) and match_score < 90.0:
         status = "INDETERMINATE"
         notes = f"Application form fields pending manual verification ({matched_field_count}/{total_field_count} verified, {match_score}% match fidelity)."
-        val = {"left": left_app_name, "right": right_los_name, "result": "MATCH"}
+        val = {"left": left_app_name, "right": right_los_name, "result": "MATCH", "leftSource": "application_form", "rightSource": "los"}
     else:
         status = "VERIFIED"
-        notes = f"Application Form verified against LOS records for '{app_name_val}' ({matched_field_count}/{total_field_count} fields verified, 100% match fidelity)."
-        val = {"left": left_app_name, "right": right_los_name, "result": "MATCH"}
+        notes = f"Application Form verified against LOS records for '{app_name_val}' ({matched_field_count}/{total_field_count} fields verified, {match_score}% match fidelity)."
+        val = {"left": left_app_name, "right": right_los_name, "result": "MATCH", "leftSource": "application_form", "rightSource": "los"}
 
     return build_checkpoint(
         3,
@@ -184,6 +189,7 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         evidence,
         val,
         match_score=match_score,
+        comparisons=app_form_checks,
     )
 
 
@@ -275,7 +281,7 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status = "INDETERMINATE"
     elif not has_pan_doc or not has_addr_doc:
         status = "INDETERMINATE"
-    elif any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") or r.get("result") in ("PARTIAL", "NOT_FOUND") for r in kyc_records):
+    elif any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") or r.get("result") in ("PARTIAL", "NOT_FOUND") for r in [r4_pan, r4_name_pan, r4_name_aadhaar, r4_addr] if r is not None):
         status = "INDETERMINATE"
     else:
         status = "VERIFIED"
@@ -313,6 +319,9 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     dyn_conf = compute_checkpoint_confidence(fields, kyc_records, default_conf=96.0) if (has_pan_doc or has_addr_doc) else 0.0
 
+    left_source = "pan" if doc_pan else "aadhaar"
+    right_source = "los"
+
     if r4_name_aadhaar and r4_name_aadhaar.get("match_status") == "MISMATCH":
         doc_n = str(r4_name_aadhaar.get("values", [""])[0] or doc_aadhaar_name or "Unknown")
         los_n = str(r4_name_aadhaar.get("values", ["", ""])[1] or ctx.los_data.get("applicant_name") or "Unknown")
@@ -321,6 +330,7 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         left_val = doc_n
         right_val = los_n
         val_result = "MISMATCH"
+        left_source = "aadhaar"
     elif r4_name_pan and r4_name_pan.get("match_status") == "MISMATCH":
         doc_n = str(r4_name_pan.get("values", [""])[0] or doc_pan_name or "Unknown")
         los_n = str(r4_name_pan.get("values", ["", ""])[1] or ctx.los_data.get("applicant_name") or "Unknown")
@@ -329,18 +339,21 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         left_val = doc_n
         right_val = los_n
         val_result = "MISMATCH"
+        left_source = "pan"
     elif pan_str_mismatch or (r4_pan and r4_pan.get("match_status") == "MISMATCH"):
         kyc_notes = "Discrepancies found: PAN number does not match LOS."
         conf = dyn_conf
         left_val = str(doc_pan or "N/A")
         right_val = str(los_pan or "N/A")
         val_result = "MISMATCH"
+        left_source = "pan"
     elif r4_addr and r4_addr.get("match_status") == "MISMATCH":
         kyc_notes = "Discrepancies found: Address does not match LOS."
         conf = dyn_conf
         left_val = str(doc_addr or "N/A")[:30]
         right_val = str(los_addr or "N/A")[:30]
         val_result = "MISMATCH"
+        left_source = "aadhaar"
     elif status == "DISCREPANCY":
         first_mismatch = mismatched_kyc[0] if mismatched_kyc else None
         fld_name = first_mismatch.get("field", "KYC field").replace("_", " ").title() if first_mismatch else "KYC field"
@@ -353,6 +366,11 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 left_val = str(vals[0])
             if len(vals) > 1 and vals[1] is not None:
                 right_val = str(vals[1])
+            srcs = first_mismatch.get("sources") or []
+            if len(srcs) > 0:
+                left_source = srcs[0]
+            if len(srcs) > 1:
+                right_source = srcs[1]
     elif status == "VERIFIED":
         kyc_notes = f"{pan_label} and {addr_label} verified against LOS."
         conf = dyn_conf
@@ -360,13 +378,39 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     elif has_pan_doc and not has_addr_doc:
         kyc_notes = f"{pan_label} present, but mandatory Address Proof document is missing."
         conf = round(dyn_conf * 0.5, 1)
+        val_result = "MATCH" if (pan_matches and doc_pan) else "MISMATCH"
+        left_val = str(doc_pan or "N/A")
+        right_val = str(los_pan or "N/A")
+        left_source = "pan"
     elif has_addr_doc and not has_pan_doc:
         kyc_notes = "Address proof present, but mandatory PAN Card document is missing."
         conf = round(dyn_conf * 0.5, 1)
+        val_result = "MISMATCH"
+        left_val = str(doc_addr or "N/A")[:30]
+        right_val = str(los_addr or "N/A")[:30]
+        left_source = "aadhaar"
+    elif has_pan_doc and has_addr_doc:
+        partial_records = [r for r in kyc_records if r.get("match_status") in ("PARTIAL", "NOT_FOUND")]
+        pending_fld = partial_records[0].get("field", "identity").replace("_", " ").title() if partial_records else "details"
+        kyc_notes = f"{pan_label} and {addr_label} uploaded; {pending_fld} verification pending review."
+        conf = dyn_conf
+        val_result = "MATCH" if pan_matches else "INCONCLUSIVE"
     else:
         kyc_notes = "Mandatory KYC documents (PAN and Address Proof) not uploaded."
         conf = 0.0
         val_result = "MISMATCH"
+        left_val = "N/A"
+        right_val = "N/A"
+
+    val_block = resolve_checkpoint_validation(
+        status,
+        default_left=left_val,
+        default_right=right_val,
+        records=None,
+        default_left_source=left_source,
+        default_right_source=right_source,
+        fallback_result=val_result,
+    )
 
     return build_checkpoint(
         4,
@@ -377,7 +421,8 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         "PAN and Address proof are mandatory and must match application form.",
         fields,
         evidence,
-        {"left": left_val, "right": right_val, "result": val_result},
+        val_block,
+        comparisons=kyc_records,
     )
 
 
@@ -405,6 +450,16 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     conf = (r5.get("confidence") or 0.95) * 100 if (r5 and status == "VERIFIED") else (0.0 if not has_selfie else 50.0)
     notes = (r5.get("notes") if r5 else "") or ("Live selfie embedding verification." if has_selfie else "Selfie photo not uploaded.")
 
+    val_block = resolve_checkpoint_validation(
+        status,
+        default_left="Selfie Vector" if has_selfie else "Missing",
+        default_right="App Photo Vector" if has_selfie else "Mandatory Face Match",
+        records=[r5] if r5 else None,
+        default_left_source="selfie",
+        default_right_source="application_form",
+        fallback_result="MISMATCH",
+    )
+
     return build_checkpoint(
         5,
         "Selfie / Live Photo",
@@ -414,11 +469,8 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         "Live selfie face embedding must match application form photo (threshold >= 0.90).",
         fields,
         evidence,
-        {
-            "left": "Selfie Vector" if has_selfie else "N/A",
-            "right": "App Photo Vector" if has_selfie else "N/A",
-            "result": "MATCH" if status == "VERIFIED" else "MISMATCH",
-        },
+        val_block,
+        comparisons=[r5] if r5 else [],
     )
 
 
@@ -450,6 +502,16 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         "Aadhaar XML present in repository and verified." if has_xml else "Aadhaar XML missing from repository."
     )
 
+    val_block = resolve_checkpoint_validation(
+        status,
+        default_left="Present" if has_xml else "Missing",
+        default_right="Mandatory",
+        records=[r9] if r9 else None,
+        default_left_source="aadhaar_xml",
+        default_right_source="los",
+        fallback_result="MISMATCH",
+    )
+
     return build_checkpoint(
         9,
         "Aadhaar XML",
@@ -459,9 +521,6 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         "Aadhaar XML is a mandatory hard gate for all cases.",
         fields,
         [build_evidence(f"doc-{ctx.loan_id}-aadhaarxml", "Aadhaar_XML.zip", "Aadhaar XML Archive", 1)] if has_xml else [],
-        {
-            "left": "Present" if has_xml else "Missing",
-            "right": "Mandatory",
-            "result": "MATCH" if has_xml else "MISMATCH",
-        },
+        val_block,
+        comparisons=[r9] if r9 else [],
     )

@@ -102,7 +102,9 @@ export function DGCLScorecard({
                                 : 'bg-review-50 text-review-700 ring-review-500/20'
                           }`}
                         >
-                          {cp.validation.left} {cp.validation.result === 'MATCH' ? '=' : cp.validation.result === 'MISMATCH' ? '≠' : '?'} {cp.validation.right}
+                          {cp.validation.result === 'MISMATCH' && cp.validation.leftSource && cp.validation.rightSource
+                            ? `${cp.validation.leftSource.replace('_', ' ')}: ${cp.validation.left} ≠ ${cp.validation.rightSource.replace('_', ' ')}: ${cp.validation.right}`
+                            : `${cp.validation.left} ${cp.validation.result === 'MATCH' ? '=' : cp.validation.result === 'MISMATCH' ? '≠' : '?'} ${cp.validation.right}`}
                         </span>
                       )}
                       <button

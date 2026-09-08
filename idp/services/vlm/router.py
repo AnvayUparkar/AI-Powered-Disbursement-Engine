@@ -23,6 +23,10 @@ class ConfidenceRouter:
         if not self.vlm_enabled:
             return False
 
+        if ocr_result.total_elements == 0 or getattr(ocr_result, "extraction_failed", False):
+            logger.info(format_doc_log(doc_id, f"Router trigger: Page {ocr_result.page_number} has zero elements or extraction_failed=True; escalating to VLM."))
+            return True
+
         if ocr_result.low_confidence_count > 0:
             logger.info(format_doc_log(doc_id, f"Router trigger: {ocr_result.low_confidence_count} low-confidence/handwritten elements detected on page {ocr_result.page_number}."))
             return True

@@ -45,7 +45,7 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             build_field("Loan Agreement Signature", "Signed", 98.0, f"doc-{ctx.loan_id}-agreement"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Agreement Signature")]
-        val = {"left": "Present & Signed", "right": "Mandatory Signed Agreement", "result": "MATCH"}
+        val = {"left": "Present & Signed", "right": "Mandatory Signed Agreement", "result": "MATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
         notes = "Loan agreement present and digitally signed."
     elif has_agree and not is_signed:
         status = "DISCREPANCY"
@@ -54,16 +54,18 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             build_field("Loan Agreement Signature", "Unsigned", 0.0, f"doc-{ctx.loan_id}-agreement"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Unsigned", 1, "Agreement Signature")]
-        val = {"left": "Present & Unsigned", "right": "Mandatory Signed Agreement", "result": "MISMATCH"}
+        val = {"left": "Present & Unsigned", "right": "Mandatory Signed Agreement", "result": "MISMATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
         notes = "Loan agreement uploaded but missing required digital signature."
     else:
         status = "INDETERMINATE"
         fields = [build_field("Loan Agreement", "Not Uploaded", 0.0, f"doc-{ctx.loan_id}")]
         evidence = []
-        val = {"left": "Missing", "right": "Mandatory Signed Agreement", "result": "MISMATCH"}
+        val = {"left": "Missing", "right": "Mandatory Signed Agreement", "result": "MISMATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
         notes = "Loan agreement not uploaded."
 
     conf = 98.5 if status == "VERIFIED" else (40.0 if has_agree else 0.0)
+
+    agree_records = [r for r in ctx.records if "agreement" in (r.get("check_id") or "").lower() or "signature" in (r.get("check_id") or "").lower()]
 
     return build_checkpoint(
         6,
@@ -75,11 +77,18 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         fields,
         evidence,
         val,
+        comparisons=agree_records,
     )
 
 
 def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     """CP 12: Balance Transfer (BT) details conditional validation."""
+    bt_records = [
+        r for r in ctx.records
+        if "bt" in (r.get("check_id") or "").lower()
+        or "balance_transfer" in (r.get("field") or "").lower()
+    ]
+
     if ctx.is_bt:
         bt_doc = ctx.get_doc("bt_details", "bt")
         has_bt_doc = bool(bt_doc) or ctx.has_doc_matching("bt", "foreclosure")
@@ -96,7 +105,8 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                     build_field("BT Details Presence", "Present", 95.0, f"doc-{ctx.loan_id}-bt"),
                 ],
                 [build_evidence(f"doc-{ctx.loan_id}-bt", "BT_Details.pdf", "BT Details Document", 1, "Previous Lender")],
-                {"left": "Present", "right": "Mandatory for BT", "result": "MATCH"},
+                {"left": "Present", "right": "Mandatory for BT", "result": "MATCH", "leftSource": "bt_details", "rightSource": "los"},
+                comparisons=bt_records,
             )
         return build_checkpoint(
             12,
@@ -110,7 +120,8 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 build_field("BT Details Presence", "Missing", 0.0, f"doc-{ctx.loan_id}-bt"),
             ],
             [],
-            {"left": "Missing", "right": "Mandatory for BT", "result": "MISMATCH"},
+            {"left": "Missing", "right": "Mandatory for BT", "result": "MISMATCH", "leftSource": "bt_details", "rightSource": "los"},
+            comparisons=bt_records,
         )
 
     return build_checkpoint(
@@ -122,5 +133,6 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         "BT Details required for Balance Transfer loans.",
         [build_field("Balance Transfer", "0 (Not Applicable)", 100.0, f"doc-{ctx.loan_id}-bt")],
         [],
-        {"left": "0 (Non-BT)", "right": "Not Applicable", "result": "MATCH"},
+        {"left": "0 (Non-BT)", "right": "Not Applicable", "result": "MATCH", "leftSource": "los", "rightSource": "los"},
+        comparisons=bt_records,
     )

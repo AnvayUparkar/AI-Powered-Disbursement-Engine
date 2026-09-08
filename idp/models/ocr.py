@@ -46,6 +46,7 @@ class OCRResult(BaseModel):
     average_confidence: float = 0.0
     low_confidence_count: int = 0
     total_elements: int = 0
+    extraction_failed: bool = False
     rotation_applied: bool = False
     rotation_angle: float = 0.0
     # Actual rendered image pixel dimensions (set by DocumentProcessor after render)

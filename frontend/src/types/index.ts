@@ -59,6 +59,32 @@ export interface BoundingBox {
   height: number;
 }
 
+export interface CandidateMatch {
+  bbox: number[];
+  page: number;
+  text: string;
+  confidence: number;
+  match_confidence: number;
+  match_strategy: string;
+}
+
+export interface OCRToken {
+  id: string;
+  text: string;
+  bbox: number[];
+  normalized_bbox: number[];
+  page: number;
+  confidence: number;
+  block_id?: number;
+  line_id?: number;
+}
+
+export interface DocumentDebugInfo {
+  field_locations?: Record<string, any>;
+  ocr_tokens?: OCRToken[];
+  ocr_tokens_by_page?: Record<number, OCRToken[]>;
+}
+
 export interface ExtractedField {
   id: string;
   name: string;
@@ -73,6 +99,12 @@ export interface ExtractedField {
   ocrOriginal?: string;
   headers?: string[];
   rows?: string[][];
+  locationStatus?: 'resolved' | 'unresolved';
+  matchedText?: string;
+  matchConfidence?: number;
+  reason?: string;
+  matchStrategy?: string;
+  candidates?: CandidateMatch[];
 }
 
 export interface Checkpoint {
@@ -89,7 +121,10 @@ export interface Checkpoint {
     left: string;
     right: string;
     result: 'MATCH' | 'MISMATCH' | 'INCONCLUSIVE';
+    leftSource?: string;
+    rightSource?: string;
   };
+  comparisons?: ComparisonResult[];
 }
 
 export interface ProcessingStep {
@@ -118,6 +153,7 @@ export interface DocumentRecord {
   processingSteps: ProcessingStep[];
   rawText?: string;
   formattedText?: string;
+  debug?: DocumentDebugInfo;
 }
 
 

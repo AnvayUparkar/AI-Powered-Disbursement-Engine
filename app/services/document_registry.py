@@ -1,15 +1,25 @@
-import json
+"""Unified Document Registry facade coordinating in-memory and disk-backed documents."""
 import logging
-import os
 import threading
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.serializers.case_serializer import serialize_all_cases
-from config import BASE_DIR, DMS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR
-from idp.core.config import settings as idp_settings
-from pipeline.storage import list_loan_ids
+from .registry.case_scanner import (
+    enrich_document_record,
+    invalidate_case_cache,
+    scan_case_documents,
+)
+from .registry.dedup import (
+    filter_documents,
+    get_all_distinct_types,
+    merge_and_deduplicate,
+)
+from .registry.idp_scanner import scan_idp_parsed_storage
+from .registry.normalizer import normalize_uploaded_record
+from .registry.resolver import (
+    guess_doc_type,
+    resolve_synthetic_alias,
+)
 
 logger = logging.getLogger("disbursement_pipeline.document_registry")
 
@@ -24,12 +34,13 @@ class DocumentRegistry:
     def __init__(self):
         self._lock = threading.RLock()
         self._dynamic_docs: Dict[str, Dict[str, Any]] = {}
+        self._doc_aliases: Dict[str, str] = {}
+        self._parsed_storage_scanned = False
         self._initialized = False
 
     def _guess_doc_type(self, filename: str) -> str:
-        from config.doc_types import get_display_name
-        return get_display_name(filename)
-
+        """Infer document type from filename."""
+        return guess_doc_type(filename)
 
     def register_uploaded_document(
         self,
@@ -40,467 +51,47 @@ class DocumentRegistry:
         file_size_bytes: int = 0,
         parsed_result: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """
-        Register a newly uploaded and processed document in the registry.
-        """
+        """Register a newly uploaded and processed document in the registry."""
         with self._lock:
             detected_type = doc_type or self._guess_doc_type(filename)
             assoc_case = case_id or "GENERAL"
-            now_dt = datetime.now()
-            upload_date = now_dt.strftime("%d/%m/%Y")
-            hour_str = now_dt.strftime("%I").lstrip("0") or "12"
-            time_12h = f"{hour_str}:{now_dt.strftime('%M %p').lower()}"
 
-            pages_count = 1
-            confidence = 96.5
-            vlm_used = False
-            extracted_fields: List[Dict[str, Any]] = []
-            processing_steps: List[Dict[str, Any]] = [
-                {
-                    "id": f"stp-{doc_id}-1",
-                    "component": "Docling",
-                    "status": "COMPLETED",
-                    "detail": "Docling parsed document structure",
-                    "startedAt": time_12h,
-                },
-                {
-                    "id": f"stp-{doc_id}-2",
-                    "component": "PaddleOCR",
-                    "status": "COMPLETED",
-                    "detail": "RapidOCR PP-OCRv6 extracted text",
-                    "startedAt": time_12h,
-                    "confidence": 95.0,
-                },
-            ]
-
-            if parsed_result:
-                pages_count = len(parsed_result.get("pages") or []) or 1
-                vlm_used = bool(parsed_result.get("processing", {}).get("vlm_used", False))
-                confidence = 91.0 if vlm_used else 97.5
-
-                # Ingest LLM-extracted canonical fields if available
-                llm_meta = (parsed_result.get("custom_metadata") or {}).get("llm_extracted_fields") or {}
-                for lk, lv in llm_meta.items():
-                    if lv is not None:
-                        extracted_fields.append({
-                            "id": f"llm-{lk}",
-                            "name": lk.replace("_", " ").title(),
-                            "value": str(lv),
-                            "confidence": 98.0,
-                            "sourceDocumentId": doc_id,
-                            "page": 1,
-                            "type": "key_value",
-                            "source": "OPENROUTER_LLM",
-                        })
-
-                # Extract key values from parsed elements
-                elements = parsed_result.get("elements") or []
-
-                for idx, e in enumerate(elements):
-                    text = e.get("text", "")
-                    if not text or not text.strip():
-                        continue
-                    conf = round(e.get("confidence", 0.95) * 100) if e.get("confidence", 1) <= 1.0 else round(e.get("confidence", 95))
-                    page_num = e.get("page_number", 1)
-
-                    if ":" in text or "=" in text:
-                        delim = ":" if ":" in text else "="
-                        parts = text.split(delim, 1)
-                        k, v = parts[0].strip(), parts[1].strip()
-                        if k and v:
-                            extracted_fields.append({
-                                "id": e.get("id") or f"f-{idx + 1}",
-                                "name": k,
-                                "value": v,
-                                "confidence": conf,
-                                "sourceDocumentId": doc_id,
-                                "page": page_num,
-                                "type": "key_value",
-                                "source": e.get("source", "ocr"),
-                                "bbox": e.get("bbox"),
-                            })
-                            continue
-
-                    extracted_fields.append({
-                        "id": e.get("id") or f"f-{idx + 1}",
-                        "name": "Text Block" if e.get("type") != "heading" else "Heading",
-                        "value": text.strip(),
-                        "confidence": conf,
-                        "sourceDocumentId": doc_id,
-                        "page": page_num,
-                        "type": e.get("type", "text"),
-                        "source": e.get("source", "ocr"),
-                        "bbox": e.get("bbox"),
-                    })
-
-                # Process parsed tables
-                tables = parsed_result.get("tables") or []
-                for t_idx, tbl in enumerate(tables):
-                    extracted_fields.append({
-                        "id": tbl.get("id") or f"table-{t_idx + 1}",
-                        "name": f"Table (Page {tbl.get('page_number', 1)})",
-                        "value": f"{tbl.get('num_rows', 0)} rows x {tbl.get('num_cols', 0)} cols",
-                        "confidence": 95,
-                        "sourceDocumentId": doc_id,
-                        "page": tbl.get("page_number", 1),
-                        "type": "table",
-                        "source": "docling",
-                        "headers": tbl.get("headers"),
-                        "rows": tbl.get("rows_raw"),
-                    })
-
-            if not extracted_fields:
-                extracted_fields = [
-                    {
-                        "id": f"fld-{doc_id}-1",
-                        "name": "Document Name",
-                        "value": filename,
-                        "confidence": 99.0,
-                        "sourceDocumentId": doc_id,
-                        "page": 1,
-                    },
-                    {
-                        "id": f"fld-{doc_id}-2",
-                        "name": "Processing Status",
-                        "value": "Verified & Indexed",
-                        "confidence": 98.0,
-                        "sourceDocumentId": doc_id,
-                        "page": 1,
-                    },
-                ]
-
-            record = {
-                "id": doc_id,
-                "name": filename,
-                "type": detected_type,
-                "pages": pages_count,
-                "ocrStatus": "COMPLETED",
-                "extractionStatus": "COMPLETED",
-                "confidence": confidence,
-                "vlmUsed": vlm_used,
-                "uploadedAt": upload_date,
-                "caseId": assoc_case,
-                "sizeKb": max(1, round(file_size_bytes / 1024)) if file_size_bytes else 45,
-                "extractedFields": extracted_fields,
-                "processingSteps": processing_steps,
-                "rawText": (parsed_result.get("text") or parsed_result.get("raw_text") or parsed_result.get("rawText") or "").strip() if parsed_result else "",
-                "formattedText": (json.dumps(llm_meta, indent=2) if llm_meta else (parsed_result.get("formatted_text") or parsed_result.get("formattedText") or "")) if parsed_result else "",
-            }
-
+            record = normalize_uploaded_record(
+                doc_id=doc_id,
+                filename=filename,
+                detected_type=detected_type,
+                assoc_case=assoc_case,
+                file_size_bytes=file_size_bytes,
+                parsed_result=parsed_result,
+            )
 
             self._dynamic_docs[doc_id] = record
 
-            # Also index under the filename-based ID and canonical aliases so
-            # GET /api/documents/<doc-CASE-stem> and synthetic references resolve correctly.
+            # Map filename-based ID alias without polluting _dynamic_docs with duplicate records
             if case_id and filename:
-                from pathlib import Path as _Path
-                from config.doc_types import DOC_TYPE_ALIASES, get_canonical_doc_type
-                stem = _Path(filename).stem.lower().replace(" ", "_")
-                canonical = get_canonical_doc_type(detected_type or stem)
-                self._dynamic_docs[f"doc-{case_id}-{stem}"] = record
-                if canonical and canonical != "miscellaneous":
-                    self._dynamic_docs[f"doc-{case_id}-{canonical}"] = record
-                    for alias in DOC_TYPE_ALIASES.get(canonical, []):
-                        self._dynamic_docs[f"doc-{case_id}-{alias}"] = record
+                alt_id = f"doc-{case_id}-{Path(filename).stem.lower().replace(' ', '_')}"
+                if alt_id != doc_id:
+                    self._doc_aliases[alt_id] = doc_id
+
+            if case_id and case_id != "GENERAL":
+                invalidate_case_cache()
 
             logger.info("Registered document %s (%s) for case %s", doc_id, filename, assoc_case)
             return record
 
     def _scan_idp_parsed_storage(self) -> None:
         """Scan disk storage for any existing parsed documents in IDP store."""
-        try:
-            parsed_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / idp_settings.PARSED_DOCUMENT_PREFIX
-            if not parsed_dir.exists():
-                return
-
-            for json_file in parsed_dir.glob("*.json"):
-                doc_id = json_file.stem
-                if doc_id in self._dynamic_docs:
-                    continue
-                try:
-                    with open(json_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    filename = data.get("source", {}).get("filename") or f"{doc_id}.pdf"
-                    self.register_uploaded_document(
-                        doc_id=doc_id,
-                        filename=filename,
-                        parsed_result=data,
-                        file_size_bytes=data.get("processing", {}).get("file_size_bytes", 150000),
-                    )
-                except Exception as e:
-                    logger.debug("Failed indexing parsed document file %s: %s", json_file, e)
-        except Exception as e:
-            logger.debug("Error during IDP parsed storage scan: %s", e)
+        if self._parsed_storage_scanned:
+            return
+        self._parsed_storage_scanned = True
+        scan_idp_parsed_storage(
+            known_doc_ids=set(self._dynamic_docs.keys()),
+            register_func=self.register_uploaded_document,
+        )
 
     def _get_case_documents(self) -> List[Dict[str, Any]]:
         """Index actual documents stored for all registered loan cases without phantom files."""
-        loan_ids = list_loan_ids()
-        docs = []
-
-        for c_id in loan_ids:
-            case_s3_dir = S3_RAW_DIR / c_id
-            case_dms_dir = DMS_DIR / c_id
-            case_ext_dir = S3_EXTRACTED_DIR / c_id
-
-            seen_filenames = set()
-            candidate_files = []
-
-            # 1. Real files in S3 raw
-            if case_s3_dir.exists():
-                for rf in sorted(case_s3_dir.iterdir()):
-                    if (
-                        rf.is_file()
-                        and rf.name != f"{c_id}.json"
-                        and not rf.name.endswith(".metadata.json")
-                        and rf.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".zip", ".xml")
-                    ):
-                        if rf.name not in seen_filenames:
-                            seen_filenames.add(rf.name)
-                            candidate_files.append((rf.name, rf, "s3_raw"))
-
-            # 2. Real files in DMS
-            if case_dms_dir.exists():
-                for rf in sorted(case_dms_dir.iterdir()):
-                    if (
-                        rf.is_file()
-                        and rf.name != f"{c_id}.json"
-                        and not rf.name.endswith(".metadata.json")
-                        and not rf.name.endswith(".json")
-                        and rf.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".zip", ".xml")
-                    ):
-                        if rf.name not in seen_filenames:
-                            seen_filenames.add(rf.name)
-                            candidate_files.append((rf.name, rf, "dms"))
-
-            # 3. If no raw/dms files exist, check if extracted JSONs exist for pipeline runs
-            if not candidate_files and case_ext_dir.exists():
-                for ef in sorted(case_ext_dir.glob("*.json")):
-                    if ef.name not in (f"{c_id}.json", "status.json", "dms_status.json", "face_embeddings.json"):
-                        fake_name = f"{ef.stem}.pdf"
-                        if fake_name not in seen_filenames:
-                            seen_filenames.add(fake_name)
-                            candidate_files.append((fake_name, ef, "extracted"))
-
-            for doc_filename, fpath, source_kind in candidate_files:
-                doc_id = f"doc-{c_id}-{Path(doc_filename).stem.lower().replace(' ', '_')}"
-                if doc_id in self._dynamic_docs:
-                    continue
-
-                doc_type = self._guess_doc_type(doc_filename)
-
-                # Check extracted data if available
-                ext_file = None
-                struct_file = None
-                if case_ext_dir.exists():
-                    stem = Path(doc_filename).stem.lower().replace(" ", "_")
-                    type_clean = doc_type.lower().replace(" ", "_")
-
-                    # Compute mapped canonical type key (e.g. kyc_pan for PAN Card.png)
-                    mapped_key = ""
-                    fn_lower = doc_filename.lower()
-                    if "pan" in fn_lower:
-                        mapped_key = "kyc_pan"
-                    elif "application" in fn_lower:
-                        mapped_key = "application_form"
-                    elif "agreement" in fn_lower:
-                        mapped_key = "loan_agreement"
-                    elif "kfs" in fn_lower:
-                        mapped_key = "kfs"
-                    elif "sanction" in fn_lower:
-                        mapped_key = "sanction_letter"
-                    elif "aadhaar" in fn_lower or "kyc" in fn_lower or "address" in fn_lower:
-                        mapped_key = "kyc_address_proof"
-                    elif "bank" in fn_lower or "statement" in fn_lower:
-                        mapped_key = "bank_statement"
-                    elif "memo" in fn_lower or "disbursal" in fn_lower:
-                        mapped_key = "disbursal_memo"
-
-                    candidates = []
-                    if mapped_key:
-                        candidates.extend([f"{mapped_key}.json", f"{mapped_key}_structured.json"])
-                    candidates.extend([
-                        f"{stem}.json",
-                        f"{stem}_structured.json",
-                        f"{type_clean}.json",
-                        f"{type_clean}_structured.json",
-                    ])
-
-                    for cand_name in candidates:
-                        cand_path = case_ext_dir / cand_name
-                        if cand_path.exists():
-                            if cand_name.endswith("_structured.json"):
-                                struct_file = cand_path
-                            elif not ext_file:
-                                ext_file = cand_path
-
-                    # Fallback fuzzy matching in case_ext_dir if ext_file still None
-                    if not ext_file:
-                        for ef in sorted(case_ext_dir.glob("*.json")):
-                            if ef.name in (f"{c_id}.json", "status.json", "dms_status.json", "face_embeddings.json"):
-                                continue
-                            ef_stem = ef.stem.replace("_structured", "").lower()
-                            if ef_stem in fn_lower or ef_stem in mapped_key or (mapped_key and mapped_key in ef_stem):
-                                if ef.name.endswith("_structured.json"):
-                                    struct_file = ef
-                                else:
-                                    ext_file = ef
-                                    break
-
-                ext_data = {}
-                if ext_file and ext_file.exists():
-                    try:
-                        ext_data = json.loads(ext_file.read_text(encoding="utf-8")) or {}
-                    except Exception:
-                        ext_data = {}
-
-                struct_data = {}
-                if not struct_file and ext_file:
-                    cand_struct = ext_file.parent / f"{ext_file.stem}_structured.json"
-                    if cand_struct.exists():
-                        struct_file = cand_struct
-
-                if struct_file and struct_file.exists():
-                    try:
-                        struct_data = json.loads(struct_file.read_text(encoding="utf-8")) or {}
-                    except Exception:
-                        struct_data = {}
-
-                # Determine rawText
-                raw_text = (
-                    ext_data.get("_raw_text")
-                    or ext_data.get("rawText")
-                    or ext_data.get("raw_text")
-                    or struct_data.get("rawText")
-                    or struct_data.get("_raw_text")
-                )
-
-                # Check embedded components / paragraphs if raw_text not explicitly present
-                paragraphs = (
-                    struct_data.get("paragraphs")
-                    or ext_data.get("_components", {}).get("paragraphs")
-                    or []
-                )
-                if not raw_text and paragraphs:
-                    lines = [p.get("text", "") for p in paragraphs if isinstance(p, dict) and p.get("text")]
-                    if lines:
-                        raw_text = f"--- PAGE 1 ---\n" + "\n".join(lines)
-
-                pages = ext_data.get("_pages") or ext_data.get("pages") or struct_data.get("_pages") or 1
-                if isinstance(pages, list):
-                    pages = len(pages)
-                else:
-                    try:
-                        pages = int(pages)
-                    except (ValueError, TypeError):
-                        pages = 1
-
-                extracted_fields = []
-                for k, v in ext_data.items():
-                    if k.startswith("_") or isinstance(v, (dict, list)):
-                        continue
-                    extracted_fields.append({
-                        "id": f"fld-{doc_id}-{k.lower().replace(' ', '_')}",
-                        "name": k.replace("_", " ").title(),
-                        "value": str(v),
-                        "confidence": 97.0,
-                        "sourceDocumentId": doc_id,
-                        "page": 1,
-                        "type": "key_value",
-                        "source": "OPENROUTER_LLM",
-                    })
-
-                # If paragraphs exist, append text blocks to extractedFields
-                if paragraphs:
-                    for idx, p in enumerate(paragraphs):
-                        if not isinstance(p, dict):
-                            continue
-                        p_text = (p.get("text") or "").strip()
-                        if not p_text:
-                            continue
-                        p_conf = p.get("confidence", 0.95)
-                        conf_val = round(p_conf * 100, 1) if p_conf <= 1.0 else round(p_conf, 1)
-                        extracted_fields.append({
-                            "id": p.get("id") or f"fld-{doc_id}-p-{idx + 1}",
-                            "name": p.get("classification", "paragraph").replace("_", " ").title(),
-                            "value": p_text,
-                            "confidence": conf_val,
-                            "sourceDocumentId": doc_id,
-                            "page": p.get("page_number", 1),
-                            "type": "text",
-                            "bbox": p.get("bbox"),
-                            "source": "OCR",
-                        })
-
-                if not extracted_fields:
-                    extracted_fields = [
-                        {
-                            "id": f"fld-{doc_id}-1",
-                            "name": "Document Name",
-                            "value": doc_filename,
-                            "confidence": 99.0,
-                            "sourceDocumentId": doc_id,
-                            "page": 1,
-                        },
-                        {
-                            "id": f"fld-{doc_id}-2",
-                            "name": "Type",
-                            "value": doc_type,
-                            "confidence": 98.0,
-                            "sourceDocumentId": doc_id,
-                            "page": 1,
-                        },
-                    ]
-
-                size_kb = 45
-                if source_kind != "extracted" and fpath.exists():
-                    try:
-                        size_kb = max(1, round(fpath.stat().st_size / 1024))
-                    except OSError:
-                        size_kb = 45
-
-                has_data = bool(ext_data or struct_data or raw_text)
-
-                formatted_text = (
-                    ext_data.get("_formatted_text")
-                    or ext_data.get("formattedText")
-                    or struct_data.get("formattedText")
-                )
-                if not formatted_text:
-                    llm_extracted_dict = {
-                        k: v for k, v in ext_data.items()
-                        if not k.startswith("_") and v is not None and not isinstance(v, (dict, list))
-                    }
-                    formatted_text = json.dumps(llm_extracted_dict, indent=2) if llm_extracted_dict else ""
-
-                docs.append({
-                    "id": doc_id,
-                    "name": doc_filename,
-                    "type": doc_type,
-                    "pages": pages,
-                    "ocrStatus": "COMPLETED" if has_data else "PENDING",
-                    "extractionStatus": "COMPLETED" if has_data else "PENDING",
-                    "confidence": 98.0 if has_data else 95.0,
-                    "vlmUsed": bool(ext_data.get("_vlm_used", False)),
-                    "uploadedAt": datetime.now().strftime("%d/%m/%Y"),
-                    "caseId": c_id,
-                    "sizeKb": size_kb,
-                    "extractedFields": extracted_fields,
-                    "rawText": raw_text or f"Document Name: {doc_filename}\nType: {doc_type}",
-                    "formattedText": formatted_text,
-
-                    "processingSteps": [
-                        {
-                            "id": f"stp-{doc_id}-1",
-                            "component": "PaddleOCR",
-                            "status": "COMPLETED" if has_data else "PENDING",
-                            "detail": f"{doc_filename} OCR processing",
-                            "startedAt": "10:30 am",
-                            "confidence": 98.0,
-                        }
-                    ],
-                })
-
-        return docs
+        return scan_case_documents(dynamic_doc_ids=set(self._dynamic_docs.keys()))
 
     def list_all(
         self,
@@ -514,38 +105,20 @@ class DocumentRegistry:
         """
         with self._lock:
             self._scan_idp_parsed_storage()
-
-            # Dynamic uploaded documents take precedence and appear first
             dynamic_list = list(self._dynamic_docs.values())
-            # Sort dynamic docs newest first
-            dynamic_list.reverse()
-
             case_docs = self._get_case_documents()
-            all_docs = dynamic_list + case_docs
 
-            if case_id:
-                all_docs = [d for d in all_docs if d.get("caseId") == case_id]
-
-            if doc_type and doc_type != "ALL":
-                all_docs = [d for d in all_docs if d.get("type") == doc_type]
-
-            if query:
-                q = query.lower().strip()
-                all_docs = [
-                    d for d in all_docs
-                    if q in d.get("name", "").lower()
-                    or q in d.get("caseId", "").lower()
-                    or q in d.get("type", "").lower()
-                ]
-
-            return all_docs
+            all_docs = merge_and_deduplicate(dynamic_list, case_docs)
+            return filter_documents(all_docs, case_id=case_id, doc_type=doc_type, query=query)
 
     def get_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve full document record with extracted fields by ID."""
         with self._lock:
             self._scan_idp_parsed_storage()
+
             if doc_id in self._dynamic_docs:
-                return self._dynamic_docs[doc_id]
+                doc = self._dynamic_docs[doc_id]
+                return enrich_document_record(doc)
 
             # Check case documents
             case_docs = self._get_case_documents()
@@ -553,48 +126,23 @@ class DocumentRegistry:
                 if d.get("id") == doc_id:
                     return d
 
+            # Check alias mapping to dynamic docs
+            if doc_id in self._doc_aliases:
+                target_id = self._doc_aliases[doc_id]
+                if target_id in self._dynamic_docs:
+                    res_doc = dict(self._dynamic_docs[target_id])
+                    res_doc["id"] = doc_id
+                    return res_doc
+
             # Canonical alias fallback for synthetic references (e.g. doc-LOAN_004-sanction)
-            if doc_id.startswith("doc-"):
-                parts = doc_id.split("-", 2)
-                if len(parts) == 3:
-                    target_case, target_slug = parts[1], parts[2].lower()
-                    from config.doc_types import get_canonical_doc_type
-                    target_canon = get_canonical_doc_type(target_slug)
-
-                    all_candidates = list(self._dynamic_docs.values()) + case_docs
-                    for d in all_candidates:
-                        if str(d.get("caseId", "")).upper() == target_case.upper():
-                            d_canon = get_canonical_doc_type(d.get("name") or d.get("type") or "")
-                            clean_type = str(d.get("type") or "").lower().replace(" ", "_")
-                            clean_name = str(d.get("name") or "").lower()
-                            if (
-                                (target_canon != "miscellaneous" and d_canon == target_canon)
-                                or target_slug in clean_name
-                                or target_slug in clean_type
-                            ):
-                                return d
-
-            return None
+            all_candidates = list(reversed(list(self._dynamic_docs.values()))) + case_docs
+            return resolve_synthetic_alias(doc_id, all_candidates)
 
     def get_distinct_types(self) -> List[str]:
         """Return distinct document types currently present in the registry or supported by default."""
-        docs = self.list_all()
-        types = set(d.get("type") for d in docs if d.get("type"))
-        standard_types = {
-            "Application Form",
-            "PAN",
-            "Aadhaar",
-            "KYC",
-            "KFS",
-            "Sanction Letter",
-            "Loan Agreement",
-            "Disbursal Memo",
-            "BT Details",
-            "Aadhaar XML",
-            "VKYC Audit Trail",
-            "Miscellaneous",
-        }
-        return sorted(list(types | standard_types))
+        with self._lock:
+            dynamic_types = {d.get("type") for d in self._dynamic_docs.values() if d.get("type")}
+            return get_all_distinct_types(dynamic_types)
 
 
 # Global singleton instance

@@ -130,15 +130,19 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
         "pan_number": "ABCDE1234F",
         "address": "123 MG Road, Bengaluru",
         "current_address": "123 MG Road, Bengaluru",
-        "account_no": "987654321012",
+        "bank_account_no": "987654321012",
         "type_of_account": "SB",
         "loan_amount": "500000",
         "loan_validity": "24 months",
         "loan_type": "Personal Loan",
-        "loan_no": "LOAN_001",
         "application_no": "APP_001",
         "application_date": "2024-01-10",
-        "customer_consent": True,
+        "BPI": 1250.0,
+        "irr_percent": 14.5,
+        "emi": 24500.0,
+        "aadhaar_xml_present": True,
+        "loan_agreement_present": True,
+        "loan_agreement_signed": True,
     }
 
     mock_client_instance = MagicMock()
@@ -153,8 +157,14 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
     assert result["aadhaar_number"] == "1234 5678 9012"
     assert result["pan_number"] == "ABCDE1234F"
     assert result["loan_amount"] == "500000"
+    assert result["bank_account_no"] == "987654321012"
+    assert result["BPI"] == 1250.0
+    assert result["irr_percent"] == 14.5
+    assert result["emi"] == 24500.0
+    assert result["aadhaar_xml_present"] is True
     # All canonical keys should be in result
     assert all(k in result for k in _CANONICAL_KEYS)
+    assert len(result) == 22
 
 
 def test_llm_extract_fields_partial_null_fields(monkeypatch):
@@ -173,15 +183,19 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
         "pan_number": None,
         "address": "45 Gandhi Nagar, Mumbai",
         "current_address": None,
-        "account_no": None,
+        "bank_account_no": None,
         "type_of_account": None,
         "loan_amount": None,
         "loan_validity": None,
         "loan_type": None,
-        "loan_no": None,
         "application_no": None,
         "application_date": None,
-        "customer_consent": None,
+        "BPI": None,
+        "irr_percent": None,
+        "emi": None,
+        "aadhaar_xml_present": False,
+        "loan_agreement_present": False,
+        "loan_agreement_signed": False,
     }
 
     mock_client_instance = MagicMock()
@@ -196,6 +210,52 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
     assert result["pan_number"] is None
     assert result["loan_amount"] is None
     assert result["aadhaar_number"] == "9876 5432 1098"
+    assert result["bank_account_no"] is None
+    assert result["BPI"] is None
+    assert result["aadhaar_xml_present"] is False
+    assert len(result) == 22
+
+
+def test_llm_extract_fields_user_new_format(monkeypatch):
+    """Verifies that the exact user-specified JSON format is completely extracted with all 22 keys."""
+    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+
+    user_payload = {
+        "applicant_name": "PRAKASH KHATRI",
+        "fathers_name": "Gyan Chand Khatri",
+        "dob": "22/06/1976",
+        "mobile_no": 9166202777,
+        "gender": "Male",
+        "aadhaar_number": "XXXXXXXX5552",
+        "pan_number": None,
+        "address": "30/105, Sindhi Colony, Jhulelal Mandir ke pass, Sanganer, Jaipur, Rajasthan, 302029",
+        "current_address": None,
+        "bank_account_no": None,
+        "type_of_account": None,
+        "loan_amount": None,
+        "loan_validity": None,
+        "loan_type": None,
+        "application_no": None,
+        "application_date": None,
+        "BPI": None,
+        "irr_percent": None,
+        "emi": None,
+        "aadhaar_xml_present": False,
+        "loan_agreement_present": False,
+        "loan_agreement_signed": False,
+    }
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.post.return_value = _make_mock_response(user_payload)
+    mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+    mock_client_instance.__exit__ = MagicMock(return_value=False)
+
+    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+        result = llm_extract_fields("aadhaar", "raw ocr text", "LOAN_USER_FORMAT")
+
+    assert result == user_payload
+    assert len(result) == 22
 
 
 def test_llm_extract_fields_discards_extra_keys(monkeypatch):
@@ -309,7 +369,7 @@ def test_llm_extract_fields_markdown_fenced_json_parsed_correctly(monkeypatch):
         result = llm_extract_fields("disbursal_memo", "memo ocr", "LOAN_007_memo")
 
     assert result["applicant_name"] == "ANKIT PATEL"
-    assert result["loan_no"] == "LN-999"
+    assert result["application_no"] == "LN-999"
     assert result["loan_amount"] == "300000"
 
 
