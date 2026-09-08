@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from app.serializers.case_serializer import serialize_all_cases
 from config import BASE_DIR, DMS_DIR, S3_EXTRACTED_DIR, S3_RAW_DIR
 from idp.core.config import settings as idp_settings
+from pipeline.nodes.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
 logger = logging.getLogger("disbursement_pipeline.document_registry")
@@ -24,12 +26,39 @@ class DocumentRegistry:
     def __init__(self):
         self._lock = threading.RLock()
         self._dynamic_docs: Dict[str, Dict[str, Any]] = {}
+        self._doc_aliases: Dict[str, str] = {}
         self._initialized = False
 
     def _guess_doc_type(self, filename: str) -> str:
-        from config.doc_types import get_display_name
-        return get_display_name(filename)
-
+        try:
+            from config.doc_types import get_display_name
+            return get_display_name(filename)
+        except Exception:
+            pass
+        n = filename.lower()
+        if "app" in n or "application" in n:
+            return "Application Form"
+        if "pan" in n:
+            return "PAN"
+        if ("aadhaar" in n or "aadhar" in n or "adhar" in n) and "xml" in n:
+            return "Aadhaar XML"
+        if "aadhaar" in n or "aadhar" in n or "adhar" in n:
+            return "Aadhaar"
+        if "kyc" in n:
+            return "KYC"
+        if "kfs" in n:
+            return "KFS"
+        if "sanction" in n:
+            return "Sanction Letter"
+        if "agreement" in n:
+            return "Loan Agreement"
+        if "memo" in n or "disbursal" in n:
+            return "Disbursal Memo"
+        if "bt" in n or "foreclosure" in n:
+            return "BT Details"
+        if "vkyc" in n:
+            return "VKYC Audit Trail"
+        return "Miscellaneous"
 
     def register_uploaded_document(
         self,
@@ -46,29 +75,27 @@ class DocumentRegistry:
         with self._lock:
             detected_type = doc_type or self._guess_doc_type(filename)
             assoc_case = case_id or "GENERAL"
-            now_dt = datetime.now()
-            upload_date = now_dt.strftime("%d/%m/%Y")
-            hour_str = now_dt.strftime("%I").lstrip("0") or "12"
-            time_12h = f"{hour_str}:{now_dt.strftime('%M %p').lower()}"
+            upload_date = datetime.now().strftime("%Y-%m-%d")
 
             pages_count = 1
             confidence = 96.5
             vlm_used = False
             extracted_fields: List[Dict[str, Any]] = []
+            llm_meta: Dict[str, Any] = {}
             processing_steps: List[Dict[str, Any]] = [
                 {
                     "id": f"stp-{doc_id}-1",
                     "component": "Docling",
                     "status": "COMPLETED",
                     "detail": "Docling parsed document structure",
-                    "startedAt": time_12h,
+                    "startedAt": datetime.now().strftime("%H:%M:%S"),
                 },
                 {
                     "id": f"stp-{doc_id}-2",
                     "component": "PaddleOCR",
                     "status": "COMPLETED",
                     "detail": "RapidOCR PP-OCRv6 extracted text",
-                    "startedAt": time_12h,
+                    "startedAt": datetime.now().strftime("%H:%M:%S"),
                     "confidence": 95.0,
                 },
             ]
@@ -80,17 +107,53 @@ class DocumentRegistry:
 
                 # Ingest LLM-extracted canonical fields if available
                 llm_meta = (parsed_result.get("custom_metadata") or {}).get("llm_extracted_fields") or {}
+                if not llm_meta and assoc_case and assoc_case != "GENERAL":
+                    case_ext_dir = S3_EXTRACTED_DIR / assoc_case
+                    if case_ext_dir.exists():
+                        from pathlib import Path as _Path
+                        stem = _Path(filename).stem.lower().replace(" ", "_")
+                        cands = [
+                            case_ext_dir / f"{filename}.json",
+                            case_ext_dir / f"{_Path(filename).stem}.json",
+                            case_ext_dir / f"{stem}.json",
+                            case_ext_dir / f"{detected_type.lower().replace(' ', '_')}.json",
+                            case_ext_dir / f"{detected_type}.json",
+                            case_ext_dir / "Application Form.json" if "app" in stem else None,
+                            case_ext_dir / "application_form.json" if "app" in stem else None,
+                        ]
+                        for cp in cands:
+                            if cp and cp.exists() and cp.is_file():
+                                try:
+                                    loaded_data = json.loads(cp.read_text(encoding="utf-8"))
+                                    if isinstance(loaded_data, dict) and any(k in loaded_data for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")):
+                                        llm_meta = loaded_data
+                                        break
+                                except Exception:
+                                    pass
+
+                field_locs = (parsed_result.get("custom_metadata") or {}).get("field_locations") or {}
                 for lk, lv in llm_meta.items():
                     if lv is not None:
+                        fl = field_locs.get(lk) or {}
+                        fl_bbox = fl.get("bbox")
+                        fl_status = fl.get("location_status", "resolved" if fl_bbox else "unresolved")
+                        fl_conf = round(fl.get("confidence", 0.98) * 100, 1) if fl.get("confidence", 1) <= 1.0 else fl.get("confidence", 98.0)
                         extracted_fields.append({
                             "id": f"llm-{lk}",
                             "name": lk.replace("_", " ").title(),
                             "value": str(lv),
-                            "confidence": 98.0,
+                            "confidence": fl_conf,
                             "sourceDocumentId": doc_id,
-                            "page": 1,
+                            "page": fl.get("page", 1),
                             "type": "key_value",
                             "source": "OPENROUTER_LLM",
+                            "bbox": fl_bbox,
+                            "locationStatus": fl_status,
+                            "matchedText": fl.get("matched_text"),
+                            "matchConfidence": fl.get("match_confidence", 1.0),
+                            "reason": fl.get("reason"),
+                            "matchStrategy": fl.get("match_strategy"),
+                            "candidates": fl.get("candidates", []),
                         })
 
                 # Extract key values from parsed elements
@@ -169,6 +232,17 @@ class DocumentRegistry:
                     },
                 ]
 
+            p_res = parsed_result or {}
+            raw_text_val = (p_res.get("text") or p_res.get("raw_text") or p_res.get("rawText") or "").strip()
+            if not raw_text_val:
+                raw_text_val = f"Document Name: {filename}\nType: {detected_type}"
+
+            fmt_text_val = (
+                json.dumps(format_template_json(llm_meta), indent=2)
+                if llm_meta
+                else (p_res.get("formatted_text") or p_res.get("formattedText") or "")
+            )
+
             record = {
                 "id": doc_id,
                 "name": filename,
@@ -183,31 +257,33 @@ class DocumentRegistry:
                 "sizeKb": max(1, round(file_size_bytes / 1024)) if file_size_bytes else 45,
                 "extractedFields": extracted_fields,
                 "processingSteps": processing_steps,
-                "rawText": (parsed_result.get("text") or parsed_result.get("raw_text") or parsed_result.get("rawText") or "").strip() if parsed_result else "",
-                "formattedText": (json.dumps(llm_meta, indent=2) if llm_meta else (parsed_result.get("formatted_text") or parsed_result.get("formattedText") or "")) if parsed_result else "",
+                "rawText": raw_text_val,
+                "formattedText": fmt_text_val,
+                "debug": {
+                    "field_locations": field_locs if parsed_result else {},
+                    "ocr_tokens": (p_res.get("custom_metadata") or {}).get("ocr_tokens") or [],
+                    "page_dimensions": p_res.get("pages_dimensions") or [],
+                },
             }
 
 
             self._dynamic_docs[doc_id] = record
 
-            # Also index under the filename-based ID and canonical aliases so
-            # GET /api/documents/<doc-CASE-stem> and synthetic references resolve correctly.
+            # Map filename-based ID alias without polluting _dynamic_docs with duplicate records
             if case_id and filename:
                 from pathlib import Path as _Path
-                from config.doc_types import DOC_TYPE_ALIASES, get_canonical_doc_type
-                stem = _Path(filename).stem.lower().replace(" ", "_")
-                canonical = get_canonical_doc_type(detected_type or stem)
-                self._dynamic_docs[f"doc-{case_id}-{stem}"] = record
-                if canonical and canonical != "miscellaneous":
-                    self._dynamic_docs[f"doc-{case_id}-{canonical}"] = record
-                    for alias in DOC_TYPE_ALIASES.get(canonical, []):
-                        self._dynamic_docs[f"doc-{case_id}-{alias}"] = record
+                alt_id = f"doc-{case_id}-{_Path(filename).stem.lower().replace(' ', '_')}"
+                if alt_id != doc_id:
+                    self._doc_aliases[alt_id] = doc_id
 
             logger.info("Registered document %s (%s) for case %s", doc_id, filename, assoc_case)
             return record
 
     def _scan_idp_parsed_storage(self) -> None:
         """Scan disk storage for any existing parsed documents in IDP store."""
+        if getattr(self, "_parsed_storage_scanned", False):
+            return
+        self._parsed_storage_scanned = True
         try:
             parsed_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / idp_settings.PARSED_DOCUMENT_PREFIX
             if not parsed_dir.exists():
@@ -221,9 +297,17 @@ class DocumentRegistry:
                     with open(json_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     filename = data.get("source", {}).get("filename") or f"{doc_id}.pdf"
+                    s3_key = data.get("source", {}).get("s3_key") or ""
+                    inferred_case = None
+                    import re
+                    m = re.search(r"(LOAN_\d+)", f"{doc_id}_{filename}_{s3_key}")
+                    if m:
+                        inferred_case = m.group(1)
+
                     self.register_uploaded_document(
                         doc_id=doc_id,
                         filename=filename,
+                        case_id=inferred_case,
                         parsed_result=data,
                         file_size_bytes=data.get("processing", {}).get("file_size_bytes", 150000),
                     )
@@ -384,6 +468,14 @@ class DocumentRegistry:
                     lines = [p.get("text", "") for p in paragraphs if isinstance(p, dict) and p.get("text")]
                     if lines:
                         raw_text = f"--- PAGE 1 ---\n" + "\n".join(lines)
+                if not raw_text and ext_data:
+                    kv_lines = [
+                        f"{k.replace('_', ' ').title()}: {v}"
+                        for k, v in ext_data.items()
+                        if v is not None and not k.startswith("_") and not isinstance(v, (dict, list))
+                    ]
+                    if kv_lines:
+                        raw_text = "\n".join(kv_lines)
 
                 pages = ext_data.get("_pages") or ext_data.get("pages") or struct_data.get("_pages") or 1
                 if isinstance(pages, list):
@@ -394,19 +486,51 @@ class DocumentRegistry:
                     except (ValueError, TypeError):
                         pages = 1
 
+                field_locations = struct_data.get("field_locations") or {}
+                ocr_tokens = struct_data.get("ocr_tokens") or []
+
+                # If field_locations was not pre-computed, resolve on-the-fly from paragraphs/tables
+                if not field_locations and (paragraphs or struct_data.get("tables")):
+                    try:
+                        from idp.services.extraction.field_location_resolver import FieldLocationResolver
+                        resolver = FieldLocationResolver()
+                        field_locations_obj = resolver.resolve_field_locations(
+                            extracted_fields=ext_data,
+                            ocr_elements=paragraphs,
+                            table_cells=[],
+                            page_dimensions=struct_data.get("page_dimensions"),
+                            debug_mode=True
+                        )
+                        field_locations = {k: v.model_dump() for k, v in field_locations_obj.items()}
+                        if not ocr_tokens:
+                            ocr_tokens = [t.model_dump() for t in resolver.extract_debug_tokens(paragraphs, struct_data.get("page_dimensions"))]
+                    except Exception as res_err:
+                        logger.debug("On-the-fly field location resolution note: %s", res_err)
+
                 extracted_fields = []
                 for k, v in ext_data.items():
                     if k.startswith("_") or isinstance(v, (dict, list)):
                         continue
+                    fl = field_locations.get(k) or {}
+                    fl_bbox = fl.get("bbox")
+                    fl_status = fl.get("location_status", "resolved" if fl_bbox else "unresolved")
+                    fl_conf = round(fl.get("confidence", 0.97) * 100, 1) if fl.get("confidence", 1) <= 1.0 else fl.get("confidence", 97.0)
                     extracted_fields.append({
                         "id": f"fld-{doc_id}-{k.lower().replace(' ', '_')}",
                         "name": k.replace("_", " ").title(),
                         "value": str(v),
-                        "confidence": 97.0,
+                        "confidence": fl_conf,
                         "sourceDocumentId": doc_id,
-                        "page": 1,
+                        "page": fl.get("page", 1),
                         "type": "key_value",
                         "source": "OPENROUTER_LLM",
+                        "bbox": fl_bbox,
+                        "locationStatus": fl_status,
+                        "matchedText": fl.get("matched_text"),
+                        "matchConfidence": fl.get("match_confidence", 1.0),
+                        "reason": fl.get("reason"),
+                        "matchStrategy": fl.get("match_strategy"),
+                        "candidates": fl.get("candidates", []),
                     })
 
                 # If paragraphs exist, append text blocks to extractedFields
@@ -465,12 +589,18 @@ class DocumentRegistry:
                     or ext_data.get("formattedText")
                     or struct_data.get("formattedText")
                 )
-                if not formatted_text:
-                    llm_extracted_dict = {
-                        k: v for k, v in ext_data.items()
-                        if not k.startswith("_") and v is not None and not isinstance(v, (dict, list))
-                    }
-                    formatted_text = json.dumps(llm_extracted_dict, indent=2) if llm_extracted_dict else ""
+                if ext_data:
+                    try:
+                        from pipeline.nodes.llm_field_extractor import format_template_json
+                        formatted_text = json.dumps(format_template_json(ext_data), indent=2)
+                    except Exception:
+                        llm_extracted_dict = {
+                            k: v for k, v in ext_data.items()
+                            if not k.startswith("_") and not isinstance(v, (dict, list))
+                        }
+                        formatted_text = json.dumps(llm_extracted_dict, indent=2)
+                elif not formatted_text:
+                    formatted_text = ""
 
                 docs.append({
                     "id": doc_id,
@@ -481,12 +611,17 @@ class DocumentRegistry:
                     "extractionStatus": "COMPLETED" if has_data else "PENDING",
                     "confidence": 98.0 if has_data else 95.0,
                     "vlmUsed": bool(ext_data.get("_vlm_used", False)),
-                    "uploadedAt": datetime.now().strftime("%d/%m/%Y"),
+                    "uploadedAt": datetime.now().strftime("%Y-%m-%d"),
                     "caseId": c_id,
                     "sizeKb": size_kb,
                     "extractedFields": extracted_fields,
                     "rawText": raw_text or f"Document Name: {doc_filename}\nType: {doc_type}",
                     "formattedText": formatted_text,
+                    "debug": {
+                        "field_locations": field_locations,
+                        "ocr_tokens": ocr_tokens,
+                        "page_dimensions": struct_data.get("page_dimensions", []),
+                    },
 
                     "processingSteps": [
                         {
@@ -494,7 +629,7 @@ class DocumentRegistry:
                             "component": "PaddleOCR",
                             "status": "COMPLETED" if has_data else "PENDING",
                             "detail": f"{doc_filename} OCR processing",
-                            "startedAt": "10:30 am",
+                            "startedAt": "10:30:00",
                             "confidence": 98.0,
                         }
                     ],
@@ -515,13 +650,58 @@ class DocumentRegistry:
         with self._lock:
             self._scan_idp_parsed_storage()
 
+            seen_keys = set()
+            all_docs = []
+
             # Dynamic uploaded documents take precedence and appear first
             dynamic_list = list(self._dynamic_docs.values())
-            # Sort dynamic docs newest first
             dynamic_list.reverse()
 
+            SINGLETON_TYPES = {
+                "Application Form", "Aadhaar", "PAN", "Sanction Letter",
+                "Loan Agreement", "Disbursal Memo", "KFS", "Aadhaar XML"
+            }
+
+            # Dynamic uploaded documents take precedence and appear first
             case_docs = self._get_case_documents()
-            all_docs = dynamic_list + case_docs
+            for d in dynamic_list:
+                c_id = d.get("caseId")
+                dtype = d.get("type")
+                # Ensure dynamic documents are keyed uniquely by their document ID and filename
+                doc_key = d.get("id") or d.get("name")
+                key = (c_id, doc_key)
+
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                # Also mark the (c_id, dtype) or (c_id, name) so case_docs don't duplicate dynamic uploads
+                if dtype in SINGLETON_TYPES and c_id and c_id != "GENERAL":
+                    seen_keys.add((c_id, dtype))
+                else:
+                    clean_name = d.get("name", "").lower()
+                    base_name = re.sub(r"^doc-[a-z0-9_\-]+_", "", clean_name)
+                    norm_name = re.sub(r"^(aadhaar|aadhar|adhar)[_\s\-]+", "", base_name)
+                    norm_name = norm_name.replace("aadhaar", "aadhar").replace("adhar", "aadhar")
+                    seen_keys.add((c_id, norm_name))
+
+                all_docs.append(d)
+
+            for d in case_docs:
+                c_id = d.get("caseId")
+                dtype = d.get("type")
+                if dtype in SINGLETON_TYPES and c_id and c_id != "GENERAL":
+                    key = (c_id, dtype)
+                else:
+                    clean_name = d.get("name", "").lower()
+                    base_name = re.sub(r"^doc-[a-z0-9_\-]+_", "", clean_name)
+                    norm_name = re.sub(r"^(aadhaar|aadhar|adhar)[_\s\-]+", "", base_name)
+                    norm_name = norm_name.replace("aadhaar", "aadhar").replace("adhar", "aadhar")
+                    key = (c_id, norm_name)
+
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                all_docs.append(d)
 
             if case_id:
                 all_docs = [d for d in all_docs if d.get("caseId") == case_id]
@@ -545,7 +725,60 @@ class DocumentRegistry:
         with self._lock:
             self._scan_idp_parsed_storage()
             if doc_id in self._dynamic_docs:
-                return self._dynamic_docs[doc_id]
+                doc = self._dynamic_docs[doc_id]
+                # If formattedText is missing or empty, try enriching from on-disk extracted JSON
+                if not (doc.get("formattedText") or "").strip().startswith("{"):
+                    c_id = doc.get("caseId")
+                    if not c_id or c_id == "GENERAL":
+                        import re
+                        m = re.search(r"(LOAN_\d+)", f"{doc_id}_{doc.get('name', '')}")
+                        if m:
+                            c_id = m.group(1)
+                            doc["caseId"] = c_id
+                    if c_id and c_id != "GENERAL":
+                        from config import S3_EXTRACTED_STRUCTURED_DIR
+                        c_ext = S3_EXTRACTED_DIR / c_id
+                        c_struct = S3_EXTRACTED_STRUCTURED_DIR / c_id
+                        from pathlib import Path as _Path
+                        stem = _Path(doc.get("name", "")).stem.lower().replace(" ", "_")
+                        clean_stem = re.sub(r"^(loan_\d+|appl\d+)_", "", stem)
+                        cands = [
+                            c_struct / f"{clean_stem}.json" if c_struct.exists() else None,
+                            c_ext / f"{clean_stem}.json" if c_ext.exists() else None,
+                            c_ext / f"{doc.get('name')}.json" if c_ext.exists() else None,
+                            c_ext / f"{_Path(doc.get('name', '')).stem}.json" if c_ext.exists() else None,
+                            c_ext / f"{stem}.json" if c_ext.exists() else None,
+                            c_ext / f"{(doc.get('type') or '').lower().replace(' ', '_')}.json" if c_ext.exists() else None,
+                            (c_ext / "Application Form.json") if c_ext.exists() and "app" in stem else None,
+                            (c_ext / "application_form.json") if c_ext.exists() and "app" in stem else None,
+                        ]
+                        for cp in cands:
+                            if cp and cp.exists() and cp.is_file():
+                                    try:
+                                        loaded = json.loads(cp.read_text(encoding="utf-8"))
+                                        if isinstance(loaded, dict) and any(k in loaded for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")):
+                                            from pipeline.nodes.llm_field_extractor import format_template_json
+                                            tpl = format_template_json(loaded)
+                                            doc["formattedText"] = json.dumps(tpl, indent=2)
+                                            # Also add canonical fields to extractedFields if missing
+                                            existing_fnames = {f.get("name") for f in doc.get("extractedFields", [])}
+                                            for tk, tv in tpl.items():
+                                                nice_name = tk.replace("_", " ").title()
+                                                if tv is not None and nice_name not in existing_fnames:
+                                                    doc.setdefault("extractedFields", []).append({
+                                                        "id": f"llm-{tk}",
+                                                        "name": nice_name,
+                                                        "value": str(tv),
+                                                        "confidence": 98.0,
+                                                        "sourceDocumentId": doc_id,
+                                                        "page": 1,
+                                                        "type": "key_value",
+                                                        "source": "OPENROUTER_LLM",
+                                                    })
+                                            break
+                                    except Exception:
+                                        pass
+                return doc
 
             # Check case documents
             case_docs = self._get_case_documents()
@@ -553,18 +786,35 @@ class DocumentRegistry:
                 if d.get("id") == doc_id:
                     return d
 
+            # Check alias mapping to dynamic docs
+            if hasattr(self, "_doc_aliases") and doc_id in self._doc_aliases:
+                target_id = self._doc_aliases[doc_id]
+                if target_id in self._dynamic_docs:
+                    res_doc = dict(self._dynamic_docs[target_id])
+                    res_doc["id"] = doc_id
+                    return res_doc
+
+
             # Canonical alias fallback for synthetic references (e.g. doc-LOAN_004-sanction)
             if doc_id.startswith("doc-"):
                 parts = doc_id.split("-", 2)
                 if len(parts) == 3:
                     target_case, target_slug = parts[1], parts[2].lower()
-                    from config.doc_types import get_canonical_doc_type
-                    target_canon = get_canonical_doc_type(target_slug)
+                    try:
+                        from config.doc_types import get_canonical_doc_type
+                        target_canon = get_canonical_doc_type(target_slug)
+                    except Exception:
+                        target_canon = "miscellaneous"
 
-                    all_candidates = list(self._dynamic_docs.values()) + case_docs
+                    all_candidates = list(reversed(list(self._dynamic_docs.values()))) + case_docs
                     for d in all_candidates:
                         if str(d.get("caseId", "")).upper() == target_case.upper():
-                            d_canon = get_canonical_doc_type(d.get("name") or d.get("type") or "")
+                            d_canon = target_canon
+                            try:
+                                from config.doc_types import get_canonical_doc_type
+                                d_canon = get_canonical_doc_type(d.get("name") or d.get("type") or "")
+                            except Exception:
+                                pass
                             clean_type = str(d.get("type") or "").lower().replace(" ", "_")
                             clean_name = str(d.get("name") or "").lower()
                             if (

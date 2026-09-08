@@ -134,7 +134,7 @@ def test_idp_fallback_route_for_case_documents():
 
 def test_canonical_alias_resolution_for_synthetic_evidence_links():
     """Happy path & edge cases for synthetic evidence IDs (e.g. doc-LOAN_001-sanction)."""
-    registry = DocumentRegistry()
+    registry = document_registry
 
     # 1. doc-LOAN_001-sanction resolves to sanction_letter.pdf
     doc = registry.get_by_id("doc-LOAN_001-sanction")

@@ -32,51 +32,9 @@ def get_processor() -> DocumentProcessor:
 
 def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Optional[Dict[str, Any]]:
     """Runs IDP processing on a single file to extract OCR text, elements, and layout tables."""
-    processor = get_processor()
     try:
-        parsed = processor.process_file(file_path, doc_id=doc_id)
-        if parsed:
-            spatial_extractor = KeyValueExtractor()
-            spatial_results = spatial_extractor.extract_from_elements(
-                elements=parsed.elements or [],
-                text=parsed.text or "",
-                doc_type=doc_key,
-            )
-
-            tables_data = [
-                {
-                    "id": tbl.id,
-                    "page_number": tbl.page_number,
-                    "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
-                    "headers": tbl.headers,
-                    "rows": tbl.rows_raw,
-                }
-                for tbl in (parsed.tables or [])
-            ]
-
-            components = {
-                "document_type": doc_key,
-                "key_values": spatial_results.get("key_values", {}),
-                "checkboxes": spatial_results.get("checkboxes", {}),
-                "tables": tables_data,
-                "paragraphs": spatial_results.get("paragraphs", []),
-            }
-
-            extracted_result = {
-                "_raw_text": parsed.text,
-                "rawText": parsed.text,
-                "_pages": len(parsed.pages),
-                "_elements_count": len(parsed.elements),
-                "_components": components,
-            }
-
-            # If spatial key_values found candidate values, include them as initial baseline
-            for k, v in spatial_results.get("key_values", {}).items():
-                if k not in extracted_result:
-                    extracted_result[k] = v
-
-            return extracted_result
-
+        from pipeline.nodes.node2_extract import _process_file_with_idp
+        return _process_file_with_idp(file_path, doc_id=doc_id)
     except Exception as e:
         logger.warning("IDP scan encountered an issue for %s: %s", file_path, e)
     return None
@@ -159,9 +117,24 @@ def idp_scan(state: PipelineState) -> PipelineState:
     # Process binary documents sequentially to avoid PyTorch/Docling access violations on Windows
     for fname, fpath, doc_key, doc_id in binary_tasks:
         try:
+            # Check if valid cached IDP extraction already exists in S3 Extracted tier
+            cached_path = S3_EXTRACTED_DIR / loan_id / f"{doc_key}.json"
+            if cached_path.exists():
+                try:
+                    cached_data = read_json(cached_path)
+                    raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""
+                    # Ensure cached extraction has content and is not older than the raw document file
+                    if (raw_txt.strip() or cached_data.get("_components") or len(cached_data) > 0) and cached_path.stat().st_mtime >= fpath.stat().st_mtime:
+                        logger.info("IDP scan cache hit for %s (%s) in loan %s. Skipping duplicate OCR.", doc_key, fname, loan_id)
+                        extracted_data[doc_key] = cached_data
+                        continue
+                except Exception as cache_read_err:
+                    logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
+
             scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
             if scan_res:
                 extracted_data[doc_key] = scan_res
+                save_s3_extracted(loan_id, doc_key, scan_res)
         except Exception as scan_err:
             logger.warning("Error processing %s: %s", fname, scan_err)
 
