@@ -106,6 +106,18 @@ def inr_format(val: float | None) -> str:
     return f"₹{int(val):,}"
 
 
+def format_tenure_months(val: Any) -> str:
+    """Formats a tenure value into 'X Months' without duplicating month units."""
+    if val is None or val == "":
+        return "N/A"
+    s = str(val).strip()
+    if not s or s.lower() in ("none", "null", "n/a"):
+        return "N/A"
+    if "month" in s.lower():
+        return re.sub(r"(?i)(\s*\bmonths?\b)+", " Months", s).strip()
+    return f"{s} Months"
+
+
 
 def build_evidence(
     doc_id: str,

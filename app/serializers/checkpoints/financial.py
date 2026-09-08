@@ -11,6 +11,7 @@ from ..case_context import (
     build_evidence,
     build_field,
     compute_checkpoint_confidence,
+    format_tenure_months,
     inr_format,
     resolve_checkpoint_validation,
 )
@@ -248,7 +249,7 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         kfs_amt_val = float(kfs_doc.get("loan_amount") or ctx.loan_amount)
         fields.append(build_field("KFS Funding Amount", inr_format(kfs_amt_val), 96.0, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("loan_validity") is not None:
-            fields.append(build_field("KFS Tenure", f"{kfs_doc['loan_validity']} Months", 98.0, f"doc-{ctx.loan_id}-kfs"))
+            fields.append(build_field("KFS Tenure", format_tenure_months(kfs_doc["loan_validity"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("irr_percent") is not None:
             fields.append(build_field("KFS IRR", f"{float(kfs_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("emi") is not None:
@@ -368,7 +369,7 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         sanc_amt_val = float(sanction_doc.get("loan_amount") or ctx.loan_amount)
         fields.append(build_field("Sanction Amount", inr_format(sanc_amt_val), 97.0, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("loan_validity") is not None:
-            fields.append(build_field("Sanction Tenure", f"{sanction_doc['loan_validity']} Months", 98.0, f"doc-{ctx.loan_id}-sanction"))
+            fields.append(build_field("Sanction Tenure", format_tenure_months(sanction_doc["loan_validity"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("irr_percent") is not None:
             fields.append(build_field("Sanction IRR", f"{float(sanction_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("emi") is not None:

@@ -12,6 +12,7 @@ from ..case_context import (
     build_evidence,
     build_field,
     compute_checkpoint_confidence,
+    format_tenure_months,
     inr_format,
     resolve_checkpoint_validation,
 )
@@ -71,7 +72,7 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             build_field("Account Type", str(app_acct_type or "N/A"), 95.0, f"doc-{ctx.loan_id}-appform"),
             build_field("Loan Type", str(app_type_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
             build_field("Requested Amount", inr_format(float(app_amt_val)) if app_amt_val else "N/A", 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Requested Tenure", f"{app_tenure_val} Months" if app_tenure_val else "N/A", 98.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Requested Tenure", format_tenure_months(app_tenure_val), 98.0, f"doc-{ctx.loan_id}-appform"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Details", 1, "Application Form")]
 

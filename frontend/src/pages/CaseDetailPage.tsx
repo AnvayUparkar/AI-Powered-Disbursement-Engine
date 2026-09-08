@@ -22,7 +22,6 @@ import { CheckpointDrawer } from '@/components/verification/CheckpointDrawer';
 import { PrintScorecardModal } from '@/components/verification/PrintScorecardModal';
 import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
 import { UploadModal } from '@/components/documents/UploadModal';
-import { AnimatedPipelineStepper } from '@/components/pipeline/AnimatedPipelineStepper';
 import { casesService, reviewService } from '@/services';
 import type { Case, Checkpoint, ReviewItem, PipelineEvent, PipelineStage } from '@/types';
 
@@ -149,17 +148,6 @@ export default function CaseDetailPage() {
           <ArrowLeft className="h-4 w-4" /> Back to Cases
         </Link>
 
-        {/* Animated Live Pipeline Stepper Banner */}
-        <div className="mb-5">
-          <AnimatedPipelineStepper
-            currentStage={currentStage}
-            completedStages={completedStages}
-            subnodeRollups={subnodeRollups}
-            isRunning={running || true}
-            errors={pipelineErrors}
-            title={`Live Verification Pipeline: Case ${caseId}`}
-          />
-        </div>
 
         <div className="card p-6 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-brand-600 mx-auto mb-2" />
@@ -183,19 +171,6 @@ export default function CaseDetailPage() {
         <ArrowLeft className="h-4 w-4" /> Back to Cases
       </Link>
 
-      {/* Animated Live Pipeline Stepper Banner */}
-      {(pipelineVisible || running) && (
-        <div className="mb-5">
-          <AnimatedPipelineStepper
-            currentStage={currentStage}
-            completedStages={completedStages}
-            subnodeRollups={subnodeRollups}
-            isRunning={running}
-            errors={pipelineErrors}
-            title={`Live Verification Pipeline: Case ${c.id}`}
-          />
-        </div>
-      )}
 
       {/* Header */}
       <div className="card p-5 mb-5">
