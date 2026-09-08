@@ -64,6 +64,7 @@ temp/
 poc_data/los/loans/*
 poc_data/s3_raw/*
 poc_data/s3_extracted/*
+poc_data/s3_extracted_structured/*
 poc_data/s3_result/*
 poc_data/dms/*
 poc_data/los/scorecards_received/*
