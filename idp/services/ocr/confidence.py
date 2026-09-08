@@ -88,10 +88,40 @@ class OCRConfidenceEvaluator:
 
         # 2. Remove standalone English misread noise tokens for PAN & Aadhaar headers
         cleaned = re.sub(r"\b(FarHToT|3RRTO|HRAHRR|PA ROR)\b", "", cleaned, flags=re.IGNORECASE)
+        
+        # 3. Remove leading single-letter noise before words (e.g., "s Brih" -> "Brih", "a Government" -> "Government")
+        cleaned = re.sub(r"^[a-z]\s+(?=[A-Z])", "", cleaned)
+        
+        # 4. Remove standalone garbled tokens: TE, RAA, HOTRT, Signralid, HAR, etc.
+        cleaned = re.sub(r"\b(TE|RAA|HOTRT|Signralid|HAR|Hin|Wuy|Nane|Empioyee|OSV)\b", "", cleaned)
+        
+        # 5. Remove Chinese/CJK characters and full-width punctuation entirely
+        cleaned = re.sub(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\uff00-\uffef]", "", cleaned)
+        
+        # 6. Remove Devanagari-to-Latin garbled patterns: "3TET", "TT3T", "3TR3", "334"
+        # Matches: digits+letters+digits OR letters+digits+letters OR pure digits with letters mixed
+        cleaned = re.sub(r"\b\d+[A-Z]{2,}\d*\b", "", cleaned)  # e.g., "3TET", "334"
+        cleaned = re.sub(r"\b[A-Z]{2,}\d+\s?\d*\b", "", cleaned)  # e.g., "TT3T 3"
+        
+        # 7. Remove standalone short noise: single letters/digits on their own or with minimal context
+        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", "", cleaned)  # Single uppercase letters: "R", "A"
+        cleaned = re.sub(r"\b\d{1,4}\b(?!\d)", "", cleaned)  # Standalone 1-4 digit numbers: "12", "105", "333", "4011"
+        
+        # 8. Remove random character sequences with mixed punctuation
+        cleaned = re.sub(r"\b[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{5,}\b", "", cleaned)  # e.g., "ee , a fr ) s4 H4"
+        
+        # 9. Remove leading digit+slash patterns from fields like "9/MALE" -> "MALE", "Paf4/DOB" -> "DOB"
+        cleaned = re.sub(r"^[A-Za-z]*\d+/", "", cleaned)
+        
+        # 10. Remove patterns like "RT 3HTET" or "3 34" (mixed letter-digit garbage)
+        cleaned = re.sub(r"\b[A-Z]{1,2}\s+\d[A-Z]+\b", "", cleaned)
 
         # Clean up double spaces or dangling leading slashes
         cleaned = re.sub(r"^\s*/\s*", "", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        
+        # Remove leading/trailing punctuation or symbols
+        cleaned = re.sub(r"^[^\w\s]+|[^\w\s]+$", "", cleaned, flags=re.UNICODE)
 
         return cleaned
 
@@ -122,14 +152,41 @@ class OCRConfidenceEvaluator:
         # 4. Check for known Indic OCR misread n-grams
         if self.INVALID_NGRAM_MISREADS.search(cleaned):
             return True
+        
+        # 5. Check for Chinese/CJK characters and full-width punctuation
+        if re.search(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\uff00-\uffef]", cleaned):
+            return True
+        
+        # 6. Check for specific garbage tokens seen in Aadhaar/PAN misreads
+        garbage_tokens = r"\b(TE|RAA|HOTRT|Signralid|Brih|HAR(?!I)|Hin|Wuy|Nane|Empioyee|OSV)\b"
+        if re.search(garbage_tokens, cleaned, re.IGNORECASE):
+            return True
+        
+        # 7. Check for Devanagari misread patterns: "3TET", "TT3T", "334", "3 34"
+        if re.search(r"\b\d+[A-Z]{2,}\d*\b", cleaned):  # "3TET", "334"
+            return True
+        if re.search(r"\b[A-Z]{2,}\d+\s?\d*\b", cleaned):  # "TT3T 3"
+            return True
+        
+        # 8. Check for random character sequences with excessive punctuation
+        if re.search(r"[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{8,}", cleaned):
+            return True
+        
+        # 9. Standalone very short tokens (1-2 chars) that are just noise
+        if total_len <= 2 and cleaned.isalpha() and cleaned.isupper():
+            return True  # Single letters like "R", "A"
+        
+        # 10. Pure standalone numbers without context (likely page numbers or noise)
+        if cleaned.isdigit() and 1 <= len(cleaned) <= 4:
+            return True  # Catches "12", "105", "333", "4011"
 
-        # 5. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
+        # 8. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
         for match in self.PURE_CONSONANTS_PATTERN.finditer(cleaned):
             token = match.group(0).upper()
             if token not in self.COMMON_ACRONYMS and not self.IDENTIFIER_PATTERNS.search(cleaned):
                 return True
 
-        # 6. Statistical Latin Vowel-to-Consonant Ratio check for non-acronym words
+        # 9. Statistical Latin Vowel-to-Consonant Ratio check for non-acronym words
         words = cleaned.split()
         for word in words:
             # Exempt structured financial/identity identifiers (PAN, IFSC, GSTIN) and alphanumeric tokens
@@ -145,11 +202,11 @@ class OCRConfidenceEvaluator:
                     if vowel_ratio < 0.15:
                         return True
 
-        # 7. Check zero valid script characters
+        # 10. Check zero valid script characters
         if not self.VALID_SCRIPT_REGEX.search(cleaned):
             return True
 
-        # 8. Excessive symbol ratio (> 40% non-alphanumeric symbols)
+        # 11. Excessive symbol ratio (> 40% non-alphanumeric symbols)
         symbols_count = len(self.SYMBOL_REGEX.findall(cleaned))
         letters_count = len(self.LETTER_REGEX.findall(cleaned))
         if total_len > 4 and letters_count > 0:

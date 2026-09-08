@@ -262,8 +262,18 @@ class DocumentSerializer:
                 for elem in p.elements:
                     if self._is_element_inside_tables(elem.bbox, p.tables):
                         continue
-                    clean_txt = self.evaluator.clean_bilingual_label_noise(elem.text)
-                    if clean_txt and not (self.evaluator.is_garbled_text(clean_txt) and elem.source != "vlm_corrected"):
+                    
+                    # Post-processing: Clean text using production sanitizer
+                    from idp.services.ocr.text_sanitizer import clean_ocr_text
+                    clean_txt = clean_ocr_text(elem.text, document_type=None)
+                    
+                    # Fallback: If sanitizer rejects, use old cleaner
+                    if not clean_txt:
+                        clean_txt = self.evaluator.clean_bilingual_label_noise(elem.text)
+                        if self.evaluator.is_garbled_text(clean_txt) and elem.source != "vlm_corrected":
+                            continue
+                    
+                    if clean_txt:
                         full_text_parts.append(clean_txt)
 
                 for tbl in p.tables:

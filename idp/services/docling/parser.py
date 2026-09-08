@@ -100,16 +100,21 @@ class DoclingParser:
                             bbox_list = _extract_top_left_bbox(prov_item.bbox, _get_page_h(pno))
 
                     txt = getattr(item, "text", "") or ""
+                    
+                    # Capture ALL text - no filtering at extraction
+                    if not txt or not txt.strip():
+                        continue
+                    
                     elements.append(
                         LayoutElement(
                             id=f"docling-{uuid.uuid4().hex[:8]}",
                             type=elem_type,
-                            text=txt,
+                            text=txt,  # RAW text - clean later
                             bbox=bbox_list,
                             confidence=compute_text_confidence(txt),
                             page_number=pno,
                             reading_order=reading_order,
-                            source="docling_ocr" if txt else "docling_ocr",
+                            source="docling_ocr",
                             structure_source="docling"
                         )
                     )
@@ -156,6 +161,9 @@ class DoclingParser:
                                 r1 = getattr(tc, "end_row_offset_idx", r0)
                                 c1 = getattr(tc, "end_col_offset_idx", c0)
                                 c_txt = str(getattr(tc, "text", "")).strip()
+                                
+                                # Capture ALL table cell text - no filtering
+                                
                                 is_hdr = bool(getattr(tc, "column_header", False)) or (r0 == 0)
 
                                 c_bbox = None
@@ -235,6 +243,7 @@ class DoclingParser:
                     )
 
             logger.info(format_doc_log(doc_id, f"Docling successfully extracted {len(elements)} structural elements and {len(tables)} tables."))
+            
             return DoclingParseResult(
                 elements=elements,
                 tables=tables,
