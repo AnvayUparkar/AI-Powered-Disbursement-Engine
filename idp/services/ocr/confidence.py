@@ -14,8 +14,8 @@ class OCRConfidenceEvaluator:
     # 1. Garbage Punctuation Pattern
     GARBAGE_SYMBOL_PATTERN = re.compile(r"^[~`!@#$%^&*()_+={}\[\]|\\:;\"'<>,?\/]+$")
     
-    # 2. Repeated Character Noise (e.g. "aaaaa")
-    REPEATED_CHARS_PATTERN = re.compile(r"(.)\1{4,}")
+    # 2. Repeated Character Noise (e.g. "aaaaa", preserving numeric zeros in financial amounts like 500000)
+    REPEATED_CHARS_PATTERN = re.compile(r"([a-zA-Z])\1{4,}")
     
     # 3. Corrupted Mathematical / Greek / Foreign Symbol Noise
     CORRUPTED_SYMBOL_NOISE = re.compile(r"[παβγδεζηθικλμνξοπρστυφχψω∫∑√∝∞∠∧∨∩∪≈≠≡≤≥ąęįųπ×]")
@@ -103,15 +103,14 @@ class OCRConfidenceEvaluator:
         cleaned = re.sub(r"\b\d+[A-Z]{2,}\d*\b", "", cleaned)  # e.g., "3TET", "334"
         cleaned = re.sub(r"\b[A-Z]{2,}\d+\s?\d*\b", "", cleaned)  # e.g., "TT3T 3"
         
-        # 7. Remove standalone short noise: single letters/digits on their own or with minimal context
-        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", "", cleaned)  # Single uppercase letters: "R", "A"
-        cleaned = re.sub(r"\b\d{1,4}\b(?!\d)", "", cleaned)  # Standalone 1-4 digit numbers: "12", "105", "333", "4011"
+        # 7. Remove standalone short noise: single letters on their own
+        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", "", cleaned)  # Single uppercase letters: "R", "A" (preserve numbers)
         
         # 8. Remove random character sequences with mixed punctuation
         cleaned = re.sub(r"\b[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{5,}\b", "", cleaned)  # e.g., "ee , a fr ) s4 H4"
         
-        # 9. Remove leading digit+slash patterns from fields like "9/MALE" -> "MALE", "Paf4/DOB" -> "DOB"
-        cleaned = re.sub(r"^[A-Za-z]*\d+/", "", cleaned)
+        # 9. Remove leading digit+slash patterns from fields like "9/MALE" -> "MALE", "Paf4/DOB" -> "DOB" (preserve dates)
+        cleaned = re.sub(r"^[A-Za-z]*\d+/(?=[A-Za-z])", "", cleaned)
         
         # 10. Remove patterns like "RT 3HTET" or "3 34" (mixed letter-digit garbage)
         cleaned = re.sub(r"\b[A-Z]{1,2}\s+\d[A-Z]+\b", "", cleaned)
@@ -120,8 +119,8 @@ class OCRConfidenceEvaluator:
         cleaned = re.sub(r"^\s*/\s*", "", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         
-        # Remove leading/trailing punctuation or symbols
-        cleaned = re.sub(r"^[^\w\s]+|[^\w\s]+$", "", cleaned, flags=re.UNICODE)
+        # Remove leading/trailing garbage punctuation or symbols (preserve valid brackets/periods)
+        cleaned = re.sub(r"^[^\w\s\(\[\{\#\$]+|[^\w\s\)\}\]\.\,\:\-\%]+$", "", cleaned, flags=re.UNICODE)
 
         return cleaned
 
@@ -176,9 +175,9 @@ class OCRConfidenceEvaluator:
         if total_len <= 2 and cleaned.isalpha() and cleaned.isupper():
             return True  # Single letters like "R", "A"
         
-        # 10. Pure standalone numbers without context (likely page numbers or noise)
-        if cleaned.isdigit() and 1 <= len(cleaned) <= 4:
-            return True  # Catches "12", "105", "333", "4011"
+        # 10. Standalone numeric digits (valid data like years, amounts, codes, EMI)
+        if cleaned.isdigit():
+            return False  # Preserve numbers
 
         # 8. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
         for match in self.PURE_CONSONANTS_PATTERN.finditer(cleaned):

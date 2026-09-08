@@ -36,6 +36,27 @@ def test_serializer_region_alignment_and_docling_text_ignored():
     serializer = DocumentSerializer()
 
     # Docling structural elements
+    docling_elem1 = LayoutElement(
+        id="elem-1",
+        type=ElementType.HEADING,
+        text="Experiment No. - 08",
+        bbox=[12.0, 12.0, 190.0, 48.0],
+        confidence=0.98,
+        page_number=1,
+        source="DOCLING",
+        structure_source="docling"
+    )
+    docling_elem2 = LayoutElement(
+        id="elem-4",
+        type=ElementType.TEXT,
+        text="Handwritten Note: Approved",
+        bbox=[300.0, 500.0, 500.0, 530.0],
+        confidence=0.90,
+        page_number=1,
+        source="DOCLING",
+        structure_source="docling"
+    )
+
     # Docling table structure (1 row, 2 cols) with cell texts
     docling_table = TableStructure(
         id="table-1",
@@ -50,7 +71,7 @@ def test_serializer_region_alignment_and_docling_text_ignored():
     )
 
     docling_res = DoclingParseResult(
-        elements=[],
+        elements=[docling_elem1, docling_elem2],
         tables=[docling_table],
         page_count=1,
         pages_dimensions=[{"width": 595.0, "height": 842.0}]
@@ -119,11 +140,11 @@ def test_serializer_region_alignment_and_docling_text_ignored():
         metrics=metrics
     )
 
-    # 1. Non-table heading element comes from RapidOCR
+    # 1. Non-table heading element comes from Docling
     heading_elements = [e for e in parsed_doc.elements if "Experiment" in e.text]
     assert len(heading_elements) == 1
     assert heading_elements[0].text == "Experiment No. - 08"
-    assert heading_elements[0].source == "RAPIDOCR"
+    assert heading_elements[0].source == "DOCLING"
 
     # 2. Table cell text comes from Docling Table Authority + VLM correction
     assert len(parsed_doc.tables) == 1
@@ -132,11 +153,10 @@ def test_serializer_region_alignment_and_docling_text_ignored():
     assert tbl.cells[1].text == "Rahul Sharma"  # VLM corrected in-place
     assert tbl.rows_raw == [["Applicant Name", "Rahul Sharma"]]
 
-    # 3. Standalone OCR element must be preserved
+    # 3. Standalone element must be preserved
     standalone = [e for e in parsed_doc.elements if "Approved" in e.text]
     assert len(standalone) == 1
     assert standalone[0].text == "Handwritten Note: Approved"
-    assert standalone[0].source == "RAPIDOCR"
 
     # 4. RapidOCR table text (ocr_cell0, ocr_cell1) MUST BE SKIPPED from elements list (region ownership)
     elements_text = [e.text for e in parsed_doc.elements]
@@ -146,39 +166,40 @@ def test_serializer_region_alignment_and_docling_text_ignored():
 
 def test_serializer_ocr_duplicate_safety():
     from idp.services.docling.parser import DoclingParseResult
+    from idp.models.layout import LayoutElement, ElementType
     from idp.models.ocr import OCRResult, OCRElement
     from idp.models.processing import ProcessingMetrics
 
     serializer = DocumentSerializer()
 
+    docling_elem1 = LayoutElement(
+        id="elem-1",
+        type=ElementType.HEADING,
+        text="Duplicate Heading",
+        bbox=[10.0, 10.0, 200.0, 50.0],
+        confidence=0.95,
+        page_number=1,
+        source="DOCLING",
+        structure_source="docling"
+    )
+    docling_elem2 = LayoutElement(
+        id="elem-2",
+        type=ElementType.HEADING,
+        text="Duplicate Heading",
+        bbox=[10.0, 10.0, 200.0, 50.0],
+        confidence=0.95,
+        page_number=1,
+        source="DOCLING",
+        structure_source="docling"
+    )
+
     docling_res = DoclingParseResult(
-        elements=[],
+        elements=[docling_elem1, docling_elem2],
         tables=[],
         page_count=1,
         pages_dimensions=[{"width": 595.0, "height": 842.0}]
     )
 
-    # Two exact duplicate OCR lines
-    ocr1 = OCRElement(
-        id="ocr-1",
-        text="Duplicate Heading",
-        bbox=[10.0, 10.0, 200.0, 50.0],
-        confidence=0.95,
-        page_number=1,
-        line_number=1,
-        source="ocr"
-    )
-    ocr2 = OCRElement(
-        id="ocr-2",
-        text="Duplicate Heading",
-        bbox=[10.0, 10.0, 200.0, 50.0],
-        confidence=0.95,
-        page_number=1,
-        line_number=2,
-        source="ocr"
-    )
-
-    ocr_res = OCRResult(page_number=1, elements=[ocr1, ocr2])
     metrics = ProcessingMetrics()
 
     parsed_doc = serializer.build_unified_document(
@@ -188,7 +209,7 @@ def test_serializer_ocr_duplicate_safety():
         file_size_bytes=1024,
         page_count=1,
         docling_result=docling_res,
-        ocr_results=[ocr_res],
+        ocr_results=[],
         vlm_corrections={},
         metrics=metrics
     )

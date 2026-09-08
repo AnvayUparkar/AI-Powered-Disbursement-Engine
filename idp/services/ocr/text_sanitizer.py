@@ -52,7 +52,7 @@ class TextSanitizer:
     # Pre-compiled regex patterns for performance
     UNICODE_NOISE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\uff00-\uffef]")
     CORRUPTED_SYMBOLS = re.compile(r"[παβγδεζηθικλμνξοπρστυφχψω∫∑√∝∞∠∧∨∩∪≈≠≡≤≥ąęįųπ×]")
-    REPEATED_CHARS = re.compile(r"(.)\1{4,}")
+    REPEATED_CHARS = re.compile(r"([a-zA-Z])\1{4,}")
     GARBAGE_PUNCTUATION = re.compile(r"^[~`!@#$%^&*()_+={}\[\]|\\:;\"'<>,?\/]+$")
     
     # Bilingual label noise patterns (Devanagari → Latin misreads)

@@ -81,11 +81,15 @@ def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
     boolean_keys = {"aadhaar_xml_present", "loan_agreement_present", "loan_agreement_signed"}
     norm = dict(extracted or {})
 
-    # Pre-normalize legacy/alternative aliases if canonical key is missing or None
+    if norm.get("applicant_name") is None:
+        for alias in ("customer_name", "borrower_name", "full_name", "name"):
+            if norm.get(alias) is not None:
+                norm["applicant_name"] = norm[alias]
+                break
     if norm.get("bank_account_no") is None and "account_no" in norm:
         norm["bank_account_no"] = norm["account_no"]
     if norm.get("application_no") is None:
-        for alias in ("loan_no", "loan_account_no", "application_id", "loan_id"):
+        for alias in ("loan_no", "loan_account_no", "application_id", "loan_id", "appl_no", "los_id"):
             if norm.get(alias) is not None:
                 norm["application_no"] = norm[alias]
                 break
@@ -94,14 +98,19 @@ def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
     if norm.get("aadhaar_number") is None and norm.get("aadhaar") is not None:
         norm["aadhaar_number"] = norm["aadhaar"]
     if norm.get("loan_amount") is None:
-        for alias in ("sanctioned_amount", "funding_amount", "disbursal_amount"):
+        for alias in ("sanctioned_amount", "funding_amount", "disbursal_amount", "requested_loan_amount"):
             if norm.get(alias) is not None:
                 norm["loan_amount"] = norm[alias]
                 break
     if norm.get("loan_validity") is None:
-        for alias in ("tenure_months", "tenure", "tenor"):
+        for alias in ("tenure_months", "tenure", "tenor", "tenure_of_loan"):
             if norm.get(alias) is not None:
                 norm["loan_validity"] = norm[alias]
+                break
+    if norm.get("loan_type") is None:
+        for alias in ("type_of_loan", "end_use", "purpose_of_loan"):
+            if norm.get(alias) is not None:
+                norm["loan_type"] = norm[alias]
                 break
     if norm.get("BPI") is None:
         for alias in ("bpi", "broken_period_interest"):

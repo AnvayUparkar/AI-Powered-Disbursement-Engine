@@ -12,6 +12,7 @@ class CandidateMatch(BaseModel):
     exactness: float
     ocr_confidence: float
     match_strategy: str
+    source: str = "docling_ocr"
     constituent_tokens: List[str] = Field(default_factory=list)
 
 
@@ -27,7 +28,7 @@ class FieldLocation(BaseModel):
     match_confidence: float = 1.0  # Matching score
     location_status: Literal["resolved", "unresolved"] = "resolved"
     reason: Optional[str] = None
-    source: str = "ocr"
+    source: str = "docling_ocr"
     match_strategy: Optional[str] = None
     candidates: List[CandidateMatch] = Field(default_factory=list)
 

@@ -77,20 +77,18 @@ class TableRegionMask:
     def is_inside_or_overlapping_table(
         rapidocr_bbox: List[float],
         table_regions: List[TableRegion],
-        overlap_threshold: float = 0.40
+        overlap_threshold: float = 0.40,
+        text: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
-        Determines whether a RapidOCR text element falls inside or substantially overlaps any
+        Determines whether a text element falls inside or substantially overlaps any
         Docling table region on the page.
 
         Evaluation criteria:
-        1. Center point containment (handles small OCR boxes inside large tables).
-        2. Bounding box containment (RapidOCR bbox fully inside table bbox).
-        3. Area overlap ratio (Intersection Area / RapidOCR Area >= 0.40).
-
-        Returns:
-            (is_blocked: bool, decision_code: str)
-            decision_code is "SKIPPED_INSIDE_DOCLING_TABLE", "SKIPPED_OVERLAPPING_TABLE", or "ADDED_NON_TABLE_TEXT".
+        1. Cell-content check: If text is provided, ONLY block if the text is already
+           captured by an ingested TableCell inside that table. If the table engine failed
+           to parse cell text, retain the element to prevent losing text & bboxes.
+        2. Containment and area overlap ratios.
         """
         if not rapidocr_bbox or len(rapidocr_bbox) < 4 or not table_regions:
             return False, "ADDED_NON_TABLE_TEXT"
@@ -101,33 +99,36 @@ class TableRegionMask:
         ocr_area = ocr_w * ocr_h
         center_x = (rx1 + rx2) / 2.0
         center_y = (ry1 + ry2) / 2.0
+        norm_txt = text.strip().lower() if text and text.strip() else None
 
         for region in table_regions:
             tx1, ty1, tx2, ty2 = region.bbox[0], region.bbox[1], region.bbox[2], region.bbox[3]
 
-            # 1. Center Containment Check
-            if (tx1 <= center_x <= tx2) and (ty1 <= center_y <= ty2):
+            is_spatially_inside = (
+                (tx1 <= center_x <= tx2 and ty1 <= center_y <= ty2) or
+                (rx1 >= tx1 - (tx2 - tx1) * 0.02 and ry1 >= ty1 - (ty2 - ty1) * 0.02 and
+                 rx2 <= tx2 + (tx2 - tx1) * 0.02 and ry2 <= ty2 + (ty2 - ty1) * 0.02)
+            )
+            if not is_spatially_inside and ocr_area > 0.0:
+                inter_x1, inter_y1 = max(rx1, tx1), max(ry1, ty1)
+                inter_x2, inter_y2 = min(rx2, tx2), min(ry2, ty2)
+                inter_area = max(0.0, inter_x2 - inter_x1) * max(0.0, inter_y2 - inter_y1)
+                if (inter_area / ocr_area) >= overlap_threshold:
+                    is_spatially_inside = True
+
+            if is_spatially_inside:
+                # Cell-content gating: If table cells exist, check if text is already present
+                if norm_txt and region.table_data and region.table_data.cells:
+                    captured_in_cell = False
+                    for cell in region.table_data.cells:
+                        cell_txt = (cell.text or "").strip().lower()
+                        if cell_txt and (norm_txt in cell_txt or cell_txt in norm_txt):
+                            captured_in_cell = True
+                            break
+                    if not captured_in_cell:
+                        # Retain text element because table structure failed to capture cell text
+                        return False, "RETAINED_UNCAPTURED_TABLE_TEXT"
+
                 return True, "SKIPPED_INSIDE_DOCLING_TABLE"
-
-            # 2. Complete/Substantial Containment Check (with 2% tolerance)
-            eps_x = (tx2 - tx1) * 0.02
-            eps_y = (ty2 - ty1) * 0.02
-            if (rx1 >= tx1 - eps_x) and (ry1 >= ty1 - eps_y) and (rx2 <= tx2 + eps_x) and (ry2 <= ty2 + eps_y):
-                return True, "SKIPPED_INSIDE_DOCLING_TABLE"
-
-            # 3. Area Overlap Ratio Check (Intersection / OCR Area)
-            inter_x1 = max(rx1, tx1)
-            inter_y1 = max(ry1, ty1)
-            inter_x2 = min(rx2, tx2)
-            inter_y2 = min(ry2, ty2)
-
-            inter_w = max(0.0, inter_x2 - inter_x1)
-            inter_h = max(0.0, inter_y2 - inter_y1)
-            inter_area = inter_w * inter_h
-
-            if ocr_area > 0.0:
-                overlap_ratio = inter_area / ocr_area
-                if overlap_ratio >= overlap_threshold:
-                    return True, "SKIPPED_OVERLAPPING_TABLE"
 
         return False, "ADDED_NON_TABLE_TEXT"

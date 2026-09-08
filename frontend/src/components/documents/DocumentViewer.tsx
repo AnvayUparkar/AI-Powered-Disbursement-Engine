@@ -662,16 +662,20 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                             {f.source && (
                               <span
                                 className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase font-semibold ${
-                                  f.source === 'vlm'
+                                  f.source === 'vlm' || f.source === 'vlm_corrected'
                                     ? 'bg-review-50 text-review-700 border border-review-200'
-                                    : f.source === 'docling' || f.source === 'OCR' || f.source === 'ocr'
+                                    : f.source === 'docling' || f.source === 'docling_ocr' || f.source === 'DOCLING' || f.source === 'OCR' || f.source === 'ocr'
                                     ? 'bg-info-50 text-info-700 border border-info-200'
                                     : f.source === 'OPENROUTER_LLM' || f.source === 'llm'
                                     ? 'bg-purple-50 text-purple-700 border border-purple-200'
                                     : 'bg-ink-100 text-ink-600'
                                 }`}
                               >
-                                {f.source === 'OPENROUTER_LLM' ? 'LLM' : f.source}
+                                {f.source === 'OPENROUTER_LLM'
+                                  ? 'LLM'
+                                  : f.source === 'docling' || f.source === 'docling_ocr' || f.source === 'DOCLING'
+                                  ? 'DOCLING_OCR'
+                                  : f.source}
                               </span>
                             )}
                           </div>

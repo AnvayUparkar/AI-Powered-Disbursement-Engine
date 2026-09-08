@@ -151,7 +151,7 @@ class FieldLocationResolver:
                 "bbox_pixels": pix_bbox,
                 "page": pno,
                 "confidence": float(elem.get("confidence", 1.0)),
-                "source": elem.get("source", "ocr"),
+                "source": elem.get("source") or "docling_ocr",
             }
             tokens_by_page.setdefault(pno, []).append(token_item)
 
@@ -260,8 +260,7 @@ class FieldLocationResolver:
                             exactness=0.96,
                             ocr_confidence=tok.get("confidence", 0.9),
                             match_strategy="comb_box_exact",
-                            page_width=page_dimensions[pno]["width"],
-                            page_height=page_dimensions[pno]["height"]
+                            source=tok.get("source", "comb_box_merged")
                         ))
                     
                     # Alphanumeric match on merged token
@@ -274,8 +273,7 @@ class FieldLocationResolver:
                             exactness=0.94,
                             ocr_confidence=tok.get("confidence", 0.9),
                             match_strategy="comb_box_alphanumeric",
-                            page_width=page_dimensions[pno]["width"],
-                            page_height=page_dimensions[pno]["height"]
+                            source=tok.get("source", "comb_box_merged")
                         ))
                     
                     # Numeric match on merged token
@@ -288,8 +286,7 @@ class FieldLocationResolver:
                             exactness=0.92,
                             ocr_confidence=tok.get("confidence", 0.9),
                             match_strategy="comb_box_numeric",
-                            page_width=page_dimensions[pno]["width"],
-                            page_height=page_dimensions[pno]["height"]
+                            source=tok.get("source", "comb_box_merged")
                         ))
 
         # Existing matching strategies (lower priority)
@@ -310,6 +307,7 @@ class FieldLocationResolver:
                         exactness=1.0,
                         ocr_confidence=tok["confidence"],
                         match_strategy="exact_match",
+                        source=tok.get("source", "docling"),
                         constituent_tokens=[tok["text"]]
                     ))
                     continue
@@ -324,6 +322,7 @@ class FieldLocationResolver:
                         exactness=0.98,
                         ocr_confidence=tok["confidence"],
                         match_strategy="alphanumeric_match",
+                        source=tok.get("source", "docling"),
                         constituent_tokens=[tok["text"]]
                     ))
                     continue
@@ -338,6 +337,7 @@ class FieldLocationResolver:
                         exactness=0.95,
                         ocr_confidence=tok["confidence"],
                         match_strategy="numeric_match",
+                        source=tok.get("source", "docling"),
                         constituent_tokens=[tok["text"]]
                     ))
                     continue
@@ -352,6 +352,7 @@ class FieldLocationResolver:
                         exactness=0.95,
                         ocr_confidence=tok["confidence"],
                         match_strategy="date_match",
+                        source=tok.get("source", "docling"),
                         constituent_tokens=[tok["text"]]
                     ))
                     continue
@@ -368,6 +369,7 @@ class FieldLocationResolver:
                         exactness=round(score, 2),
                         ocr_confidence=tok["confidence"],
                         match_strategy="token_containment",
+                        source=tok.get("source", "docling"),
                         constituent_tokens=[tok["text"]]
                     ))
 
@@ -467,6 +469,42 @@ class FieldLocationResolver:
                             constituent_tokens=[tok["text"]]
                         ))
 
+        # 4. Key-Anchor Proximity Fallback Search (if direct text matching finds no candidates)
+        if not candidates:
+            field_words = field_name.replace("_", " ").lower().split()
+            for pno, tokens in tokens_by_page.items():
+                for tok_idx, tok in enumerate(tokens):
+                    tok_txt = tok["clean_text"]
+                    if any(fw in tok_txt for fw in field_words if len(fw) >= 3):
+                        key_box = tok["bbox"]
+                        # Search for adjacent right or below token on same page
+                        best_neighbor = None
+                        min_dist = 999.0
+                        for neighbor in tokens:
+                            if neighbor["id"] == tok["id"]:
+                                continue
+                            n_box = neighbor["bbox"]
+                            # Right neighbor (same row y-band) or bottom neighbor (vertical alignment)
+                            is_right = (n_box[0] >= key_box[0]) and abs(n_box[1] - key_box[1]) <= 0.04
+                            is_below = (n_box[1] >= key_box[3]) and (n_box[1] - key_box[3]) <= 0.08 and abs(n_box[0] - key_box[0]) <= 0.20
+                            if is_right or is_below:
+                                dist = ((n_box[0] - key_box[2]) ** 2 + (n_box[1] - key_box[1]) ** 2) ** 0.5
+                                if dist < min_dist:
+                                    min_dist = dist
+                                    best_neighbor = neighbor
+
+                        if best_neighbor:
+                            candidates.append(CandidateMatch(
+                                text=best_neighbor["text"],
+                                page=pno,
+                                bbox=best_neighbor["bbox"],
+                                score=0.82,
+                                exactness=0.82,
+                                ocr_confidence=best_neighbor["confidence"],
+                                match_strategy="key_anchor_proximity",
+                                constituent_tokens=[best_neighbor["text"]]
+                            ))
+
         if not candidates:
             return FieldLocation(
                 field_name=field_name,
@@ -500,7 +538,7 @@ class FieldLocationResolver:
             confidence=round(best.ocr_confidence, 3),
             match_confidence=round(best.score, 3),
             location_status="resolved",
-            source="ocr",
+            source=getattr(best, "source", "docling_ocr") or "docling_ocr",
             match_strategy=best.match_strategy,
             candidates=candidates[:5] if debug_mode else []
         )

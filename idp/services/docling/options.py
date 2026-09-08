@@ -56,12 +56,13 @@ class DoclingOptions(BaseModel):
     
     # OCR Mode
     force_full_page_ocr: bool = False  # False = use native text when available
+    adaptive_full_page_ocr: bool = True  # Trigger full-page OCR when digital text density is low
     ocr_on_tables_only: bool = False  # OCR only table regions
     
     # OCR Quality & Performance
-    det_limit_side_len: int = 960  # Detection input size (higher = slower, better)
-    det_db_thresh: float = 0.3  # Detection threshold (lower = more boxes)
-    det_db_box_thresh: float = 0.6  # Box confidence threshold
+    det_limit_side_len: int = 1536  # Detection input size (higher = slower, better)
+    det_db_thresh: float = 0.2  # Detection threshold (lower = more boxes)
+    det_db_box_thresh: float = 0.35  # Box confidence threshold (lower = detect low-contrast/faint text)
     rec_batch_num: int = 6  # Batch size for recognition
     
     # ═══════════════════════════════════════════════════════════════════════

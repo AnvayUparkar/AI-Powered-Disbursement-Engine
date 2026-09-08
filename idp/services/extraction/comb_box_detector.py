@@ -31,17 +31,10 @@ class CombBoxDetector:
                  y_tolerance: float = 0.045,
                  spacing_uniformity_threshold: float = 0.30,
                  size_uniformity_threshold: float = 0.25,
-                 min_sequence_length: int = 4,
+                 min_sequence_length: int = 2,
                  max_char_length: int = 3):
         """
         Initialize comb-box detector with configuration.
-        
-        Args:
-            y_tolerance: Max vertical deviation for row clustering (normalized)
-            spacing_uniformity_threshold: Max StdDev/Mean for gap uniformity
-            size_uniformity_threshold: Max StdDev/Mean for width uniformity
-            min_sequence_length: Minimum consecutive chars for comb-box
-            max_char_length: Maximum characters per element (1-3 typical)
         """
         self.y_tolerance = y_tolerance
         self.spacing_uniformity_threshold = spacing_uniformity_threshold
@@ -134,11 +127,15 @@ class CombBoxDetector:
         current_row = [sorted_elements[0]]
         current_y = sorted_elements[0].bbox[1]
         
+        # Adaptive y_tolerance based on coordinate space (normalized <= 1.5 vs pixels > 1.5)
+        sample_y = sorted_elements[0].bbox[1]
+        effective_tolerance = self.y_tolerance if sample_y <= 1.5 else max(15.0, self.y_tolerance * 500.0)
+
         for elem in sorted_elements[1:]:
             elem_y = elem.bbox[1]
             
             # Check if within tolerance of current row
-            if abs(elem_y - current_y) <= self.y_tolerance:
+            if abs(elem_y - current_y) <= effective_tolerance:
                 current_row.append(elem)
             else:
                 # Start new row
@@ -231,11 +228,10 @@ class CombBoxDetector:
         
         # Check spacing uniformity
         if len(gaps) >= 2:
-            mean_gap = statistics.mean(gaps)
-            if mean_gap <= 0:
-                return False, 0.0
-            std_gap = statistics.stdev(gaps) if len(gaps) > 1 else 0.0
-            gap_cv = std_gap / mean_gap if mean_gap > 0 else 1.0
+            abs_gaps = [abs(g) for g in gaps]
+            mean_gap = statistics.mean(abs_gaps)
+            std_gap = statistics.stdev(abs_gaps) if len(abs_gaps) > 1 else 0.0
+            gap_cv = std_gap / (mean_gap + 1e-4)
         else:
             gap_cv = 0.0
         

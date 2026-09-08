@@ -142,8 +142,9 @@ class FieldValidator:
         if source_type == "comb_box_reconstruction":
             confidence = min(1.0, confidence * 1.1)
         
-        # Final validation decision
-        is_valid = confidence >= 0.5
+        # Final validation decision (require confidence threshold AND valid pattern match if defined)
+        pattern_matched = not (pattern and not re.match(pattern, value))
+        is_valid = (confidence >= 0.5) and pattern_matched
         
         validation_details = {
             "validation_type": "comb_box_field",
