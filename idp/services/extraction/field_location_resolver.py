@@ -206,7 +206,7 @@ class FieldLocationResolver:
             results[field_name] = location
 
             if location.location_status == "resolved":
-                logger.info(
+                logger.debug(
                     "FIELD_LOCATION_RESOLVED field=%s value=%s page=%d bbox=%s conf=%.2f match_conf=%.2f",
                     field_name,
                     val_str,
@@ -216,7 +216,7 @@ class FieldLocationResolver:
                     location.match_confidence,
                 )
             else:
-                logger.info(
+                logger.debug(
                     "FIELD_LOCATION_UNRESOLVED field=%s value=%s reason=%s",
                     field_name,
                     val_str,

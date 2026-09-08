@@ -489,24 +489,6 @@ class DocumentRegistry:
                 field_locations = struct_data.get("field_locations") or {}
                 ocr_tokens = struct_data.get("ocr_tokens") or []
 
-                # If field_locations was not pre-computed, resolve on-the-fly from paragraphs/tables
-                if not field_locations and (paragraphs or struct_data.get("tables")):
-                    try:
-                        from idp.services.extraction.field_location_resolver import FieldLocationResolver
-                        resolver = FieldLocationResolver()
-                        field_locations_obj = resolver.resolve_field_locations(
-                            extracted_fields=ext_data,
-                            ocr_elements=paragraphs,
-                            table_cells=[],
-                            page_dimensions=struct_data.get("page_dimensions"),
-                            debug_mode=True
-                        )
-                        field_locations = {k: v.model_dump() for k, v in field_locations_obj.items()}
-                        if not ocr_tokens:
-                            ocr_tokens = [t.model_dump() for t in resolver.extract_debug_tokens(paragraphs, struct_data.get("page_dimensions"))]
-                    except Exception as res_err:
-                        logger.debug("On-the-fly field location resolution note: %s", res_err)
-
                 extracted_fields = []
                 for k, v in ext_data.items():
                     if k.startswith("_") or isinstance(v, (dict, list)):
@@ -828,8 +810,8 @@ class DocumentRegistry:
 
     def get_distinct_types(self) -> List[str]:
         """Return distinct document types currently present in the registry or supported by default."""
-        docs = self.list_all()
-        types = set(d.get("type") for d in docs if d.get("type"))
+        with self._lock:
+            types = set(d.get("type") for d in self._dynamic_docs.values() if d.get("type"))
         standard_types = {
             "Application Form",
             "PAN",
