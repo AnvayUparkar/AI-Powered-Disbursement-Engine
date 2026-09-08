@@ -241,6 +241,58 @@ class FieldLocationResolver:
 
         candidates: List[CandidateMatch] = []
 
+        # NEW: Priority matching on comb-box merged tokens
+        for pno, tokens in tokens_by_page.items():
+            for tok in tokens:
+                # Check if this is a comb-box reconstructed token
+                if tok.get("source") == "comb_box_merged":
+                    t_lower = _clean_text(tok["text"]).lower()
+                    t_alnum = _clean_alphanumeric(tok["text"])
+                    t_num = _clean_numeric(tok["text"])
+                    
+                    # Exact match on merged token (high confidence)
+                    if target_lower == t_lower:
+                        candidates.append(CandidateMatch(
+                            text=tok["text"],
+                            page=pno,
+                            bbox=tok["bbox"],
+                            score=0.96,  # Very high score for comb-box exact match
+                            exactness=0.96,
+                            ocr_confidence=tok.get("confidence", 0.9),
+                            match_strategy="comb_box_exact",
+                            page_width=page_dimensions[pno]["width"],
+                            page_height=page_dimensions[pno]["height"]
+                        ))
+                    
+                    # Alphanumeric match on merged token
+                    elif target_alnum and target_alnum == t_alnum:
+                        candidates.append(CandidateMatch(
+                            text=tok["text"],
+                            page=pno,
+                            bbox=tok["bbox"],
+                            score=0.94,
+                            exactness=0.94,
+                            ocr_confidence=tok.get("confidence", 0.9),
+                            match_strategy="comb_box_alphanumeric",
+                            page_width=page_dimensions[pno]["width"],
+                            page_height=page_dimensions[pno]["height"]
+                        ))
+                    
+                    # Numeric match on merged token
+                    elif target_num and t_num and target_num == t_num:
+                        candidates.append(CandidateMatch(
+                            text=tok["text"],
+                            page=pno,
+                            bbox=tok["bbox"],
+                            score=0.92,
+                            exactness=0.92,
+                            ocr_confidence=tok.get("confidence", 0.9),
+                            match_strategy="comb_box_numeric",
+                            page_width=page_dimensions[pno]["width"],
+                            page_height=page_dimensions[pno]["height"]
+                        ))
+
+        # Existing matching strategies (lower priority)
         for pno, tokens in tokens_by_page.items():
             # 1. Single-token exact / normalized search
             for tok in tokens:
