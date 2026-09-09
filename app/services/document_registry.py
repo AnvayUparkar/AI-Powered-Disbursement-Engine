@@ -138,6 +138,65 @@ class DocumentRegistry:
             all_candidates = list(reversed(list(self._dynamic_docs.values()))) + case_docs
             return resolve_synthetic_alias(doc_id, all_candidates)
 
+    def delete_case(self, case_id: str) -> int:
+        """Purge registry entries for a deleted case: in-memory records/aliases, plus their
+        mock-S3 idp_temp files (raw upload + parsed-document JSON).
+
+        pipeline.storage.delete_loan_data() separately handles the per-case-id directory
+        tiers (S3_RAW_DIR/{case_id}, S3_EXTRACTED_DIR/{case_id}, etc.) and a best-effort
+        loan-id-substring glob over idp_temp. That glob misses uploads whose doc_id doesn't
+        embed the case_id (e.g. a random "DOC-abc123" doc_id) -- this method closes that gap
+        by using the registry's own doc_id/filename association (recorded at upload time) to
+        delete those exact idp_temp files precisely.
+
+        Returns the number of dynamic document records removed.
+        """
+        with self._lock:
+            self._scan_idp_parsed_storage()
+
+            doc_ids_to_remove = [
+                doc_id for doc_id, rec in self._dynamic_docs.items()
+                if rec.get("caseId") == case_id
+            ]
+
+            for doc_id in doc_ids_to_remove:
+                rec = self._dynamic_docs[doc_id]
+                self._delete_idp_temp_files(doc_id, rec.get("name"))
+                del self._dynamic_docs[doc_id]
+
+            aliases_to_remove = [
+                alias for alias, target in self._doc_aliases.items()
+                if target in doc_ids_to_remove
+            ]
+            for alias in aliases_to_remove:
+                del self._doc_aliases[alias]
+
+            invalidate_case_cache()
+            logger.info("Purged %d document record(s) for deleted case %s", len(doc_ids_to_remove), case_id)
+            return len(doc_ids_to_remove)
+
+    @staticmethod
+    def _delete_idp_temp_files(doc_id: str, filename: Optional[str]) -> None:
+        """Remove a document's mock-S3 raw upload and parsed-document JSON from idp_temp."""
+        from idp.core.config import settings as idp_settings
+
+        base = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
+
+        parsed_path = base / idp_settings.PARSED_DOCUMENT_PREFIX / f"{doc_id}.json"
+        if parsed_path.exists():
+            try:
+                parsed_path.unlink()
+            except OSError as e:
+                logger.warning("Failed deleting parsed doc %s: %s", parsed_path, e)
+
+        if filename:
+            raw_path = base / idp_settings.RAW_DOCUMENT_PREFIX / f"{doc_id}_{filename}"
+            if raw_path.exists():
+                try:
+                    raw_path.unlink()
+                except OSError as e:
+                    logger.warning("Failed deleting raw upload %s: %s", raw_path, e)
+
     def get_distinct_types(self) -> List[str]:
         """Return distinct document types currently present in the registry or supported by default."""
         with self._lock:

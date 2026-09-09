@@ -5,6 +5,9 @@ from typing import Optional, Dict, List, Tuple, Any
 from idp.services.storage.s3 import S3Storage
 from idp.services.document_preprocessor import DocumentPreprocessor, PreprocessedDocument
 from idp.services.docling.parser import DoclingParser, DoclingParseResult
+from idp.services.docling.options import DoclingOptions
+from config.doc_types import get_canonical_doc_type
+from config.docling_profiles import get_profile_for_document_type
 from idp.services.ocr.rapidocr_engine import RapidOCREngine, OCRResult
 from idp.services.ocr.ocr_model_router import OCRModelRouter
 from idp.services.vlm.router import ConfidenceRouter
@@ -24,13 +27,27 @@ class DocumentProcessor:
     def __init__(self):
         self.storage = S3Storage()
         self.preprocessor = DocumentPreprocessor()
-        self.docling_parser = DoclingParser()
+        # One DoclingParser per document-type profile (config/docling_profiles.py),
+        # built lazily and cached so each profile's DocumentConverter is warmed up
+        # exactly once (see DoclingPipeline -> get_cached_converter, which itself
+        # caches by options fingerprint) rather than rebuilt every time the
+        # document-type mix changes mid-batch.
+        self._docling_parsers: Dict[str, DoclingParser] = {}
         # Standalone OCR engine bypassed — Docling is primary engine
         self.ocr_engine = None
         self.ocr_router = None
         self.router = ConfidenceRouter()
         self.vlm_client = VLMClient()
         self.serializer = DocumentSerializer()
+
+    def _get_docling_parser(self, doc_type: str) -> DoclingParser:
+        """Return the cached DoclingParser tuned for this canonical document type."""
+        parser = self._docling_parsers.get(doc_type)
+        if parser is None:
+            profile: DoclingOptions = get_profile_for_document_type(doc_type)
+            parser = DoclingParser(profile)
+            self._docling_parsers[doc_type] = parser
+        return parser
 
     async def process_document(
         self,
@@ -53,6 +70,7 @@ class DocumentProcessor:
         try:
             # Step 1: Download raw document from S3
             filename = os.path.basename(s3_key)
+            doc_type_hint = get_canonical_doc_type(filename)
             local_file_path = os.path.join(temp_dir, filename)
             await self.storage.download(key=s3_key, dest_path=local_file_path, bucket=bucket, doc_id=document_id)
 
@@ -78,11 +96,14 @@ class DocumentProcessor:
                     "processing_time_seconds": round(elapsed, 3)
                 }
 
-            # Step 3: Docling layout + integrated OCR parsing (runs on all document types)
+            # Step 3: Docling layout + integrated OCR parsing (runs on all document types),
+            # using the DoclingOptions profile tuned for this document's canonical type
+            # (character-box KYC forms, scanned bank statements, digital PDFs, etc.)
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
             try:
-                docling_result = self.docling_parser.parse(local_file_path, doc_id=document_id)
+                docling_parser = self._get_docling_parser(doc_type_hint)
+                docling_result = docling_parser.parse(local_file_path, doc_id=document_id)
             except Exception as e:
                 logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
@@ -167,7 +188,6 @@ class DocumentProcessor:
             llm_fields: Dict[str, Any] = {}
             try:
                 from pipeline.nodes.llm_field_extractor import llm_extract_fields
-                doc_type_hint = os.path.splitext(filename)[0].lower()
                 llm_fields = llm_extract_fields(
                     doc_type=doc_type_hint,
                     raw_text=parsed_doc.text,

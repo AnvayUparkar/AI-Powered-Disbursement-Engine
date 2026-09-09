@@ -19,10 +19,12 @@ import {
   Tag,
   Crosshair,
   Maximize2,
+  Minimize2,
+  RotateCcw,
   Copy,
   Check,
 } from 'lucide-react';
-import type { DocumentRecord, ExtractedField, OCRToken } from '@/types';
+import type { DocumentRecord, ExtractedField, OCRToken, TableCellRecord } from '@/types';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
 
 const FIELD_PALETTE = [
@@ -64,6 +66,44 @@ function getNormalizedStyle(bbox?: number[]) {
   };
 }
 
+// Splits the flat raw-OCR text (which embeds tables as "[TABLE]\n...pipe-joined rows...\n[/TABLE]"
+// blocks -- the same string fed to the LLM extractor, left untouched) and renders each table
+// block using Docling's own export_to_markdown() output instead, purely for UI legibility.
+// Table blocks appear in the same page/table order server-side as `extractedFields` table
+// entries, so they're matched positionally.
+function renderRawTextWithTableMarkdown(rawText: string | undefined, extractedFields: ExtractedField[]) {
+  if (!rawText) return 'No raw OCR text available.';
+
+  const tableFields = extractedFields.filter((f) => f.type === 'table');
+  const parts = rawText.split(/\[TABLE\]([\s\S]*?)\[\/TABLE\]/g);
+  let tableIdx = 0;
+
+  return parts.map((part, i) => {
+    const isTableBlock = i % 2 === 1;
+    if (!isTableBlock) {
+      return part ? <span key={i}>{part}</span> : null;
+    }
+
+    const tbl = tableFields[tableIdx];
+    tableIdx += 1;
+
+    if (tbl?.markdown) {
+      return (
+        <div key={i} className="my-3 rounded-md border border-brand-200 bg-brand-50/40 overflow-x-auto">
+          <div className="px-2.5 py-1 text-[10px] font-sans font-semibold text-brand-700 uppercase tracking-wider border-b border-brand-200 bg-brand-50/70">
+            Table (Docling Markdown){tbl.page ? ` — Page ${tbl.page}` : ''}
+          </div>
+          <pre className="p-2.5 whitespace-pre text-ink-800 text-xs">{tbl.markdown}</pre>
+        </div>
+      );
+    }
+
+    // No markdown captured for this table (older data, or export_to_markdown unavailable) -- fall
+    // back to the original flat block so nothing is silently dropped.
+    return <span key={i}>{`[TABLE]${part}[/TABLE]`}</span>;
+  });
+}
+
 export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -74,8 +114,13 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   // Debug Overlays State
   const [showFieldBoxes, setShowFieldBoxes] = useState(true);
   const [showOcrTokens, setShowOcrTokens] = useState(false);
+  const [showTableCells, setShowTableCells] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [showConfidence, setShowConfidence] = useState(true);
+
+  // Per-table view mode: 'grid' (parsed rows/cols) vs 'markdown' (Docling's own export_to_markdown())
+  const [tableViewModeById, setTableViewModeById] = useState<Record<string, 'grid' | 'markdown'>>({});
+  const [hoveredCell, setHoveredCell] = useState<{ tableId: string; cell: TableCellRecord } | null>(null);
 
   // Interaction State
   const [hoveredFieldId, setHoveredFieldId] = useState<string | null>(null);
@@ -86,9 +131,28 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [copiedJson, setCopiedJson] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
   const totalPages = Math.max(1, document.pages || 1);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(window.document.fullscreenElement === viewerRef.current);
+    window.document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => window.document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!viewerRef.current) return;
+    if (window.document.fullscreenElement) {
+      window.document.exitFullscreen();
+    } else {
+      viewerRef.current.requestFullscreen().catch(() => {
+        // Fullscreen API unavailable/blocked (e.g. iframe without allowfullscreen) -- no-op
+      });
+    }
+  };
 
   const imageUrl = `/api/documents/preview/${encodeURIComponent(document.caseId)}/${encodeURIComponent(document.name)}?page=${page}&format=image`;
 
@@ -205,8 +269,19 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
     document.debug?.ocr_tokens?.filter((t) => t.page === page) ||
     [];
 
+  // Current page tables with TableFormer per-cell bboxes (for the debug overlay)
+  const pageTables = document.extractedFields.filter(
+    (f) => f.type === 'table' && (f.page || 1) === page && f.cells && f.cells.length > 0
+  );
+  const pageTableCells: { tableId: string; cell: TableCellRecord }[] = pageTables.flatMap((t) =>
+    (t.cells || []).map((cell) => ({ tableId: t.id, cell }))
+  );
+
   return (
-    <div className="card overflow-hidden flex flex-col h-full">
+    <div
+      ref={viewerRef}
+      className={`card overflow-hidden flex flex-col h-full ${isFullscreen ? 'bg-white w-screen h-screen' : ''}`}
+    >
       {/* Primary Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-ink-200 bg-ink-50/50 flex-wrap">
         {/* Pagination */}
@@ -257,7 +332,14 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
           className="btn-ghost p-1.5 text-xs text-ink-500 hover:text-ink-800"
           title="Reset Zoom"
         >
-          <Maximize2 className="h-3.5 w-3.5" />
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={toggleFullscreen}
+          className="btn-ghost p-1.5 text-xs text-ink-500 hover:text-ink-800"
+          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
         </button>
 
         <div className="h-4 w-px bg-ink-200" />
@@ -333,6 +415,19 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
             </button>
 
             <button
+              onClick={() => setShowTableCells(!showTableCells)}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
+                showTableCells
+                  ? 'bg-violet-100 text-violet-900 border border-violet-300'
+                  : 'text-ink-500 hover:bg-ink-100'
+              }`}
+              title="Toggle TableFormer Per-Cell Bounding Boxes"
+            >
+              <Box className="h-3 w-3" />
+              TableFormer Cells ({pageTableCells.length})
+            </button>
+
+            <button
               onClick={() => setShowLabels(!showLabels)}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
                 showLabels
@@ -385,7 +480,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                 </span>
                 <span>{document.pages} Pages</span>
               </div>
-              {document.rawText || 'No raw OCR text available.'}
+              {renderRawTextWithTableMarkdown(document.rawText, document.extractedFields)}
             </div>
           ) : viewMode === 'formattedText' ? (
             <div className="bg-white rounded-lg p-5 shadow-pop w-full h-full max-w-2xl overflow-y-auto flex flex-col">
@@ -502,6 +597,34 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                 </div>
               )}
 
+              {/* OVERLAY LAYER 1.5: TableFormer Per-Cell Bounding Boxes (When Enabled) */}
+              {showTableCells && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {pageTableCells.map(({ tableId, cell }, idx) => {
+                    const style = getNormalizedStyle(cell.bbox);
+                    if (!style) return null;
+                    const isHovered =
+                      hoveredCell?.tableId === tableId &&
+                      hoveredCell.cell.row_index === cell.row_index &&
+                      hoveredCell.cell.col_index === cell.col_index;
+                    return (
+                      <div
+                        key={`${tableId}-${cell.row_index}-${cell.col_index}-${idx}`}
+                        className={`absolute border border-dashed pointer-events-auto cursor-crosshair transition-all ${
+                          cell.is_header
+                            ? 'border-violet-600 bg-violet-500/15'
+                            : 'border-violet-400/80 bg-violet-400/5'
+                        } ${isHovered ? 'ring-2 ring-violet-600 bg-violet-500/30 z-30' : 'z-10'}`}
+                        style={style}
+                        onMouseEnter={() => setHoveredCell({ tableId, cell })}
+                        onMouseLeave={() => setHoveredCell(null)}
+                        title={`[r${cell.row_index}, c${cell.col_index}] "${cell.text}"`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
               {/* OVERLAY LAYER 2: Extracted Field Bounding Boxes */}
               {showFieldBoxes && (
                 <div className="absolute inset-0 pointer-events-none">
@@ -560,6 +683,18 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                   {hoveredToken.line_id !== undefined && (
                     <span className="text-ink-400 ml-2">Line: {hoveredToken.line_id}</span>
                   )}
+                </div>
+              )}
+
+              {/* TableFormer Cell Hover Tooltip */}
+              {hoveredCell && (
+                <div className="absolute bottom-2 left-2 z-50 bg-ink-900/90 text-white text-[11px] px-3 py-1.5 rounded shadow-lg backdrop-blur-sm border border-ink-700 pointer-events-none font-mono">
+                  <span className="text-violet-300 font-bold mr-1">TableFormer Cell:</span>
+                  <span className="text-white">
+                    [r{hoveredCell.cell.row_index}, c{hoveredCell.cell.col_index}]
+                    {hoveredCell.cell.is_header ? ' (header)' : ''}
+                  </span>
+                  <span className="text-ink-400 ml-2">"{hoveredCell.cell.text}"</span>
                 </div>
               )}
             </div>
@@ -777,31 +912,71 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                         {/* Table Details */}
                         {f.type === 'table' && f.rows && (
                           <div className="mt-2 overflow-x-auto">
-                            <span className="font-semibold text-ink-700 block mb-1">Table Grid:</span>
-                            <table className="w-full text-[11px] border border-ink-200 bg-white rounded">
-                              {f.headers && f.headers.length > 0 && (
-                                <thead className="bg-ink-50 border-b border-ink-200">
-                                  <tr>
-                                    {f.headers.map((h, hIdx) => (
-                                      <th key={hIdx} className="p-1 text-left font-semibold text-ink-700">
-                                        {h}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-ink-700">Table Structure:</span>
+                              {f.markdown && (
+                                <div className="flex rounded bg-ink-200/60 p-0.5 text-[10px]">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setTableViewModeById((prev) => ({ ...prev, [f.id]: 'grid' }));
+                                    }}
+                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                                      (tableViewModeById[f.id] || 'grid') === 'grid'
+                                        ? 'bg-white text-ink-900 shadow-sm'
+                                        : 'text-ink-600 hover:text-ink-900'
+                                    }`}
+                                  >
+                                    Grid
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setTableViewModeById((prev) => ({ ...prev, [f.id]: 'markdown' }));
+                                    }}
+                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                                      tableViewModeById[f.id] === 'markdown'
+                                        ? 'bg-white text-ink-900 shadow-sm'
+                                        : 'text-ink-600 hover:text-ink-900'
+                                    }`}
+                                    title="Docling's own export_to_markdown() rendering"
+                                  >
+                                    Markdown
+                                  </button>
+                                </div>
                               )}
-                              <tbody>
-                                {f.rows.map((row, rIdx) => (
-                                  <tr key={rIdx} className="border-b border-ink-100">
-                                    {row.map((cell, cIdx) => (
-                                      <td key={cIdx} className="p-1 text-ink-800">
-                                        {cell}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                            </div>
+
+                            {tableViewModeById[f.id] === 'markdown' && f.markdown ? (
+                              <pre className="text-[11px] font-mono text-ink-800 bg-ink-50/70 border border-ink-200 rounded p-2 whitespace-pre overflow-x-auto select-all">
+                                {f.markdown}
+                              </pre>
+                            ) : (
+                              <table className="w-full text-[11px] border border-ink-200 bg-white rounded">
+                                {f.headers && f.headers.length > 0 && (
+                                  <thead className="bg-ink-50 border-b border-ink-200">
+                                    <tr>
+                                      {f.headers.map((h, hIdx) => (
+                                        <th key={hIdx} className="p-1 text-left font-semibold text-ink-700">
+                                          {h}
+                                        </th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                )}
+                                <tbody>
+                                  {f.rows.map((row, rIdx) => (
+                                    <tr key={rIdx} className="border-b border-ink-100">
+                                      {row.map((cell, cIdx) => (
+                                        <td key={cIdx} className="p-1 text-ink-800">
+                                          {cell}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
                           </div>
                         )}
                       </div>
