@@ -85,6 +85,17 @@ export interface DocumentDebugInfo {
   ocr_tokens_by_page?: Record<number, OCRToken[]>;
 }
 
+export interface TableCellRecord {
+  row_index: number;
+  col_index: number;
+  row_span?: number;
+  col_span?: number;
+  text: string;
+  is_header?: boolean;
+  bbox?: number[];
+  confidence?: number;
+}
+
 export interface ExtractedField {
   id: string;
   name: string;
@@ -99,6 +110,8 @@ export interface ExtractedField {
   ocrOriginal?: string;
   headers?: string[];
   rows?: string[][];
+  cells?: TableCellRecord[];
+  markdown?: string;
   locationStatus?: 'resolved' | 'unresolved';
   matchedText?: string;
   matchConfidence?: number;

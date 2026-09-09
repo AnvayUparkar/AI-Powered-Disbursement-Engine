@@ -269,6 +269,28 @@ def _build_case_document_record(
                 "source": "OCR",
             })
 
+    tables = ext_data.get("_components", {}).get("tables") or struct_data.get("tables") or []
+    for t_idx, tbl in enumerate(tables):
+        if not isinstance(tbl, dict):
+            continue
+        rows = tbl.get("rows") or []
+        headers = tbl.get("headers") or []
+        extracted_fields.append({
+            "id": tbl.get("id") or f"table-{doc_id}-{t_idx + 1}",
+            "name": f"Table (Page {tbl.get('page_number', 1)})",
+            "value": f"{len(rows)} rows x {len(headers) if headers else (len(rows[0]) if rows else 0)} cols",
+            "confidence": 95,
+            "sourceDocumentId": doc_id,
+            "page": tbl.get("page_number", 1),
+            "type": "table",
+            "source": "docling",
+            "bbox": tbl.get("bbox"),
+            "headers": headers,
+            "rows": rows,
+            "cells": tbl.get("cells"),
+            "markdown": tbl.get("markdown"),
+        })
+
     if not extracted_fields:
         extracted_fields = build_default_extracted_fields(doc_id, doc_filename, doc_type, is_status=False)
 

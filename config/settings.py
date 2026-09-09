@@ -38,3 +38,9 @@ MAX_DOC_WORKERS = int(os.getenv("MAX_DOC_WORKERS", "4"))
 
 # Fast-track pipeline bypass: Skip IDP OCR & LLM structuring when structured data is already staged
 SKIP_IDP = os.getenv("SKIP_IDP", "false").lower() in ("true", "1", "yes")
+
+# When True, idp_scan always re-runs Docling/OCR from the raw document instead of reusing a
+# previously-written S3_EXTRACTED_DIR/{loan_id}/{doc_key}.json result (see pipeline/nodes/idp_scan.py).
+# Turn on while iterating on Docling/OCR config so "Run Verification Engine" reflects current code
+# instead of replaying a stale extraction from an earlier run.
+DISABLE_IDP_EXTRACTION_CACHE = os.getenv("DISABLE_IDP_EXTRACTION_CACHE", "false").lower() in ("true", "1", "yes")
