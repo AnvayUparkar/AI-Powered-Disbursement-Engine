@@ -166,8 +166,9 @@ class DocumentProcessor:
             # Step 7: Run OpenRouter LLM Field Extraction on OCR text
             llm_fields: Dict[str, Any] = {}
             try:
+                from config.doc_types import get_canonical_doc_type
                 from pipeline.nodes.llm_field_extractor import llm_extract_fields
-                doc_type_hint = os.path.splitext(filename)[0].lower()
+                doc_type_hint = get_canonical_doc_type(filename)
                 llm_fields = llm_extract_fields(
                     doc_type=doc_type_hint,
                     raw_text=parsed_doc.text,

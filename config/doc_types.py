@@ -5,9 +5,9 @@ from typing import Optional
 
 # Canonical document key mapping and aliases
 DOC_TYPE_ALIASES: dict[str, list[str]] = {
-    "aadhaar": ["aadhaar", "kyc_address_proof", "aadhaar_card", "aadhar"],
-    "aadhaar_xml": ["aadhaar_xml", "aadhaarxml", "xml_aadhaar"],
-    "pan": ["pan", "kyc_pan", "pan_card"],
+    "aadhaar": ["aadhaar", "kyc_address_proof", "aadhaar_card", "aadhar", "adhar", "adhar_card", "eaadhaar", "eaadhar", "uidai"],
+    "aadhaar_xml": ["aadhaar_xml", "aadhaarxml", "xml_aadhaar", "aadhar_xml", "adhar_xml", "xml_aadhar"],
+    "pan": ["pan", "kyc_pan", "pan_card", "pancard"],
     "application_form": ["application_form", "loan_application", "application", "appform", "app_form"],
     "account_statement": ["account_statement", "bank_statement", "bank_account_statement", "bank_statement_6m"],
     "kfs": ["kfs", "key_fact_statement", "key_fact_statement_kfs"],
@@ -46,7 +46,15 @@ def get_canonical_doc_type(name_or_key: str) -> str:
     if not name_or_key:
         return "miscellaneous"
 
-    stem = Path(name_or_key).stem.lower().strip()
+    p = Path(name_or_key)
+    stem = p.stem.lower().strip()
+    suffix = p.suffix.lower().strip()
+    full = name_or_key.lower().strip()
+
+    # Prioritize Aadhaar XML detection if XML extension or token is present
+    if (suffix == ".xml" or "xml" in full) and any(k in full for k in ("aadhaar", "aadhar", "adhar", "uidai")):
+        return "aadhaar_xml"
+
     # Direct match in alias map
     if stem in _ALIAS_TO_CANONICAL:
         return _ALIAS_TO_CANONICAL[stem]
@@ -57,9 +65,7 @@ def get_canonical_doc_type(name_or_key: str) -> str:
         return _ALIAS_TO_CANONICAL[unprefixed]
 
     # Substring heuristics — prioritize distinctive keywords over short prefixes
-    if "xml" in stem and ("aadhaar" in stem or "aadhar" in stem):
-        return "aadhaar_xml"
-    if "aadhaar" in stem or "aadhar" in stem:
+    if any(k in stem for k in ("aadhaar", "aadhar", "adhar", "uidai")):
         return "aadhaar"
     if "kfs" in stem:
         return "kfs"
@@ -71,13 +77,13 @@ def get_canonical_doc_type(name_or_key: str) -> str:
         return "disbursal_memo"
     if "statement" in stem or "bank" in stem:
         return "account_statement"
-    if "vkyc" in stem:
+    if "vkyc" in stem or "vky" in stem:
         return "vkyc"
-    if "bt" in stem or "foreclosure" in stem:
+    if bool(re.search(r"(?:^|[\W_])bt(?:[\W_]|$)", stem)) or "foreclosure" in stem or "balance_transfer" in stem:
         return "bt_details"
-    if "pan" in stem:
+    if bool(re.search(r"(?:^|[\W_])pan(?:[\W_]|$)", stem)) or "pancard" in stem:
         return "pan"
-    if "application" in stem or re.search(r"(?:^|_)app(?:lication)?(?:_|$)", unprefixed):
+    if "application" in stem or re.search(r"(?:^|[\W_])app(?:lication)?(?:[\W_]|$)", unprefixed):
         return "application_form"
 
     return stem

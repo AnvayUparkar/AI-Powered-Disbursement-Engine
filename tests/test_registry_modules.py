@@ -112,6 +112,21 @@ def test_resolver_guess_doc_type():
     assert guess_doc_type("kfs_disclosure.pdf") in ("KFS", "Key Fact Statement (KFS)")
     assert guess_doc_type("random_unknown_file.xyz") == "Random Unknown File"
 
+    # Aadhaar spelling and format variations
+    assert guess_doc_type("aadhar card.pdf") == "Aadhaar"
+    assert guess_doc_type("Aadhar.pdf") == "Aadhaar"
+    assert guess_doc_type("adhar_card.jpg") == "Aadhaar"
+    assert guess_doc_type("eaadhaar.pdf") == "Aadhaar"
+    assert guess_doc_type("uidai_download.pdf") == "Aadhaar"
+    assert guess_doc_type("aadhar_xml.zip") == "Aadhaar XML"
+    assert guess_doc_type("aadhaar.xml") == "Aadhaar XML"
+
+    # False positive resistance checks
+    assert guess_doc_type("debt_consolidation.pdf") != "BT Foreclosure Details"
+    assert guess_doc_type("obtain_noc.pdf") != "BT Foreclosure Details"
+    assert guess_doc_type("apple_receipt.pdf") != "Application Form"
+    assert guess_doc_type("pankaj_resume.pdf") != "PAN Card"
+
 
 def test_resolver_normalize_doc_name():
     assert normalize_doc_name("doc-LOAN_001_aadhaar_front.pdf") == "front.pdf"

@@ -70,19 +70,25 @@ export function UploadModal({
     setQueue((q) => [...q, ...mapped]);
   }, []);
 
-  const guessType = (name: string): string => {
+  const guessType = (name: string): DocumentType => {
     const n = name.toLowerCase();
-    if (n.includes('app')) return 'Application Form';
-    if (n.includes('pan')) return 'PAN';
-    if (n.includes('aadhaar') && n.includes('xml')) return 'Aadhaar XML';
-    if (n.includes('aadhaar')) return 'Aadhaar';
-    if (n.includes('kyc')) return 'KYC';
-    if (n.includes('kfs')) return 'KFS';
+    if ((n.includes('aadhaar') || n.includes('aadhar') || n.includes('adhar') || n.includes('uidai')) && (n.includes('xml') || n.endsWith('.xml'))) {
+      return 'Aadhaar XML';
+    }
+    if (n.includes('aadhaar') || n.includes('aadhar') || n.includes('adhar') || n.includes('uidai')) {
+      return 'Aadhaar';
+    }
+    if (/\bpan\b/i.test(n) || n.includes('pan_card') || n.includes('pancard') || n.includes('kyc_pan')) {
+      return 'PAN';
+    }
     if (n.includes('sanction')) return 'Sanction Letter';
     if (n.includes('agreement')) return 'Loan Agreement';
-    if (n.includes('memo') || n.includes('disbursal')) return 'Disbursal Memo';
-    if (n.includes('bt')) return 'BT Details';
-    if (n.includes('vky')) return 'VKYC Audit Trail';
+    if (n.includes('kfs') || n.includes('key_fact')) return 'KFS';
+    if (n.includes('memo') || n.includes('disbursal') || n.includes('disbursement')) return 'Disbursal Memo';
+    if (/\bbt\b/i.test(n) || n.includes('foreclosure') || n.includes('balance_transfer')) return 'BT Details';
+    if (n.includes('vkyc') || n.includes('vky') || n.includes('video_kyc')) return 'VKYC Audit Trail';
+    if (/\bapp\b/i.test(n) || n.includes('application') || n.includes('app_form') || n.includes('appform')) return 'Application Form';
+    if (n.includes('kyc')) return 'KYC';
     return 'Miscellaneous';
   };
 
