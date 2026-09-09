@@ -14,28 +14,28 @@ def guess_doc_type(filename: str) -> str:
         pass
 
     n = filename.lower()
-    if "app" in n or "application" in n:
-        return "Application Form"
-    if "pan" in n:
-        return "PAN"
-    if ("aadhaar" in n or "aadhar" in n or "adhar" in n) and "xml" in n:
+    if any(k in n for k in ("aadhaar", "aadhar", "adhar", "uidai")) and ("xml" in n or n.endswith(".xml")):
         return "Aadhaar XML"
-    if "aadhaar" in n or "aadhar" in n or "adhar" in n:
+    if any(k in n for k in ("aadhaar", "aadhar", "adhar", "uidai")):
         return "Aadhaar"
-    if "kyc" in n:
-        return "KYC"
-    if "kfs" in n:
-        return "KFS"
+    if bool(re.search(r"(?:^|[\W_])pan(?:[\W_]|$)", n)) or "pan_card" in n or "pancard" in n:
+        return "PAN"
     if "sanction" in n:
         return "Sanction Letter"
     if "agreement" in n:
         return "Loan Agreement"
+    if "kfs" in n or "key_fact" in n:
+        return "KFS"
     if "memo" in n or "disbursal" in n:
         return "Disbursal Memo"
-    if "bt" in n or "foreclosure" in n:
+    if bool(re.search(r"(?:^|[\W_])bt(?:[\W_]|$)", n)) or "foreclosure" in n or "balance_transfer" in n:
         return "BT Details"
-    if "vkyc" in n:
+    if "vkyc" in n or "vky" in n:
         return "VKYC Audit Trail"
+    if "application" in n or bool(re.search(r"(?:^|[\W_])app(?:lication)?(?:[\W_]|$)", n)):
+        return "Application Form"
+    if "kyc" in n:
+        return "KYC"
     return "Miscellaneous"
 
 

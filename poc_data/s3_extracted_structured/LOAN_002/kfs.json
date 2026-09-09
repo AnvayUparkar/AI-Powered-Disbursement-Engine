@@ -1,9 +1,0 @@
-{
-  "loan_amount": 400000.0,
-  "funding_amount": 400000.0,
-  "loan_validity": "36 months",
-  "loan_type": "Home Loan",
-  "customer_consent": true,
-  "bpi_charge": 2000.0,
-  "broken_period_interest": 2000.0
-}
