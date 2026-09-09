@@ -11,7 +11,8 @@ async def test_kyc_image_invokes_docling():
     processor.storage = MagicMock()
     processor.storage.download = AsyncMock(return_value=True)
     processor.preprocessor = MagicMock()
-    processor.docling_parser = MagicMock()
+    mock_docling_parser = MagicMock()
+    processor._get_docling_parser = MagicMock(return_value=mock_docling_parser)
     processor.ocr_router = MagicMock()
     processor.router = MagicMock()
     processor.vlm_client = MagicMock()
@@ -33,7 +34,7 @@ async def test_kyc_image_invokes_docling():
 
     mock_docling_result = MagicMock()
     mock_docling_result.elements = []
-    processor.docling_parser.parse.return_value = mock_docling_result
+    mock_docling_parser.parse.return_value = mock_docling_result
     processor.router.get_low_confidence_layout_elements.return_value = []
     processor.serializer.build_unified_document.return_value = MagicMock()
 
@@ -42,7 +43,7 @@ async def test_kyc_image_invokes_docling():
 
     assert res["status"] == "completed"
     # Docling parser SHOULD be called for KYC / image
-    processor.docling_parser.parse.assert_called_once()
+    mock_docling_parser.parse.assert_called_once()
 
     # Verify serializer was called with docling_used=True
     call_kwargs = processor.serializer.build_unified_document.call_args.kwargs
@@ -57,7 +58,8 @@ async def test_bank_statement_pdf_invokes_docling():
     processor.storage = MagicMock()
     processor.storage.download = AsyncMock(return_value=True)
     processor.preprocessor = MagicMock()
-    processor.docling_parser = MagicMock()
+    mock_docling_parser = MagicMock()
+    processor._get_docling_parser = MagicMock(return_value=mock_docling_parser)
     processor.ocr_router = MagicMock()
     processor.router = MagicMock()
     processor.vlm_client = MagicMock()
@@ -78,7 +80,7 @@ async def test_bank_statement_pdf_invokes_docling():
 
     mock_docling_result = MagicMock()
     mock_docling_result.elements = []
-    processor.docling_parser.parse.return_value = mock_docling_result
+    mock_docling_parser.parse.return_value = mock_docling_result
 
     mock_ocr = MagicMock()
     mock_ocr.page_number = 1
@@ -96,7 +98,7 @@ async def test_bank_statement_pdf_invokes_docling():
 
     assert res["status"] == "completed"
     # Docling parser SHOULD be called for bank statement PDF
-    processor.docling_parser.parse.assert_called_once()
+    mock_docling_parser.parse.assert_called_once()
 
     # Verify serializer was called with docling_used=True
     call_kwargs = processor.serializer.build_unified_document.call_args.kwargs

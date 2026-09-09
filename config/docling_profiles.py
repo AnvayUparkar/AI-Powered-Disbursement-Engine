@@ -123,7 +123,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
 DIGITAL_PDF_PROFILE = DoclingOptions(
     # Table Detection (standard)
     do_table_structure=True,
-    table_mode="FAST",  # Faster mode for clean digital docs
+    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
     table_confidence_threshold=0.6,
     table_min_rows=2,
     table_min_cols=2,
@@ -220,7 +220,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
 HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     # Table Detection (fast mode)
     do_table_structure=True,
-    table_mode="FAST",
+    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
     table_confidence_threshold=0.6,
     table_min_rows=2,
     table_min_cols=2,

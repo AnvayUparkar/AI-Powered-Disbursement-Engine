@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import (
+    DMS_DIR,
     IST,
     LOS_LOANS_DIR,
+    LOS_RECEIVED_DIR,
+    POC_DATA_DIR,
     S3_EXTRACTED_DIR,
     S3_EXTRACTED_STRUCTURED_DIR,
     S3_LOS_DIR,
@@ -250,3 +253,48 @@ def get_s3_result(loan_id: str, filename: str) -> Any:
     if path.exists():
         return read_json(path)
     return None
+
+
+def delete_loan_data(loan_id: str) -> Dict[str, List[str]]:
+    """
+    Permanently deletes a loan case and every document/artifact tier associated
+    with it: LOS metadata, DMS source docs, and all S3-tier storage (raw uploads,
+    extracted OCR/IDP output, structured extraction, and pipeline results).
+
+    Returns a dict of {"deleted": [...], "errors": [...]} describing what was
+    removed, for the caller to report back (e.g. to an API response).
+    """
+    deleted: List[str] = []
+    errors: List[str] = []
+
+    def _remove(path: Path) -> None:
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+                deleted.append(str(path))
+            elif path.exists():
+                path.unlink()
+                deleted.append(str(path))
+        except OSError as e:
+            errors.append(f"{path}: {e}")
+
+    # Single-file tiers
+    _remove(LOS_LOANS_DIR / f"{loan_id}.json")
+    _remove(LOS_RECEIVED_DIR / f"{loan_id}_scorecard.json")
+    _remove(S3_LOS_DIR / f"{loan_id}.json")
+
+    # Directory tiers (one subfolder per loan_id)
+    for base_dir in (DMS_DIR, S3_RAW_DIR, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RESULT_DIR):
+        _remove(base_dir / loan_id)
+
+    # Mock-S3 uploaded files staged under idp_temp are named "{doc_id}_{filename}" where
+    # doc_id commonly embeds the loan_id (e.g. "DOC-LOAN_005-9560-1_sanction_letter.pdf"),
+    # not stored in a per-loan subfolder -- best-effort glob cleanup by loan_id substring.
+    idp_temp_dir = POC_DATA_DIR / "idp_temp"
+    if idp_temp_dir.exists():
+        for match in idp_temp_dir.rglob(f"*{loan_id}*"):
+            if match.is_file():
+                _remove(match)
+
+    logger.info("Deleted loan %s: %d paths removed, %d errors", loan_id, len(deleted), len(errors))
+    return {"deleted": deleted, "errors": errors}

@@ -6,7 +6,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from config import MAX_DOC_WORKERS, S3_EXTRACTED_DIR, S3_RAW_DIR, SKIP_IDP, get_canonical_doc_type
+from config import (
+    DISABLE_IDP_EXTRACTION_CACHE,
+    MAX_DOC_WORKERS,
+    S3_EXTRACTED_DIR,
+    S3_RAW_DIR,
+    SKIP_IDP,
+    get_canonical_doc_type,
+)
 from idp.services.document_processor import DocumentProcessor
 from pipeline.engines.key_value_extractor import KeyValueExtractor
 from pipeline.state import PipelineState
@@ -119,7 +126,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
         try:
             # Check if valid cached IDP extraction already exists in S3 Extracted tier
             cached_path = S3_EXTRACTED_DIR / loan_id / f"{doc_key}.json"
-            if cached_path.exists():
+            if not DISABLE_IDP_EXTRACTION_CACHE and cached_path.exists():
                 try:
                     cached_data = read_json(cached_path)
                     raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""

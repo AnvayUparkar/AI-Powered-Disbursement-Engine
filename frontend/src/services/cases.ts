@@ -162,5 +162,9 @@ export const casesService = {
   async getStatus(id: string): Promise<any> {
     return await apiClient.get<any>(`/cases/${id}/status`);
   },
+
+  async deleteCase(id: string): Promise<{ status: string; caseId: string; pathsDeleted: number; documentsPurged: number; errors: string[] }> {
+    return await apiClient.delete(`/cases/${id}`);
+  },
 };
 

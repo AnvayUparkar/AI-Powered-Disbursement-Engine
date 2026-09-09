@@ -260,7 +260,10 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
             "page_number": tbl.page_number,
             "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
             "headers": tbl.headers,
-            "rows": tbl.rows_raw
+            "rows": tbl.rows_raw,
+            "bbox": tbl.bbox,
+            "markdown": getattr(tbl, "markdown", None),
+            "cells": [cell.model_dump() for cell in (tbl.cells or [])],
         })
 
     import json

@@ -229,16 +229,54 @@ class DoclingParser:
                         except Exception:
                             pass
 
+                    num_cols = len(headers) if headers else (len(rows_raw[0]) if rows_raw else 0)
+
+                    # Threshold post-filter: Docling's TableStructureOptions has no
+                    # native min_rows/min_cols/confidence knobs, so these are
+                    # enforced here. A table that fails the gate is dropped entirely
+                    # rather than silently ignored (see options.py NOTE).
+                    if len(rows_raw) < self.options.table_min_rows or num_cols < self.options.table_min_cols:
+                        logger.debug(
+                            f"Dropping table {tidx+1} on page {pno}: "
+                            f"{len(rows_raw)}x{num_cols} below min "
+                            f"{self.options.table_min_rows}x{self.options.table_min_cols}"
+                        )
+                        continue
+
+                    non_empty_cells = sum(1 for c in cells if c.text.strip())
+                    fill_ratio = (non_empty_cells / len(cells)) if cells else 0.0
+                    if fill_ratio < self.options.table_confidence_threshold:
+                        logger.debug(
+                            f"Dropping table {tidx+1} on page {pno}: "
+                            f"cell fill ratio {fill_ratio:.2f} below "
+                            f"table_confidence_threshold={self.options.table_confidence_threshold}"
+                        )
+                        continue
+
+                    # Docling's own markdown table renderer (span-aware, handles
+                    # merged header cells) -- captured verbatim rather than
+                    # re-derived from rows_raw so the UI can show exactly what
+                    # Docling itself considers the table's structure to be.
+                    table_markdown: Optional[str] = None
+                    if hasattr(table, "export_to_markdown"):
+                        try:
+                            md_result = table.export_to_markdown(doc)
+                            if isinstance(md_result, str):
+                                table_markdown = md_result
+                        except Exception as md_ex:
+                            logger.debug(f"export_to_markdown failed for table {tidx+1} on page {pno}: {md_ex}")
+
                     tables.append(
                         TableStructure(
                             id=f"table-{tidx+1}",
                             page_number=pno,
                             num_rows=len(rows_raw),
-                            num_cols=len(headers) if headers else (len(rows_raw[0]) if rows_raw else 0),
+                            num_cols=num_cols,
                             cells=cells,
                             bbox=bbox_list,
                             headers=headers,
-                            rows_raw=rows_raw
+                            rows_raw=rows_raw,
+                            markdown=table_markdown
                         )
                     )
 

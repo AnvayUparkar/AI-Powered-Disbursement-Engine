@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Sparkles,
   Printer,
+  Trash2,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
@@ -44,7 +45,26 @@ export default function CaseDetailPage() {
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const autoRunHandled = useRef(false);
+
+  const handleDeleteCase = async () => {
+    if (!caseId) return;
+    const confirmed = window.confirm(
+      `Delete case ${caseId} and ALL its documents? This permanently removes the LOS record, every uploaded document, and all extraction/verification results. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeleting(true);
+      await casesService.deleteCase(caseId);
+      navigate('/cases');
+    } catch (err) {
+      console.error('Failed to delete case:', err);
+      window.alert('Failed to delete case. Check the console/backend logs for details.');
+      setDeleting(false);
+    }
+  };
 
   const load = () => {
     if (!caseId) return;
@@ -200,6 +220,22 @@ export default function CaseDetailPage() {
                 title="Print official HDB verification scorecard with 12 checkpoints and comparison audit"
               >
                 <Printer className="h-3.5 w-3.5" /> Print PDF Scorecard
+              </button>
+              <button
+                onClick={handleDeleteCase}
+                disabled={deleting}
+                className="btn inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-50"
+                title="Permanently delete this case and all its documents"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" /> Delete Case
+                  </>
+                )}
               </button>
             </div>
             <p className="text-sm text-ink-500 mt-1">
