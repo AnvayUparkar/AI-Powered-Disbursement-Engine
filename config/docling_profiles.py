@@ -12,7 +12,31 @@ from idp.services.docling.options import DoclingOptions
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: CHARACTER BOX FORMS (e.g., Aadhaar, Application Forms)
+# ═══════════════════════════════════════════════════════════════════════════
+# PROFILE: IDENTITY DOCUMENTS (Aadhaar, PAN, DL, Voter ID)
+# ═══════════════════════════════════════════════════════════════════════════
+# Pure identity cards do not contain financial tables.
+# Bypasses TableFormer completely to eliminate unnecessary CPU transformer passes.
+# ═══════════════════════════════════════════════════════════════════════════
+
+IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
+    do_table_structure=False,
+    table_mode="FAST",
+    do_ocr=True,
+    force_full_page_ocr=False,
+    ocr_lang=["english", "hindi"],
+    images_scale=2.0,
+    do_layout_analysis=True,
+    detect_reading_order=True,
+    reading_order_method="spatial",
+    max_num_pages=10,
+    use_gpu=False,
+    num_threads=4,
+)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROFILE: CHARACTER BOX FORMS (e.g., Application Forms)
 # ═══════════════════════════════════════════════════════════════════════════
 # Optimized for forms where each character has a separate box.
 # TableFormer detects character boxes as individual cells.
@@ -123,7 +147,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
 DIGITAL_PDF_PROFILE = DoclingOptions(
     # Table Detection (standard)
     do_table_structure=True,
-    table_mode="FAST",  # Faster mode for clean digital docs
+    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
     table_confidence_threshold=0.6,
     table_min_rows=2,
     table_min_cols=2,
@@ -220,7 +244,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
 HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     # Table Detection (fast mode)
     do_table_structure=True,
-    table_mode="FAST",
+    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
     table_confidence_threshold=0.6,
     table_min_rows=2,
     table_min_cols=2,
@@ -263,6 +287,7 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
 # ═══════════════════════════════════════════════════════════════════════════
 
 DOCLING_PROFILES = {
+    "identity_document": IDENTITY_DOCUMENT_PROFILE,
     "character_box_forms": CHARACTER_BOX_FORMS_PROFILE,
     "scanned_documents": SCANNED_DOCUMENTS_PROFILE,
     "digital_pdf": DIGITAL_PDF_PROFILE,
@@ -303,8 +328,12 @@ def get_profile_for_document_type(doc_type: str) -> DoclingOptions:
     Returns:
         Appropriate DoclingOptions profile
     """
-    # Indian government forms with character boxes
-    if doc_type in ["application_form", "aadhaar", "pan_card", "dl"]:
+    # Pure identity cards: bypass TableFormer completely (zero tables in Aadhaar/PAN/DL/Voter ID)
+    if doc_type in ["aadhaar", "pan", "pan_card", "dl", "driving_license", "voter_id", "passport"]:
+        return IDENTITY_DOCUMENT_PROFILE
+
+    # Indian government forms with character boxes (e.g. application form)
+    elif doc_type in ["application_form"]:
         return CHARACTER_BOX_FORMS_PROFILE
     
     # Financial documents (typically scanned)

@@ -148,6 +148,27 @@ def get_case(case_id: str):
         raise HTTPException(status_code=404, detail=f"Case not found: {case_id}") from None
 
 
+@router.delete("/{case_id}", summary="Delete a loan case and all its associated documents")
+def delete_case(case_id: str):
+    from pipeline.storage import delete_loan_data
+    from app.services.document_registry import document_registry
+
+    result = delete_loan_data(case_id)
+    if not result["deleted"] and not result["errors"]:
+        raise HTTPException(status_code=404, detail=f"Case not found: {case_id}")
+
+    purged_docs = document_registry.delete_case(case_id)
+    logger.info("Deleted case %s (%d paths, %d docs purged)", case_id, len(result["deleted"]), purged_docs)
+
+    return {
+        "status": "deleted",
+        "caseId": case_id,
+        "pathsDeleted": len(result["deleted"]),
+        "documentsPurged": purged_docs,
+        "errors": result["errors"],
+    }
+
+
 @router.post("/{case_id}/run", summary="Trigger verification engine pipeline")
 def run_case_verification(case_id: str, async_mode: bool = Query(False, alias="async", description="Dispatch to Celery worker if True")):
     if async_mode:

@@ -6,7 +6,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from config import MAX_DOC_WORKERS, S3_EXTRACTED_DIR, S3_RAW_DIR, SKIP_IDP, get_canonical_doc_type
+from config import (
+    DISABLE_IDP_EXTRACTION_CACHE,
+    MAX_DOC_WORKERS,
+    S3_EXTRACTED_DIR,
+    S3_RAW_DIR,
+    SKIP_IDP,
+    get_canonical_doc_type,
+)
 from idp.services.document_processor import DocumentProcessor
 from pipeline.engines.key_value_extractor import KeyValueExtractor
 from pipeline.state import PipelineState
@@ -146,13 +153,6 @@ def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Opti
     """Runs IDP DocumentProcessor asynchronously in synchronous loop with smart routing."""
     processor = get_processor()
     try:
-        # Smart Document Routing: TableFormer ACCURATE for tabular & misc; bypassed for identity cards
-        needs_tables = is_tabular_or_misc_doc(doc_key)
-        if hasattr(processor, "docling_parser") and hasattr(processor.docling_parser, "pipeline"):
-            if hasattr(processor.docling_parser.pipeline, "options"):
-                processor.docling_parser.pipeline.options.do_table_structure = needs_tables
-                processor.docling_parser.pipeline.options.table_mode = "ACCURATE" if needs_tables else "FAST"
-
         prep = processor.preprocessor.preprocess(str(file_path), doc_id=doc_id)
         if prep.file_category == "xml":
             parsed = processor.serializer.parse_xml_fast_path(str(file_path), doc_id=doc_id)
@@ -259,7 +259,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
             try:
                 # Check if valid cached IDP extraction already exists in S3 Extracted tier
                 cached_path = S3_EXTRACTED_DIR / loan_id / f"{doc_key}.json"
-                if cached_path.exists():
+                if not DISABLE_IDP_EXTRACTION_CACHE and cached_path.exists():
                     try:
                         cached_data = read_json(cached_path)
                         raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""

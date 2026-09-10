@@ -13,31 +13,37 @@ class DoclingOptions(BaseModel):
     # TABLE STRUCTURE DETECTION (TableFormer)
     # ═══════════════════════════════════════════════════════════════════════
     do_table_structure: bool = True  # Enable/disable table detection
-    table_mode: str = "ACCURATE"  # 'ACCURATE' (slow, precise) or 'FAST'
+    table_mode: str = "ACCURATE"  # FAST mode is disabled repo-wide (see pipeline.py) -- this is always forced to ACCURATE regardless of value
     
-    # TableFormer Model Selection
-    table_model_type: str = "default"  # [INERT] 'default', 'custom', 'none'
-    table_model_path: Optional[str] = None  # [INERT] Custom model checkpoint path
-    
+    table_model_type: str = "default"  # 'default', 'custom', 'none'
+    table_model_path: Optional[str] = None  # Custom model checkpoint path
+
+    # Cell matching: reconcile the predicted cell grid against the PDF's native
+    # text layer when available. Wired -> table_structure_options.do_cell_matching.
+    # Turn OFF for scanned/photographed forms where the native text layer (if any)
+    # is unreliable/comb-boxed, so TableFormer's own recognized cell text is trusted
+    # instead of snapping to (possibly misaligned) native PDF text spans.
+    do_cell_matching: bool = False
+
     # Table Detection Thresholds
     table_confidence_threshold: float = 0.3  # Min confidence to accept table (lowered to detect light/borderless form grids)
     table_min_rows: int = 1  # Minimum rows to qualify as table (allows single-row boxed headers like Application No)
     table_min_cols: int = 1  # Minimum columns to qualify as table
-    
+
     # Cell Merging & Structure
-    merge_adjacent_cells: bool = True  # [INERT] Merge cells with same content
-    cell_merge_threshold: float = 0.5  # [INERT] Similarity threshold for merging
-    detect_cell_spans: bool = True  # [INERT] Detect row/col spans (native spans parsed directly)
-    
+    merge_adjacent_cells: bool = True  # Merge cells with same content
+    cell_merge_threshold: float = 0.5  # Similarity threshold for merging
+    detect_cell_spans: bool = True  # Detect row/col spans (native spans parsed directly)
+
     # Table Structure Refinement
-    refine_table_structure: bool = True  # [INERT] Post-process table grid
-    remove_empty_rows: bool = False  # [INERT] Filter out empty rows
-    remove_empty_cols: bool = False  # [INERT] Filter out empty columns
-    
+    refine_table_structure: bool = True  # Post-process table grid
+    remove_empty_rows: bool = False  # Filter out empty rows
+    remove_empty_cols: bool = False  # Filter out empty columns
+
     # Character Box Handling (CRITICAL for forms with character-level boxes)
-    merge_character_boxes: bool = True  # [INERT] Merge adjacent single-char cells (handled by CombBoxDetector with independent defaults)
-    character_box_max_width: float = 300.0  # [INERT] Max width (pixels) for char box (expanded for digit boxes)
-    character_box_gap_threshold: float = 2.0  # [INERT] Max gap to merge chars (bridges spacing between boxed characters)
+    merge_character_boxes: bool = True  # Merge adjacent single-char cells (handled by CombBoxDetector with independent defaults)
+    character_box_max_width: float = 300.0  # Max width (pixels) for char box (expanded for digit boxes)
+    character_box_gap_threshold: float = 2.0  # Max gap to merge chars (bridges spacing between boxed characters)
     
     # ═══════════════════════════════════════════════════════════════════════
     # OCR ENGINE (RapidOCR PP-OCRv6)
@@ -68,7 +74,12 @@ class DoclingOptions(BaseModel):
     # ═══════════════════════════════════════════════════════════════════════
     # IMAGE PREPROCESSING
     # ═══════════════════════════════════════════════════════════════════════
-    images_scale: float = 2.0  # Image upscaling factor (2.0 = 2x resolution)
+    images_scale: float = 2.0  # Image upscaling factor -> pipeline_options.images_scale (rasterization DPI for OCR/TableFormer input)
+    # NOTE: enhance_contrast/denoise/deskew are not wired into the Docling path --
+    # Docling rasterizes the PDF internally and has no such hooks. Equivalent logic
+    # already exists in idp/services/ocr/preprocessing.py (OCRImagePreprocessor) but
+    # that class is currently only reachable from the bypassed standalone RapidOCR
+    # engine, not from the Docling converter path used by DocumentProcessor.
     enhance_contrast: bool = False  # Apply contrast enhancement
     denoise: bool = False  # Apply denoising
     deskew: bool = False  # Auto-rotate skewed images
@@ -76,9 +87,20 @@ class DoclingOptions(BaseModel):
     # ═══════════════════════════════════════════════════════════════════════
     # LAYOUT ANALYSIS
     # ═══════════════════════════════════════════════════════════════════════
-    do_layout_analysis: bool = True  # [INERT] Detect paragraphs, headings, lists
-    layout_model_type: str = "default"  # [INERT] Layout model variant
-    
+    do_layout_analysis: bool = True  # Detect paragraphs, headings, lists
+    layout_model_type: str = "default"  # Layout model variant
+
+    # THE actual table-detection threshold: the layout model classifies page
+    # regions (Table/Text/Title/Picture/...) BEFORE TableFormer ever runs --
+    # TableFormer only processes regions the layout model already labeled
+    # "Table". This is that classifier's confidence cutoff (Docling default:
+    # 0.3). Lower it to catch faint/low-confidence table regions the layout
+    # model would otherwise discard outright; this is a GLOBAL detection
+    # threshold shared across all region classes, not table-specific, so
+    # lowering it can also let in more low-confidence text/picture regions.
+    # Wired -> pipeline_options.layout_options.engine_options.score_threshold.
+    layout_detection_threshold: float = 0.1
+
     # Reading Order
     detect_reading_order: bool = True  # [INERT] Determine element sequence
     reading_order_method: str = "spatial"  # [INERT] 'spatial', 'column_aware'
@@ -93,7 +115,7 @@ class DoclingOptions(BaseModel):
     # ═══════════════════════════════════════════════════════════════════════
     # PERFORMANCE & DEBUGGING
     # ═══════════════════════════════════════════════════════════════════════
-    use_gpu: bool = False  # [INERT] Use GPU acceleration (if available)
-    num_threads: int = 4  # [INERT] CPU threads for processing
-    debug_mode: bool = False  # [INERT] Save debug visualizations
-    log_level: str = "INFO"  # [INERT] Logging verbosity
+    use_gpu: bool = False  # Use GPU acceleration (if available)
+    num_threads: int = 4  # CPU threads for processing
+    debug_mode: bool = False  # Save debug visualizations
+    log_level: str = "INFO"  # Logging verbosity

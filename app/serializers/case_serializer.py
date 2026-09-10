@@ -33,6 +33,7 @@ from .case_context import (
     format_datetime_dmy_12h,
     format_time_12h,
     inr_format,
+    safe_float,
 )
 from .checkpoint_builders import build_all_checkpoints
 
@@ -238,20 +239,14 @@ def _build_case_context(loan_id: str) -> CaseContext:
     ]
 
     raw_amount = los_data.get("funding_amount") or los_data.get("loan_amount") or app_form.get("loan_amount")
-    try:
-        loan_amount = float(raw_amount) if raw_amount is not None else 0.0
-    except (ValueError, TypeError):
-        loan_amount = 0.0
+    loan_amount = safe_float(raw_amount, 0.0)
 
     raw_disbursal = memo_doc.get("disbursal_amount") or memo_doc.get("loan_amount")
-    try:
-        disbursal_amount = (
-            float(raw_disbursal)
-            if raw_disbursal is not None
-            else (round(loan_amount * 0.9, 2) if loan_amount > 0 else 0.0)
-        )
-    except (ValueError, TypeError):
-        disbursal_amount = 0.0
+    disbursal_amount = (
+        safe_float(raw_disbursal, 0.0)
+        if raw_disbursal is not None
+        else (round(loan_amount * 0.9, 2) if loan_amount > 0 else 0.0)
+    )
 
     applicant_name = str(
         los_data.get("applicant_name") or app_form.get("applicant_name") or "Unknown Applicant"
@@ -321,7 +316,7 @@ def _resolve_case_status_and_score(
         overall_status = "DISCREPANCY"
         risk_level = "HIGH"
         dgcl_score = (
-            float(scorecard_score)
+            safe_float(scorecard_score)
             if scorecard_score is not None
             else max(25.0, 100.0 - (discrepancy_count * 25.0 + review_count * 10.0))
         )
@@ -335,14 +330,14 @@ def _resolve_case_status_and_score(
         overall_status = "INDETERMINATE"
         risk_level = "MEDIUM"
         dgcl_score = (
-            float(scorecard_score)
+            safe_float(scorecard_score)
             if scorecard_score is not None
             else max(65.0, 100.0 - (review_count * 12.0))
         )
     else:
         overall_status = "VERIFIED"
         risk_level = "LOW"
-        dgcl_score = float(scorecard_score) if scorecard_score is not None else 97.4
+        dgcl_score = safe_float(scorecard_score, 97.4) if scorecard_score is not None else 97.4
 
     return overall_status, risk_level, dgcl_score, verified_count, discrepancy_count, review_count
 

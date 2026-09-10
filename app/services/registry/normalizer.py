@@ -187,8 +187,11 @@ def parse_extracted_fields(
             "page": tbl.get("page_number", 1),
             "type": "table",
             "source": "docling",
+            "bbox": tbl.get("bbox"),
             "headers": tbl.get("headers"),
             "rows": tbl.get("rows_raw"),
+            "cells": tbl.get("cells"),
+            "markdown": tbl.get("markdown"),
         })
 
     return extracted_fields

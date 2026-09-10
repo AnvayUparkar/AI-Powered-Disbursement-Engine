@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Search, Plus } from 'lucide-react';
+import { Search, Plus, Trash2, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Pagination } from '@/components/ui/Pagination';
@@ -34,6 +34,25 @@ export default function CasesPage() {
   const [error, setError] = useState(false);
   const [loanTypes, setLoanTypes] = useState<string[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteCase = async (caseId: string) => {
+    const confirmed = window.confirm(
+      `Delete case ${caseId} and ALL its documents? This permanently removes the LOS record, every uploaded document, and all extraction/verification results. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(caseId);
+      await casesService.deleteCase(caseId);
+      load();
+    } catch (err) {
+      console.error('Failed to delete case:', err);
+      window.alert('Failed to delete case. Check the console/backend logs for details.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     casesService.getLoanTypes().then(setLoanTypes).catch(() => {});
@@ -144,6 +163,7 @@ export default function CasesPage() {
                     <th className="table-head">R</th>
                     <th className="table-head"><SortHeader label="Time" active={sort?.key === 'processingTimeSeconds'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('processingTimeSeconds')} /></th>
                     <th className="table-head"><SortHeader label="Status" active={sort?.key === 'status'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('status')} /></th>
+                    <th className="table-head" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
@@ -163,6 +183,21 @@ export default function CasesPage() {
                       <td className="table-cell text-review-700 tabular-nums">{c.reviewCount}</td>
                       <td className="table-cell tabular-nums">{c.processingTime}</td>
                       <td className="table-cell"><StatusBadge status={c.status} /></td>
+                      <td className="table-cell">
+                        <button
+                          onClick={() => handleDeleteCase(c.id)}
+                          disabled={deletingId === c.id}
+                          className="p-1.5 rounded text-ink-400 hover:text-rose-700 hover:bg-rose-50 disabled:opacity-50 transition-colors"
+                          title={`Delete case ${c.id} and all its documents`}
+                          aria-label={`Delete case ${c.id}`}
+                        >
+                          {deletingId === c.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

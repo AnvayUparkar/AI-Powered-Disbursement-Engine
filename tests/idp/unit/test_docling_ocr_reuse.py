@@ -52,7 +52,9 @@ async def test_reuse_docling_ocr_skips_step4_rapidocr(monkeypatch):
     )
 
     # Mock docling parser to return our synthetic docling_res
-    monkeypatch.setattr(processor.docling_parser, "parse", lambda path, doc_id: docling_res)
+    mock_docling_parser = MagicMock()
+    mock_docling_parser.parse.return_value = docling_res
+    monkeypatch.setattr(processor, "_get_docling_parser", lambda doc_type: mock_docling_parser)
 
     # Mock storage and preprocessing
     monkeypatch.setattr(processor.storage, "download", AsyncMock(return_value="dummy_path.pdf"))
@@ -114,7 +116,9 @@ async def test_fallback_to_step4_rapidocr_when_no_docling_text(monkeypatch):
         page_count=1,
         pages_dimensions=[{"width": 595.0, "height": 842.0}]
     )
-    monkeypatch.setattr(processor.docling_parser, "parse", lambda path, doc_id: docling_res)
+    mock_docling_parser = MagicMock()
+    mock_docling_parser.parse.return_value = docling_res
+    monkeypatch.setattr(processor, "_get_docling_parser", lambda doc_type: mock_docling_parser)
     monkeypatch.setattr(processor.storage, "download", AsyncMock(return_value="dummy_path.pdf"))
     prep_mock = PreprocessedDocument(
         filename="dummy_path.pdf",
@@ -187,7 +191,9 @@ async def test_lazy_page_image_loading_when_vlm_fallback_needed(monkeypatch):
         page_count=1,
         pages_dimensions=[{"width": 595.0, "height": 842.0}]
     )
-    monkeypatch.setattr(processor.docling_parser, "parse", lambda path, doc_id: docling_res)
+    mock_docling_parser = MagicMock()
+    mock_docling_parser.parse.return_value = docling_res
+    monkeypatch.setattr(processor, "_get_docling_parser", lambda doc_type: mock_docling_parser)
     monkeypatch.setattr(processor.storage, "download", AsyncMock(return_value="dummy_path.pdf"))
     prep_mock = PreprocessedDocument(
         filename="dummy_path.pdf",
