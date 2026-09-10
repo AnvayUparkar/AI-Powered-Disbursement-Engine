@@ -34,10 +34,27 @@ root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.handlers = [handler]
 
+import asyncio
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Prewarm Docling converters in background thread on startup so user requests incur zero model load latency
+    try:
+        from idp.services.docling.pipeline import prewarm_docling_converters
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, prewarm_docling_converters)
+    except Exception as exc:
+        root_logger.warning(f"Failed to prewarm Docling converters at startup: {exc}")
+    yield
+
+
 app = FastAPI(
     title="Disbursement Scorecard Pipeline API",
     description="Backend API for automated loan disbursement verification POC",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configurable CORS Origins with strict defaults

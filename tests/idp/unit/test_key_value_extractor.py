@@ -1,5 +1,5 @@
 import pytest
-from pipeline.nodes.key_value_extractor import KeyValueExtractor
+from pipeline.engines.key_value_extractor import KeyValueExtractor
 
 
 def test_spatial_key_value_right_of_label():

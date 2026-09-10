@@ -21,6 +21,8 @@
   "tenure_months": 24,
   "application_id": "LOAN_001",
   "pan": "ABCDE1234F",
+  "irr_percent": 12.5,
+  "emi": 23600.0,
   "status": "APPROVED_FOR_DISBURSAL",
   "balance_transfer": 0
 }

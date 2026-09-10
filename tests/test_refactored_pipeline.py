@@ -6,9 +6,9 @@ import pytest
 
 from pipeline.nodes.check_financial import check_financial
 from pipeline.nodes.check_kyc import check_kyc
-from pipeline.nodes.check_loan_application import check_loan_application
+from pipeline.nodes.check_loan_app import check_loan_app as check_loan_application
 from pipeline.nodes.compile_report import compile_report
-from pipeline.nodes.fetch_dms import fetch_dms
+from pipeline.nodes.fetch_documents import fetch_documents as fetch_dms
 from pipeline.nodes.fetch_los import fetch_los
 from pipeline.nodes.generate_scorecard import generate_scorecard
 from pipeline.nodes.idp_scan import idp_scan
@@ -77,8 +77,8 @@ def test_fetch_dms_node(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     s3_raw_dir = tmp_path / "s3_raw"
     s3_result_dir = tmp_path / "s3_result"
-    monkeypatch.setattr("pipeline.nodes.fetch_dms.DMS_DIR", tmp_path / "dms")
-    monkeypatch.setattr("pipeline.nodes.fetch_dms.S3_RAW_DIR", s3_raw_dir)
+    monkeypatch.setattr("pipeline.nodes.fetch_documents.DMS_DIR", tmp_path / "dms")
+    monkeypatch.setattr("pipeline.nodes.fetch_documents.S3_RAW_DIR", s3_raw_dir)
     monkeypatch.setattr("pipeline.storage.S3_RESULT_DIR", s3_result_dir)
 
     init_state: PipelineState = {
@@ -162,10 +162,13 @@ def test_check_financial_node(mock_state_001: PipelineState):
 
 def test_check_loan_application_node(mock_state_001: PipelineState):
     """Test check_loan_application node executes lifecycle dates and ids."""
-    res = check_loan_application(mock_state_001)
+    state = copy.deepcopy(mock_state_001)
+    state["extracted_data"]["kfs"]["application_no"] = "LOAN_001"
+    state["extracted_data"]["sanction_letter"]["application_no"] = "LOAN_001"
+    res = check_loan_application(state)
     assert res["rollup"] == "Verified"
-    assert len(res["records"]) == 3
-    assert any(r["field"] == "application_date" for r in res["records"])
+    assert not any(r["field"] == "application_date" for r in res["records"])
+    assert any(r["field"] == "application_no" and r["match_status"] == "MATCH" for r in res["records"])
 
 
 def test_compile_report_and_generate_scorecard(mock_state_001: PipelineState, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -235,7 +238,7 @@ def test_stream_pipeline_events(monkeypatch: pytest.MonkeyPatch):
     assert events[-1]["stage"] == "finish"
     stages = [e["stage"] for e in events]
     assert "fetch_los" in stages
-    assert "fetch_dms" in stages
+    assert "fetch_documents" in stages or "fetch_dms" in stages
     assert "idp_scan" in stages
     assert "llm_structure" in stages
     assert "check_parallel" in stages

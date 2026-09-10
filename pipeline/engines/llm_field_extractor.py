@@ -232,6 +232,72 @@ def _build_user_content(doc_type: str, raw_text: str) -> str:
         return raw_text
 
 
+def _extract_with_gemini(
+    user_content: str,
+    api_key: str,
+    model: str,
+    doc_id: str,
+    doc_type: str,
+) -> dict[str, Any]:
+    """Extracts structured fields using Google Gemini direct API."""
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        model_name = model
+        if model_name in ("gemini-2.5-flash-lite", "google/gemini-2.5-flash-lite"):
+            model_name = "gemini-3.5-flash-lite"
+        elif "/" in model_name and "gemini" in model_name.lower():
+            model_name = model_name.split("/")[-1]
+
+        client = ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=api_key,
+            temperature=0.0,
+            max_retries=2,
+            timeout=45.0,
+        )
+        messages = [
+            SystemMessage(content=_SYSTEM_PROMPT),
+            HumanMessage(content=user_content),
+        ]
+        ai_msg = client.invoke(messages)
+
+        raw_content = ""
+        if isinstance(ai_msg.content, str):
+            raw_content = ai_msg.content
+        elif isinstance(ai_msg.content, list):
+            texts = []
+            for item in ai_msg.content:
+                if isinstance(item, dict) and "text" in item:
+                    texts.append(str(item["text"]))
+                elif isinstance(item, str):
+                    texts.append(item)
+                elif hasattr(item, "text"):
+                    texts.append(str(item.text))
+            raw_content = "\n".join(texts)
+        else:
+            raw_content = str(ai_msg.content)
+
+        cleaned = _clean_json_response(raw_content)
+        extracted: dict[str, Any] = json.loads(cleaned)
+        result: dict[str, Any] = format_template_json(extracted)
+
+        non_null = sum(1 for v in result.values() if v is not None and v is not False)
+        logger.info(
+            "[%s] Gemini direct extracted %d/%d non-null fields (doc_type=%s, model=%s)",
+            doc_id,
+            non_null,
+            len(TEMPLATE_FIELDS),
+            doc_type,
+            model_name,
+        )
+        return result
+    except Exception as e:
+        logger.error("[%s] Direct Gemini extraction failed: %s", doc_id, e)
+        return {}
+
+
 # ── Public API ─────────────────────────────────────────────────────────────
 
 def llm_extract_fields(
@@ -251,13 +317,8 @@ def llm_extract_fields(
         fields not found in the document).  Returns ``{}`` on any failure so
         the caller can proceed gracefully without a crash.
     """
-    try:
-        import pipeline.nodes.llm_field_extractor as _nfe
-        effective_api_key = getattr(_nfe, "LLM_API_KEY", LLM_API_KEY)
-        effective_model = getattr(_nfe, "LLM_MODEL", LLM_MODEL)
-    except Exception:
-        effective_api_key = LLM_API_KEY
-        effective_model = LLM_MODEL
+    effective_api_key = LLM_API_KEY
+    effective_model = LLM_MODEL
 
     if not effective_api_key:
         logger.warning("[%s] LLM_API_KEY not set — skipping LLM field extraction", doc_id)
@@ -268,6 +329,14 @@ def llm_extract_fields(
         return {}
 
     user_content = _build_user_content(doc_type, raw_text)
+
+    is_gemini = (
+        effective_api_key.startswith("AQ.")
+        or effective_api_key.startswith("AIza")
+        or "gemini" in str(effective_model).lower()
+    )
+    if is_gemini:
+        return _extract_with_gemini(user_content, effective_api_key, effective_model, doc_id, doc_type)
 
     payload: dict[str, Any] = {
         "model": effective_model,

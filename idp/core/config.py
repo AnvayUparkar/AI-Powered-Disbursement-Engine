@@ -4,13 +4,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-# Prevent HuggingFace from contacting remote API on every document when models are already cached
-if os.getenv("HF_HUB_OFFLINE") is None:
-    from pathlib import Path
-    _hf_hub_cache = Path.home() / ".cache" / "huggingface" / "hub"
-    if (_hf_hub_cache / "models--docling-project--docling-layout-heron").exists():
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 # Silence RapidOCR download_file existence checks from verbose logging
 import logging

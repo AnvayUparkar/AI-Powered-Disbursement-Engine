@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw
 from typing import List, Tuple
 from idp.services.document_processor import DocumentProcessor
 from idp.models.ocr import OCRResult
-from pipeline.nodes.node2_extract import node2_extract
+from pipeline.nodes.idp_scan import idp_scan as node2_extract
 from pipeline.state import PipelineState
 
 

@@ -18,6 +18,10 @@ from pipeline.storage import (
     write_json,
 )
 
+from idp.models.document import ParsedDocument
+from idp.services.extraction.field_location_resolver import FieldLocationResolver
+from pipeline.engines.llm_field_extractor import format_template_json, llm_extract_fields
+
 logger = logging.getLogger("disbursement_pipeline.idp_scan")
 
 _processor: Optional[DocumentProcessor] = None
@@ -30,13 +34,145 @@ def get_processor() -> DocumentProcessor:
     return _processor
 
 
+def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: str) -> Dict[str, Any]:
+    """Builds canonical extracted dictionary with elements, tables, and bounding boxes from a ParsedDocument."""
+    if not parsed:
+        return {}
+
+    extracted_fields = (parsed.custom_metadata or {}).get("llm_extracted_fields") if (parsed and parsed.custom_metadata) else None
+    if not extracted_fields:
+        extracted_fields = llm_extract_fields(
+            doc_type=doc_type,
+            raw_text=parsed.text,
+            doc_id=doc_id,
+        )
+
+    raw_element_dicts = []
+    for elem in parsed.elements:
+        elem_dict = elem.model_dump()
+        raw_element_dicts.append(elem_dict)
+
+    kv_extractor = KeyValueExtractor()
+    spatial_results = kv_extractor.extract(raw_element_dicts, doc_type=doc_type)
+
+    tables_data = []
+    for tbl in (parsed.tables or []):
+        tables_data.append({
+            "id": tbl.id,
+            "page_number": tbl.page_number,
+            "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
+            "headers": tbl.headers,
+            "rows": tbl.rows_raw,
+        })
+
+    template_fields = format_template_json(extracted_fields or {})
+    formatted_json = json.dumps(template_fields, indent=2)
+
+    page_dims = []
+    for p in (parsed.pages or []):
+        page_dims.append({"width": getattr(p, "width", 0.0), "height": getattr(p, "height", 0.0)})
+
+    table_cells_dicts = []
+    for tbl in (parsed.tables or []):
+        for cell in (getattr(tbl, "cells", []) or []):
+            table_cells_dicts.append({
+                "id": getattr(cell, "id", None),
+                "text": getattr(cell, "text", ""),
+                "bbox": getattr(cell, "bbox", []),
+                "page_number": getattr(tbl, "page_number", 1),
+                "confidence": getattr(cell, "confidence", 1.0),
+            })
+
+    resolver = FieldLocationResolver()
+    field_locs = resolver.resolve_field_locations(
+        extracted_fields=template_fields,
+        ocr_elements=raw_element_dicts,
+        table_cells=table_cells_dicts,
+        page_dimensions=page_dims,
+        debug_mode=True,
+    )
+    field_locs_dict = {k: v.model_dump() for k, v in field_locs.items()}
+    ocr_tokens_debug = [t.model_dump() for t in resolver.extract_debug_tokens(raw_element_dicts, page_dims)]
+
+    components = {
+        "document_type": doc_type,
+        "key_values": spatial_results.get("key_values", {}),
+        "checkboxes": spatial_results.get("checkboxes", {}),
+        "tables": tables_data,
+        "paragraphs": spatial_results.get("paragraphs", []),
+        "field_locations": field_locs_dict,
+        "ocr_tokens": ocr_tokens_debug,
+        "page_dimensions": page_dims,
+    }
+
+    return {
+        **template_fields,
+        "_raw_text": parsed.text,
+        "rawText": parsed.text,
+        "_formatted_text": formatted_json,
+        "formattedText": formatted_json,
+        "_pages": len(parsed.pages),
+        "_elements_count": len(parsed.elements),
+        "_components": components,
+        "_field_locations": field_locs_dict,
+    }
+
+
+TABULAR_OR_MISC_DOCS = frozenset({
+    "application_form",
+    "kfs",
+    "sanction_letter",
+    "account_statement",
+    "loan_agreement",
+    "disbursal_memo",
+    "miscellaneous",
+})
+
+
+def is_tabular_or_misc_doc(doc_type: str) -> bool:
+    """Returns True if the document type requires TableFormer table structure detection.
+
+    Pure identity cards (Aadhaar, PAN, voter ID, passport, driving license) do not contain
+    financial tables and bypass TableFormer, saving ~45s/page of CPU transformer inference.
+    All tabular, financial, and miscellaneous/unmapped document types execute TableFormer.
+    """
+    canonical = get_canonical_doc_type(doc_type).lower()
+    if canonical in {"aadhaar", "pan", "voter_id", "passport", "driving_license"}:
+        return False
+    return True
+
+
 def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Optional[Dict[str, Any]]:
-    """Runs IDP processing on a single file to extract OCR text, elements, and layout tables."""
+    """Runs IDP DocumentProcessor asynchronously in synchronous loop with smart routing."""
+    processor = get_processor()
     try:
-        from pipeline.nodes.node2_extract import _process_file_with_idp
-        return _process_file_with_idp(file_path, doc_id=doc_id)
+        # Smart Document Routing: TableFormer ACCURATE for tabular & misc; bypassed for identity cards
+        needs_tables = is_tabular_or_misc_doc(doc_key)
+        if hasattr(processor, "docling_parser") and hasattr(processor.docling_parser, "pipeline"):
+            if hasattr(processor.docling_parser.pipeline, "options"):
+                processor.docling_parser.pipeline.options.do_table_structure = needs_tables
+                processor.docling_parser.pipeline.options.table_mode = "ACCURATE" if needs_tables else "FAST"
+
+        prep = processor.preprocessor.preprocess(str(file_path), doc_id=doc_id)
+        if prep.file_category == "xml":
+            parsed = processor.serializer.parse_xml_fast_path(str(file_path), doc_id=doc_id)
+        else:
+            coro = processor.process_document(
+                document_id=doc_id,
+                s3_key=str(file_path),
+            )
+            try:
+                asyncio.run(coro)
+            except RuntimeError:
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(coro)
+
+            parsed = asyncio.run(processor.get_parsed_document(doc_id))
+
+        if parsed:
+            return build_idp_result_from_parsed(parsed=parsed, doc_type=doc_key, doc_id=doc_id)
     except Exception as e:
-        logger.warning("IDP scan encountered an issue for %s: %s", file_path, e)
+        logger.warning("Native IDP processing encountered an issue for %s: %s", file_path, e)
     return None
 
 
@@ -114,29 +250,45 @@ def idp_scan(state: PipelineState) -> PipelineState:
             doc_id = f"{loan_id}_{doc_key}"
             binary_tasks.append((fname, fpath, doc_key, doc_id))
 
-    # Process binary documents sequentially to avoid PyTorch/Docling access violations on Windows
-    for fname, fpath, doc_key, doc_id in binary_tasks:
-        try:
-            # Check if valid cached IDP extraction already exists in S3 Extracted tier
-            cached_path = S3_EXTRACTED_DIR / loan_id / f"{doc_key}.json"
-            if cached_path.exists():
-                try:
-                    cached_data = read_json(cached_path)
-                    raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""
-                    # Ensure cached extraction has content and is not older than the raw document file
-                    if (raw_txt.strip() or cached_data.get("_components") or len(cached_data) > 0) and cached_path.stat().st_mtime >= fpath.stat().st_mtime:
-                        logger.info("IDP scan cache hit for %s (%s) in loan %s. Skipping duplicate OCR.", doc_key, fname, loan_id)
-                        extracted_data[doc_key] = cached_data
-                        continue
-                except Exception as cache_read_err:
-                    logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
+    # Process binary documents with ThreadPoolExecutor (governed by MAX_DOC_WORKERS)
+    if binary_tasks:
+        worker_count = min(len(binary_tasks), MAX_DOC_WORKERS) if MAX_DOC_WORKERS > 0 else 1
 
-            scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
-            if scan_res:
-                extracted_data[doc_key] = scan_res
-                save_s3_extracted(loan_id, doc_key, scan_res)
-        except Exception as scan_err:
-            logger.warning("Error processing %s: %s", fname, scan_err)
+        def _worker_task(task_tuple: Tuple[str, Path, str, str]) -> Tuple[str, Path, str, Optional[Dict[str, Any]]]:
+            fname, fpath, doc_key, doc_id = task_tuple
+            try:
+                # Check if valid cached IDP extraction already exists in S3 Extracted tier
+                cached_path = S3_EXTRACTED_DIR / loan_id / f"{doc_key}.json"
+                if cached_path.exists():
+                    try:
+                        cached_data = read_json(cached_path)
+                        raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""
+                        if (raw_txt.strip() or cached_data.get("_components") or len(cached_data) > 0) and cached_path.stat().st_mtime >= fpath.stat().st_mtime:
+                            logger.info("IDP scan cache hit for %s (%s) in loan %s. Skipping duplicate OCR.", doc_key, fname, loan_id)
+                            return fname, fpath, doc_key, cached_data
+                    except Exception as cache_read_err:
+                        logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
+
+                scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
+                return fname, fpath, doc_key, scan_res
+            except Exception as scan_err:
+                logger.warning("Error processing %s: %s", fname, scan_err)
+                return fname, fpath, doc_key, None
+
+        if worker_count > 1:
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="idp_doc_worker") as executor:
+                futures = [executor.submit(_worker_task, task) for task in binary_tasks]
+                for future in futures:
+                    fname, fpath, doc_key, scan_res = future.result()
+                    if scan_res:
+                        extracted_data[doc_key] = scan_res
+                        save_s3_extracted(loan_id, doc_key, scan_res)
+        else:
+            for task in binary_tasks:
+                fname, fpath, doc_key, scan_res = _worker_task(task)
+                if scan_res:
+                    extracted_data[doc_key] = scan_res
+                    save_s3_extracted(loan_id, doc_key, scan_res)
 
     # Fallback to pre-extracted data if present, preserving existing fields
     ext_dir = S3_EXTRACTED_DIR / loan_id

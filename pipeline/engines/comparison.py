@@ -328,9 +328,7 @@ def run_field_checks(
         # Trigger LLM adjudication if fuzzy match returned PARTIAL
         if record["match_type"] == "fuzzy" and record["match_status"] == "PARTIAL":
             val_a, val_b = record["values"][0], record["values"][1]
-            import sys
-            _adjudicate_fn = getattr(sys.modules.get("pipeline.nodes.comparison_utils"), "llm_adjudicate", None) or llm_adjudicate
-            adjudication = _adjudicate_fn(str(val_a), str(val_b), doc_field, loan_id)
+            adjudication = llm_adjudicate(str(val_a), str(val_b), doc_field, loan_id)
             record["match_status"] = adjudication["match_status"]
             record["llm_used"] = adjudication["llm_used"]
             if adjudication.get("confidence") is not None:
