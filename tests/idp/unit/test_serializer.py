@@ -305,3 +305,80 @@ def test_serializer_docling_primary_authority_over_rapidocr():
     assert "INR 500,000 (Corrected)" in parsed_doc.text
 
 
+_GLYPH = "×"  # a corrupted glyph that trips is_garbled_text() but survives text cleanup
+
+
+def test_has_recoverable_value_signals():
+    """Rows carrying a real structured value are recoverable; pure garble is not."""
+    rv = DocumentSerializer._has_recoverable_value
+
+    # Structured / numeric values that must survive a garbled row
+    assert rv("Application Date:06082026 ApplINo.:AP" + _GLYPH + "L00343265") is True  # >=5 digit run
+    assert rv("GSTINNo.08AO0" + _GLYPH + "K6924P1Z2") is True                          # mixed letter+digit token
+    assert rv("Account Number 50200064998229") is True
+    assert rv("Email KHATRIPRAKASH79@GMAIL.COM") is True
+
+    # No recoverable value -> safe to drop
+    assert rv("HRAHRR INCOMETAXDEPARTMENT") is False   # pure-letter run, no digits
+    assert rv("3TET RRTO") is False
+    assert rv("") is False
+
+
+def test_serializer_retains_partial_garble_row_with_value():
+    """A garbled Docling row that still holds a structured value is kept (flagged),
+    not silently dropped; a garbled row with no value is still dropped."""
+    from idp.services.docling.parser import DoclingParseResult
+    from idp.models.layout import LayoutElement, ElementType
+    from idp.models.processing import ProcessingMetrics
+
+    serializer = DocumentSerializer()
+
+    valuable = LayoutElement(
+        id="row-appl-no",
+        type=ElementType.TEXT,
+        # corrupted glyph fused with a real application number -> is_garbled_text() == True
+        text="Application Date:06082026 ApplINo.:AP" + _GLYPH + "L00343265",
+        bbox=[10.0, 10.0, 400.0, 30.0],
+        confidence=0.9,
+        page_number=1,
+        source="docling_ocr",
+        structure_source="docling",
+    )
+    pure_noise = LayoutElement(
+        id="row-noise",
+        type=ElementType.TEXT,
+        text="HRTRR RROR HRAR",
+        bbox=[10.0, 40.0, 400.0, 60.0],
+        confidence=0.9,
+        page_number=1,
+        source="docling_ocr",
+        structure_source="docling",
+    )
+
+    docling_res = DoclingParseResult(
+        elements=[valuable, pure_noise],
+        tables=[],
+        page_count=1,
+        pages_dimensions=[{"width": 595.0, "height": 842.0}],
+    )
+
+    parsed_doc = serializer.build_unified_document(
+        doc_id="TEST-PARTIAL-GARBLE",
+        filename="form.pdf",
+        mime_type="application/pdf",
+        file_size_bytes=1024,
+        page_count=1,
+        docling_result=docling_res,
+        ocr_results=[],
+        vlm_corrections={},
+        metrics=ProcessingMetrics(),
+    )
+
+    texts = [e.text for e in parsed_doc.elements]
+    assert any("00343265" in t for t in texts), "value-bearing garbled row was dropped"
+    assert not any("HRTRR" in t for t in texts), "pure-noise row should still be dropped"
+
+    kept = next(e for e in parsed_doc.elements if "00343265" in e.text)
+    assert kept.metadata.get("partial_garble_retained") is True
+    assert kept.metadata.get("needs_vlm") is True
+    assert kept.confidence <= 0.35

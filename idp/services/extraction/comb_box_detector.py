@@ -17,6 +17,7 @@ from typing import List, Dict, Tuple, Optional
 from idp.models.layout import LayoutElement
 from idp.models.merged_token import MergedToken
 from idp.core.logging import logger
+from idp.services.diagnostics.comb_box_audit import get_global_auditor
 
 
 class CombBoxDetector:
@@ -26,15 +27,47 @@ class CombBoxDetector:
     Detects sequences of single characters with uniform spacing/sizing and
     merges them into cohesive tokens for field extraction.
     """
-    
+
+    # Shared candidate definition — MUST match what upstream ingestion
+    # (idp/services/output/serializer.py) uses to decide which elements are
+    # allowed to bypass noise/table filtering before this detector ever sees
+    # them. Keeping this as a single static method avoids the two call sites
+    # drifting apart, which is what originally let comb-box characters get
+    # deleted upstream before merging was ever attempted.
+    DEFAULT_MAX_CHAR_LENGTH = 3
+
+    @staticmethod
+    def is_candidate_text(text: Optional[str], max_char_length: int = DEFAULT_MAX_CHAR_LENGTH) -> bool:
+        """
+        True if `text` is short/simple enough to plausibly be one cell of a
+        comb-box field (a single handwritten or printed character/short code).
+        """
+        if not text:
+            return False
+        stripped = text.strip()
+        return bool(stripped) and len(stripped) <= max_char_length and stripped.isalnum()
+
     def __init__(self,
                  y_tolerance: float = 0.045,
-                 spacing_uniformity_threshold: float = 0.30,
-                 size_uniformity_threshold: float = 0.25,
+                 spacing_uniformity_threshold: float = 0.35,
+                 size_uniformity_threshold: float = 0.40,
                  min_sequence_length: int = 2,
-                 max_char_length: int = 3):
+                 max_char_length: int = DEFAULT_MAX_CHAR_LENGTH):
         """
         Initialize comb-box detector with configuration.
+
+        NOTE on thresholds: `size_uniformity_threshold` and
+        `spacing_uniformity_threshold` were widened from their original
+        0.25 / 0.30 values. The originals were only ever validated against
+        synthetic fixtures where every character shared an identical 10px
+        bbox (tests/test_comb_box_detector.py) — real OCR on handwritten
+        capital letters has genuine per-glyph width variance (e.g. "I" vs
+        "M"/"W" inside the same printed cell pitch), which pushed the
+        width coefficient-of-variation past 0.25 and silently dropped real
+        comb-box sequences (0 merged tokens, 0 bounding box) even when the
+        printed cell grid itself was perfectly uniform. 0.40 / 0.35 were
+        chosen to tolerate that ink-width variance while still rejecting
+        clearly non-uniform layouts (see test_reject_non_uniform_spacing).
         """
         self.y_tolerance = y_tolerance
         self.spacing_uniformity_threshold = spacing_uniformity_threshold
@@ -66,9 +99,7 @@ class CombBoxDetector:
         candidate_elements = [
             elem for elem in elements
             if elem.page_number == page_number
-            and elem.text
-            and len(elem.text.strip()) <= self.max_char_length
-            and elem.text.strip().isalnum()  # Only alphanumeric
+            and self.is_candidate_text(elem.text, self.max_char_length)
         ]
         
         if len(candidate_elements) < self.min_sequence_length:
@@ -94,12 +125,36 @@ class CombBoxDetector:
                 merged = self._merge_sequence(seq, page_number, doc_id)
                 if merged:
                     merged_tokens.append(merged)
-        
+
         logger.info(
             f"[{doc_id}] Page {page_number}: Detected {len(merged_tokens)} comb-box sequences "
             f"from {len(candidate_elements)} candidate elements"
         )
-        
+
+        # Observability: this is the exact signal that would have caught the
+        # "candidates exist but nothing merges" failure mode in production
+        # (e.g. uniformity thresholds rejecting real handwriting variance,
+        # or a row split by y_tolerance) before a human ever spotted a
+        # missing bounding box.
+        if merged_tokens:
+            auditor = get_global_auditor()
+            for mt in merged_tokens:
+                auditor.log_reconstruction(
+                    document_id=doc_id,
+                    page_number=page_number,
+                    merged_text=mt.text,
+                    constituent_tokens=mt.metadata.get("constituent_texts", []),
+                    uniformity_score=mt.uniformity_score,
+                    detection_confidence=mt.confidence,
+                    bbox=mt.bbox,
+                )
+        elif len(candidate_elements) >= self.min_sequence_length:
+            logger.warning(
+                f"[{doc_id}] Page {page_number}: {len(candidate_elements)} comb-box candidate "
+                f"characters found but 0 sequences merged — check row clustering (y_tolerance) "
+                f"and uniformity thresholds against this page's actual OCR geometry."
+            )
+
         return merged_tokens
     
     def _cluster_by_row(
@@ -213,19 +268,64 @@ class CombBoxDetector:
         """
         if len(elements) < 2:
             return False, 0.0
-        
+
+        # --- Geometry gate ------------------------------------------------
+        # A genuine comb-box field is a run of cells that advance strictly
+        # left-to-right at a roughly constant pitch along ONE shared text
+        # baseline. Reject sequences that don't look like that:
+        #   1. VERTICAL STACKS -- a column of single characters (a numbered
+        #      list "1"/"2"/"3", stacked initials) shares one x position, so
+        #      the abs()-based spacing check further down mistakes it for a
+        #      perfectly uniform comb row and merges it into a tall, narrow
+        #      bogus token.
+        #   2. FAR-APART TOKENS ON ONE LINE -- e.g. a label and a value
+        #      ("STD" ........ "PAN") with nothing between them, merged into
+        #      a single page-spanning token.
+        # Every tolerance below is scaled by the MEDIAN cell width/height of
+        # the whole run, never an individual element's own size: a real comb
+        # row legitimately mixes a thin "1"/"I" with a wide "M"/"0" inside an
+        # identical printed cell pitch, and scaling by the thin glyph's width
+        # (as an earlier version did) wrongly broke the field so it stopped
+        # being detected at all.
+        widths = [e.bbox[2] - e.bbox[0] for e in elements]
+        heights = [e.bbox[3] - e.bbox[1] for e in elements]
+        med_w = statistics.median(widths)
+        med_h = statistics.median(heights)
+        if med_w <= 0 or med_h <= 0:
+            return False, 0.0
+
+        origin_advances = [
+            elements[i + 1].bbox[0] - elements[i].bbox[0]
+            for i in range(len(elements) - 1)
+        ]
+        centre_ys = [(e.bbox[1] + e.bbox[3]) / 2.0 for e in elements]
+
+        # 1a. Every cell must sit clearly to the right of the previous one.
+        #     A vertical stack advances by ~0 (shared column); even a tightly
+        #     kerned comb row still advances by most of a glyph width.
+        if min(origin_advances) < med_w * 0.25:
+            return False, 0.0
+
+        # 1b. All cell centres must lie on one baseline. A stacked row is
+        #     offset by a whole line (>= med_h); page-scan skew stays well
+        #     inside this band.
+        if max(centre_ys) - min(centre_ys) > med_h * 0.6:
+            return False, 0.0
+
+        # 2.  No single step may be a whole-field jump instead of a cell pitch
+        #     (a label-to-value gap). Real comb pitch stays within a few
+        #     median cell widths.
+        if max(origin_advances) > med_w * 5.0:
+            return False, 0.0
+
         # Calculate gaps between consecutive elements
         gaps = []
         for i in range(len(elements) - 1):
             gap = elements[i + 1].bbox[0] - elements[i].bbox[2]
             gaps.append(gap)
-        
-        # Calculate element widths
-        widths = [elem.bbox[2] - elem.bbox[0] for elem in elements]
-        
-        # Calculate heights for aspect ratio check
-        heights = [elem.bbox[3] - elem.bbox[1] for elem in elements]
-        
+
+        # `widths` / `heights` were already computed for the geometry gate above.
+
         # Check spacing uniformity
         if len(gaps) >= 2:
             abs_gaps = [abs(g) for g in gaps]

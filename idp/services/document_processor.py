@@ -8,8 +8,8 @@ from idp.services.docling.parser import DoclingParser, DoclingParseResult
 from idp.services.docling.options import DoclingOptions
 from config.doc_types import get_canonical_doc_type
 from config.docling_profiles import get_profile_for_document_type
-from idp.services.ocr.rapidocr_engine import RapidOCREngine, OCRResult
-from idp.services.ocr.ocr_model_router import OCRModelRouter
+from idp.models.ocr import OCRResult
+from idp.models.layout import LayoutElement
 from idp.services.vlm.router import ConfidenceRouter
 from idp.services.vlm.client import VLMClient, VLMResult
 from idp.services.output.serializer import DocumentSerializer
@@ -161,6 +161,24 @@ class DocumentProcessor:
                         await asyncio.sleep(0.25)
 
             metrics.vlm_processing_time = round(time.time() - vlm_start, 3)
+
+            # Step 5.5: Recover comb-box fields that Docling welded into one line
+            # element by reading the printed cell-divider grid off the page image
+            # and assigning the value characters back to their cells.
+            try:
+                n_grid = self._recover_comb_grids(
+                    docling_result, page_image_data, document_id
+                )
+                if n_grid:
+                    logger.info(format_doc_log(
+                        document_id,
+                        f"Recovered {n_grid} comb-grid cell elements from the page image"
+                    ))
+            except Exception as grid_err:
+                logger.warning(format_doc_log(
+                    document_id, f"Comb-grid recovery skipped (non-fatal): {grid_err}"
+                ))
+
             metrics.total_processing_time = round(time.time() - start_time, 3)
 
             # Step 6: Serialize into Canonical Unified Document Representation
@@ -297,6 +315,70 @@ class DocumentProcessor:
             return float(img.width), float(img.height)
         except Exception:
             return 595.0, 842.0  # Fallback to A4 doc units
+
+    def _recover_comb_grids(
+        self,
+        docling_result: Optional[DoclingParseResult],
+        page_image_data: List[Tuple[bytes, float, float]],
+        doc_id: str,
+    ) -> int:
+        """
+        Docling welds a printed comb-box row (label + one hand-written char per
+        printed cell) into a SINGLE line element, so the field never gets its
+        own bounding box. This reads the printed cell-divider grid straight off
+        the page image (CombGridDetector), assigns the recognised value
+        characters to their cells, and appends one single-character
+        ``LayoutElement`` per cell -- in PDF-point coordinates -- to
+        ``docling_result.elements``. The normal serializer + CombBoxDetector
+        path then merges them into an accurately-located field token.
+
+        Non-fatal: OpenCV missing, no page image, or no uniform grid found ->
+        recovers nothing and leaves the fused row element untouched.
+
+        Returns the number of recovered cell elements.
+        """
+        if not docling_result or not getattr(docling_result, "elements", None):
+            return 0
+        if not page_image_data:
+            return 0
+
+        from idp.services.extraction.comb_grid_detector import CombGridDetector
+
+        source_elements = [
+            e for e in docling_result.elements
+            if CombGridDetector.is_fused_comb_row(e.text, e.bbox)
+        ]
+        if not source_elements:
+            return 0
+
+        detector = CombGridDetector()
+        dims = docling_result.pages_dimensions or []
+        recovered: List[LayoutElement] = []
+
+        for elem in source_elements:
+            pno = elem.page_number or 1
+            if pno < 1 or pno > len(page_image_data):
+                continue
+            page_bytes, px_w, px_h = page_image_data[pno - 1]
+            if not page_bytes or px_w <= 0 or px_h <= 0:
+                continue
+            pdf_w = dims[pno - 1].get("width", 595.0) if pno <= len(dims) else 595.0
+            pdf_h = dims[pno - 1].get("height", 842.0) if pno <= len(dims) else 842.0
+
+            cells = detector.recover_cell_elements(
+                image_bytes=page_bytes,
+                elem=elem,
+                page_px_w=px_w,
+                page_px_h=px_h,
+                pdf_w=pdf_w,
+                pdf_h=pdf_h,
+                doc_id=doc_id,
+            )
+            recovered.extend(cells)
+
+        if recovered:
+            docling_result.elements.extend(recovered)
+        return len(recovered)
 
     async def process_uploaded_file(
         self,

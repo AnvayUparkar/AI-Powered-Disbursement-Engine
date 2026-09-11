@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # OCR Configuration
     OCR_ENGINE: str = "rapidocr"
-    OCR_MODEL: str = "PP-OCRv6"
+    OCR_MODEL: str = "PP-OCRv6_medium"
     OCR_CONFIDENCE_THRESHOLD: float = 0.70
 
     # Multilingual OCR Router Settings

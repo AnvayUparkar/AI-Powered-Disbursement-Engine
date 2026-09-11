@@ -105,13 +105,19 @@ class DoclingParser:
                     if not txt or not txt.strip():
                         continue
                     
+                    elem_conf = getattr(item, "confidence", None)
+                    if elem_conf is None and hasattr(item, "prov") and item.prov:
+                        elem_conf = getattr(item.prov[0], "confidence", None)
+
+                    conf_val = float(elem_conf) if elem_conf is not None else compute_text_confidence(txt)
+
                     elements.append(
                         LayoutElement(
                             id=f"docling-{uuid.uuid4().hex[:8]}",
                             type=elem_type,
                             text=txt,  # RAW text - clean later
                             bbox=bbox_list,
-                            confidence=compute_text_confidence(txt),
+                            confidence=round(conf_val, 4),
                             page_number=pno,
                             reading_order=reading_order,
                             source="docling_ocr",
@@ -124,9 +130,12 @@ class DoclingParser:
                 for tidx, table in enumerate(doc.tables):
                     pno = 1
                     bbox_list = [0.0, 0.0, 0.0, 0.0]
+                    table_conf = getattr(table, "confidence", None)
                     if hasattr(table, "prov") and table.prov:
                         prov_item = table.prov[0]
                         pno = getattr(prov_item, "page_no", 1)
+                        if table_conf is None:
+                            table_conf = getattr(prov_item, "confidence", None)
                         if hasattr(prov_item, "bbox") and prov_item.bbox:
                             bbox_list = _extract_top_left_bbox(prov_item.bbox, _get_page_h(pno))
 
@@ -167,10 +176,18 @@ class DoclingParser:
                                 is_hdr = bool(getattr(tc, "column_header", False)) or (r0 == 0)
 
                                 c_bbox = None
+                                cell_conf = getattr(tc, "confidence", None)
                                 if hasattr(tc, "prov") and tc.prov:
                                     tb = tc.prov[0].bbox
                                     if tb:
                                         c_bbox = _extract_top_left_bbox(tb, _get_page_h(pno))
+                                    if cell_conf is None:
+                                        cell_conf = getattr(tc.prov[0], "confidence", None)
+
+                                if cell_conf is None and table_conf is not None:
+                                    cell_conf = table_conf
+
+                                c_conf_val = float(cell_conf) if cell_conf is not None else compute_text_confidence(c_txt)
 
                                 cells.append(
                                     TableCell(
@@ -178,7 +195,8 @@ class DoclingParser:
                                         col_index=c0,
                                         text=c_txt,
                                         is_header=is_hdr,
-                                        bbox=c_bbox
+                                        bbox=c_bbox,
+                                        confidence=round(c_conf_val, 4)
                                     )
                                 )
 
@@ -211,7 +229,7 @@ class DoclingParser:
                             if headers:
                                 rows_raw.append(headers)
                                 for c_idx, val in enumerate(headers):
-                                    cells.append(TableCell(row_index=0, col_index=c_idx, text=val, is_header=True))
+                                    cells.append(TableCell(row_index=0, col_index=c_idx, text=val, is_header=True, confidence=round(float(table_conf) if table_conf is not None else 1.0, 4)))
 
                             for r_idx, row in df.iterrows():
                                 row_vals = [str(v).strip() if v is not None and str(v) != "nan" else "" for v in row.values]
@@ -223,7 +241,8 @@ class DoclingParser:
                                             row_index=actual_r_idx,
                                             col_index=c_idx,
                                             text=val,
-                                            is_header=False
+                                            is_header=False,
+                                            confidence=round(float(table_conf) if table_conf is not None else 1.0, 4)
                                         )
                                     )
                         except Exception:
@@ -266,6 +285,8 @@ class DoclingParser:
                         except Exception as md_ex:
                             logger.debug(f"export_to_markdown failed for table {tidx+1} on page {pno}: {md_ex}")
 
+                    t_conf_val = float(table_conf) if table_conf is not None else (sum(c.confidence for c in cells)/len(cells) if cells else 1.0)
+
                     tables.append(
                         TableStructure(
                             id=f"table-{tidx+1}",
@@ -276,7 +297,8 @@ class DoclingParser:
                             bbox=bbox_list,
                             headers=headers,
                             rows_raw=rows_raw,
-                            markdown=table_markdown
+                            markdown=table_markdown,
+                            confidence=round(t_conf_val, 4)
                         )
                     )
 
