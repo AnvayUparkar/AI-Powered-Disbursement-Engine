@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage
 
-from pipeline.nodes.llm_adjudicator import (
+from pipeline.engines.llm_adjudicator import (
     _clean_json_text,
     _extract_text,
     llm_adjudicate,
@@ -26,7 +26,7 @@ def test_llm_adjudication_mock_match(monkeypatch):
     mock_client.invoke.return_value = AIMessage(
         content='```json\n{\n  "match_status": "MATCH",\n  "confidence": 0.95,\n  "reason": "Name variation of the same individual."\n}\n```'
     )
-    monkeypatch.setattr("pipeline.nodes.llm_adjudicator._get_gemini_client", lambda: mock_client)
+    monkeypatch.setattr("pipeline.engines.llm_adjudicator._get_gemini_client", lambda: mock_client)
 
     result = llm_adjudicate("Mohd Rizwan", "Mohammad Rizwan", "applicant_name", "LOAN_MOCK_001")
     assert result["match_status"] == "MATCH"
@@ -41,7 +41,7 @@ def test_llm_adjudication_mock_mismatch(monkeypatch):
     mock_client.invoke.return_value = AIMessage(
         content='{\n  "match_status": "MISMATCH",\n  "confidence": 0.98,\n  "reason": "Completely different applicants."\n}'
     )
-    monkeypatch.setattr("pipeline.nodes.llm_adjudicator._get_gemini_client", lambda: mock_client)
+    monkeypatch.setattr("pipeline.engines.llm_adjudicator._get_gemini_client", lambda: mock_client)
 
     result = llm_adjudicate("Riteshraj Panda", "Suresh Kumar", "applicant_name", "LOAN_MOCK_002")
     assert result["match_status"] == "MISMATCH"
@@ -51,7 +51,7 @@ def test_llm_adjudication_mock_mismatch(monkeypatch):
 
 def test_llm_adjudication_client_none_fallback(monkeypatch):
     """Test fallback when no Gemini client is configured."""
-    monkeypatch.setattr("pipeline.nodes.llm_adjudicator._get_gemini_client", lambda: None)
+    monkeypatch.setattr("pipeline.engines.llm_adjudicator._get_gemini_client", lambda: None)
 
     result = llm_adjudicate("Val A", "Val B", "address", "LOAN_NO_CLIENT")
     assert result["match_status"] == "PARTIAL"
@@ -63,7 +63,7 @@ def test_llm_adjudication_exception_fallback(monkeypatch):
     """Test graceful fallback when LLM API call fails (e.g. rate limit, timeout)."""
     mock_client = MagicMock()
     mock_client.invoke.side_effect = RuntimeError("429 Resource Exhausted")
-    monkeypatch.setattr("pipeline.nodes.llm_adjudicator._get_gemini_client", lambda: mock_client)
+    monkeypatch.setattr("pipeline.engines.llm_adjudicator._get_gemini_client", lambda: mock_client)
 
     result = llm_adjudicate("Val A", "Val B", "address", "LOAN_ERR")
     assert result["match_status"] == "PARTIAL"

@@ -1,6 +1,6 @@
 import pytest
 from idp.services.ocr.confidence import OCRConfidenceEvaluator
-from pipeline.nodes.key_value_extractor import KeyValueExtractor, ElementClassification
+from pipeline.engines.key_value_extractor import KeyValueExtractor, ElementClassification
 
 
 def test_pan_number_not_flagged_as_garbled():

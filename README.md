@@ -166,14 +166,45 @@ cd ..
 Create a `.env` file in the root directory (or use default environment fallbacks):
 
 ```env
+# Direct Google Gemini (recommended for fastest OCR extraction)
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+LLM_MODEL=gemini-2.5-flash-lite
+
+# Redis Broker (WSL2 / localhost)
+REDIS_URL=redis://127.0.0.1:6379/0
+
 APP_PORT=8000
 IDP_PORT=8001
 ENVIRONMENT=development
 ```
 
-### 3. Generate Mock Test Data
+### 3. Setting Up Redis (Low-RAM Windows / WSL2 Setup)
+
+If running on Windows with limited RAM (or without Docker Desktop), run Redis in WSL2 Ubuntu (~10 MB RAM footprint):
+
+```powershell
+# 1. Install redis-server inside WSL2 Ubuntu (run in PowerShell)
+wsl -d Ubuntu -u root -- sh -c "apt-get update && apt-get install -y redis-server"
+
+# 2. Configure Redis to bind to all interfaces so Windows can reach it
+wsl -d Ubuntu -u root -- sed -i 's/^bind .*/bind 0.0.0.0/' /etc/redis/redis.conf
+wsl -d Ubuntu -u root -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
+
+# 3. Start Redis service in WSL2
+wsl -d Ubuntu -u root -- service redis-server start
+
+# 4. Verify Redis is running and reachable from Windows:
+wsl -d Ubuntu -u root -- service redis-server status
+```
+
+> **Alternative (Podman / Docker)**:
+> ```powershell
+> podman run -d --name redis -p 6379:6379 redis:alpine
+> ```
+
+---
+
+### 4. Generate Mock Test Data
 
 Generate synthetic loan applications, documents, and S3 fixtures:
 
@@ -181,21 +212,30 @@ Generate synthetic loan applications, documents, and S3 fixtures:
 python generate_mock_data.py
 ```
 
-### 4. Running the Services
+### 5. Running the Services
 
-#### Option A: Run Backend API Server
+#### Option A: Run Backend API Server (FastAPI)
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 * **Swagger API Docs**: `http://127.0.0.1:8000/docs`
 * **Health Check**: `http://127.0.0.1:8000/health`
 
-#### Option B: Run IDP Microservice (Optional standalone)
+#### Option B: Run Background Celery Worker (Windows)
+Because Windows does not support `fork`, Celery must run with the `threads` or `solo` pool:
+
+```bash
+# In an activated virtual environment:
+celery -A pipeline.celery_app worker --loglevel=info --pool=threads --concurrency=2
+```
+* Pipelines triggered via `POST /api/cases/{case_id}/run?async=true` will be processed asynchronously by this worker.
+
+#### Option C: Run IDP Microservice (Optional standalone)
 ```bash
 uvicorn idp.main:app --reload --port 8001
 ```
 
-#### Option C: Run Frontend Application
+#### Option D: Run Frontend Application
 ```bash
 cd frontend
 npm.cmd run dev

@@ -15,6 +15,7 @@ from ..case_context import (
     format_tenure_months,
     inr_format,
     resolve_checkpoint_validation,
+    safe_float,
 )
 
 
@@ -71,7 +72,7 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             build_field("Bank Account No", str(app_bank_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
             build_field("Account Type", str(app_acct_type or "N/A"), 95.0, f"doc-{ctx.loan_id}-appform"),
             build_field("Loan Type", str(app_type_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Requested Amount", inr_format(float(app_amt_val)) if app_amt_val else "N/A", 98.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Requested Amount", inr_format(app_amt_val) if app_amt_val else "N/A", 98.0, f"doc-{ctx.loan_id}-appform"),
             build_field("Requested Tenure", format_tenure_months(app_tenure_val), 98.0, f"doc-{ctx.loan_id}-appform"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Details", 1, "Application Form")]
@@ -96,13 +97,11 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         eval_fields = [
             ("applicant_name", app_name_val, ctx.los_data.get("applicant_name")),
             ("application_no", app_no_val, ctx.los_data.get("loan_id")),
-            ("application_date", app_date_val, ctx.los_data.get("application_date")),
             ("fathers_name", app_father_val, ctx.los_data.get("fathers_name")),
             ("dob", app_dob_val, ctx.los_data.get("applicant_dob")),
             ("gender", app_gender_val, ctx.los_data.get("applicant_gender")),
             ("mobile_no", app_mobile_val, ctx.los_data.get("applicant_mobile_no")),
             ("pan_number", app_pan_val, ctx.los_data.get("applicant_pan_number")),
-            ("address", app_addr_val, ctx.los_data.get("current_address")),
             ("account_no", app_bank_val, ctx.los_data.get("applicant_bank_account_no")),
             ("account_type", app_acct_type, ctx.los_data.get("bank_account_type")),
             ("loan_type", app_type_val, ctx.los_data.get("loan_type")),
@@ -128,7 +127,7 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                     is_fld_match = (norm_d == norm_l) if (norm_d and norm_l) else (d_str == l_str)
                 elif fld_name in ("loan_amount", "loan_validity"):
                     try:
-                        is_fld_match = float(doc_v) == float(los_v)
+                        is_fld_match = safe_float(doc_v) == safe_float(los_v)
                     except (ValueError, TypeError):
                         is_fld_match = d_str == l_str
                 else:

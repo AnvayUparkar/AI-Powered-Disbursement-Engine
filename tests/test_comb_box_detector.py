@@ -194,6 +194,39 @@ class TestCombBoxDetector:
         # Should not merge (text length > max_char_length)
         assert len(merged) == 0
     
+    def test_realistic_handwritten_name_width_variance(self):
+        """
+        Regression test for the production bug: real OCR'd handwriting has
+        genuine per-glyph width variance (a narrow "I" vs a wide "K"/"H")
+        even when written inside a perfectly uniform printed comb-box grid.
+        The original 0.25 size_uniformity_threshold rejected this and
+        silently produced 0 merged tokens / 0 bounding box for real name
+        fields. Widths below are representative ink-extent measurements for
+        "KHATRI" handwritten in a comb-box row with ~15px cell pitch.
+        """
+        detector = CombBoxDetector()
+
+        chars = "KHATRI"
+        widths = [11, 12, 10, 9, 10, 4]  # "I" is intentionally narrow
+        elements = []
+        x_pos = 100
+        pitch = 15
+        for i, (char, w) in enumerate(zip(chars, widths)):
+            elements.append(
+                LayoutElement(
+                    id=f"e{i}", text=char, bbox=[x_pos, 200, x_pos + w, 215],
+                    page_number=1, type=ElementType.TEXT, confidence=0.85,
+                    source="docling_ocr", structure_source="docling", reading_order=i
+                )
+            )
+            x_pos += pitch
+
+        merged = detector.detect_and_merge_comb_boxes(elements, page_number=1, doc_id="TEST")
+
+        assert len(merged) == 1
+        assert merged[0].text == "KHATRI"
+        assert merged[0].bbox is not None
+
     def test_min_sequence_length(self):
         """Verify minimum sequence length enforced."""
         detector = CombBoxDetector(min_sequence_length=4)
@@ -209,9 +242,82 @@ class TestCombBoxDetector:
         ]
         
         merged = detector.detect_and_merge_comb_boxes(elements, page_number=1, doc_id="TEST")
-        
+
         # Should not merge (< min_sequence_length)
         assert len(merged) == 0
+
+    def test_reject_vertical_stack(self):
+        """A vertical column of single characters (e.g. a numbered list
+        "1"/"2"/"3" or stacked initials) must NOT be merged: their shared x
+        position previously produced uniform abs() gaps that looked like a
+        clean horizontal comb row and yielded a tall, narrow bogus token."""
+        detector = CombBoxDetector()
+
+        elements = [
+            LayoutElement(
+                id=f"v{i}", text=ch, bbox=[100, 200 + i * 22, 117, 200 + i * 22 + 14],
+                page_number=1, type=ElementType.TEXT, confidence=0.9,
+                source="docling_ocr", structure_source="docling", reading_order=i
+            )
+            for i, ch in enumerate("123")
+        ]
+
+        is_uniform, _ = detector._is_comb_box_sequence(elements)
+        assert is_uniform is False
+        assert detector.detect_and_merge_comb_boxes(elements, page_number=1, doc_id="TEST") == []
+
+    def test_reject_far_apart_same_row_tokens(self):
+        """Two short tokens on the same baseline but a half-page apart, with
+        nothing between them, must not be merged into one page-spanning token
+        (e.g. a label "STD" and a value "PAN" at opposite ends of a line)."""
+        detector = CombBoxDetector()
+
+        elements = [
+            LayoutElement(
+                id="t1", text="STD", bbox=[30, 200, 55, 214],
+                page_number=1, type=ElementType.TEXT, confidence=0.9,
+                source="docling_ocr", structure_source="docling", reading_order=1
+            ),
+            LayoutElement(
+                id="t2", text="PAN", bbox=[430, 200, 455, 214],
+                page_number=1, type=ElementType.TEXT, confidence=0.9,
+                source="docling_ocr", structure_source="docling", reading_order=2
+            ),
+        ]
+
+        is_uniform, _ = detector._is_comb_box_sequence(elements)
+        assert is_uniform is False
+        assert detector.detect_and_merge_comb_boxes(elements, page_number=1, doc_id="TEST") == []
+
+    def test_accept_thin_glyph_in_wide_cell(self):
+        """Regression: a real comb row keeps its wide printed cell pitch even
+        where the ink is a thin glyph ("1"/"I") mid-row. The geometry gate
+        must scale its tolerances by the MEDIAN glyph width of the whole
+        sequence, not the current element's own width -- otherwise the thin
+        glyph's large trailing gap breaks the sequence and the date/ID row
+        stops being detected."""
+        detector = CombBoxDetector()
+
+        text = "20211105"
+        widths = [10, 10, 5, 10, 5, 5, 10, 10]  # the "1" digits are thin ink
+        elements = []
+        x = 100
+        for i, (ch, w) in enumerate(zip(text, widths)):
+            elements.append(
+                LayoutElement(
+                    id=f"d{i}", text=ch, bbox=[x, 200, x + w, 216],
+                    page_number=1, type=ElementType.TEXT, confidence=0.85,
+                    source="docling_ocr", structure_source="docling", reading_order=i
+                )
+            )
+            x += 22  # wide printed cell pitch, independent of ink width
+
+        is_uniform, _ = detector._is_comb_box_sequence(elements)
+        assert is_uniform is True
+
+        merged = detector.detect_and_merge_comb_boxes(elements, page_number=1, doc_id="TEST")
+        assert len(merged) == 1
+        assert merged[0].text == text
 
 
 class TestFieldValidator:

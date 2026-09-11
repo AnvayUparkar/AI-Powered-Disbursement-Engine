@@ -3,6 +3,16 @@ from typing import List, Optional, Any, Literal
 from pydantic import BaseModel, Field
 
 
+# Canonical fields that are DERIVED rather than read off the page. They are computed from
+# document presence/signature checks, never appear as text, and therefore can never resolve
+# to a bounding box. Reported as "not_locatable" rather than as a location failure.
+DERIVED_FLAG_FIELDS: frozenset[str] = frozenset({
+    "aadhaar_xml_present",
+    "loan_agreement_present",
+    "loan_agreement_signed",
+})
+
+
 class CandidateMatch(BaseModel):
     """Candidate OCR token match evaluation."""
     text: str
@@ -28,7 +38,13 @@ class FieldLocation(BaseModel):
     ocr_confidence: Optional[float] = None  # RapidOCR recognition score of the matched token
     layout_confidence: Optional[float] = None  # Layout model score of the region it sits in
     match_confidence: float = 1.0  # Matching score
-    location_status: Literal["resolved", "unresolved"] = "resolved"
+    location_status: Literal[
+        "resolved",        # matched to a token/cell on the page
+        "unresolved",      # a real value that could not be matched to the page
+        "not_extracted",   # no value was extracted, so there is nothing to locate
+        "not_locatable",   # derived flag; never appears as text on the page
+        "no_ocr_text",     # the document produced no OCR tokens or table cells at all
+    ] = "resolved"
     reason: Optional[str] = None
     source: str = "docling_ocr"
     match_strategy: Optional[str] = None

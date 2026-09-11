@@ -122,6 +122,17 @@ export interface TableCellRecord {
   confidence?: number;
 }
 
+export interface TableCellRecord {
+  row_index: number;
+  col_index: number;
+  row_span?: number;
+  col_span?: number;
+  text: string;
+  is_header?: boolean;
+  bbox?: number[];
+  confidence?: number;
+}
+
 export interface ExtractedField {
   id: string;
   name: string;
@@ -138,7 +149,15 @@ export interface ExtractedField {
   rows?: string[][];
   cells?: TableCellRecord[];
   markdown?: string;
-  locationStatus?: 'resolved' | 'unresolved';
+  /** Why a field has (or lacks) a bounding box. The last three are NOT location failures:
+   *  not_extracted = no value was produced; not_locatable = derived flag that never appears
+   *  on a page; no_ocr_text = the document yielded nothing to search. */
+  locationStatus?:
+    | 'resolved'
+    | 'unresolved'
+    | 'not_extracted'
+    | 'not_locatable'
+    | 'no_ocr_text';
   matchedText?: string;
   matchConfidence?: number;
   /** RapidOCR recognition score of the token this field matched. */

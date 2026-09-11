@@ -67,6 +67,31 @@ function pct(score?: number | null) {
   return score === null || score === undefined || Number.isNaN(score) ? 'n/a' : `${Math.round(score * 100)}%`;
 }
 
+/** How each non-resolved location state is presented. Keeps "we searched and failed"
+ *  visually distinct from "there was nothing to search". */
+const LOCATION_STATES: Record<string, { label: string; chip: string; title: string }> = {
+  unresolved: {
+    label: 'Not located',
+    chip: 'bg-amber-50 text-amber-700 border-amber-200',
+    title: 'A value was extracted but could not be matched to any OCR token or table cell.',
+  },
+  not_extracted: {
+    label: 'Not extracted',
+    chip: 'bg-ink-100 text-ink-600 border-ink-300',
+    title: 'No value was extracted for this field, so there is nothing to locate.',
+  },
+  not_locatable: {
+    label: 'Derived',
+    chip: 'bg-purple-50 text-purple-700 border-purple-200',
+    title: 'Computed from document checks; never appears as text on the page.',
+  },
+  no_ocr_text: {
+    label: 'No OCR text',
+    chip: 'bg-rose-50 text-rose-700 border-rose-200',
+    title: 'This document produced no OCR tokens or table cells to search.',
+  },
+};
+
 function getNormalizedStyle(bbox?: number[]) {
   if (!bbox || bbox.length < 4) return null;
   let [x1, y1, x2, y2] = bbox;
@@ -737,6 +762,34 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                 </div>
               )}
 
+              {/* OVERLAY LAYER 1.5: TableFormer Per-Cell Bounding Boxes (When Enabled) */}
+              {showTableCells && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {pageTableCells.map(({ tableId, cell }, idx) => {
+                    const style = getNormalizedStyle(cell.bbox);
+                    if (!style) return null;
+                    const isHovered =
+                      hoveredCell?.tableId === tableId &&
+                      hoveredCell.cell.row_index === cell.row_index &&
+                      hoveredCell.cell.col_index === cell.col_index;
+                    return (
+                      <div
+                        key={`${tableId}-${cell.row_index}-${cell.col_index}-${idx}`}
+                        className={`absolute border border-dashed pointer-events-auto cursor-crosshair transition-all ${
+                          cell.is_header
+                            ? 'border-violet-600 bg-violet-500/15'
+                            : 'border-violet-400/80 bg-violet-400/5'
+                        } ${isHovered ? 'ring-2 ring-violet-600 bg-violet-500/30 z-30' : 'z-10'}`}
+                        style={style}
+                        onMouseEnter={() => setHoveredCell({ tableId, cell })}
+                        onMouseLeave={() => setHoveredCell(null)}
+                        title={`[r${cell.row_index}, c${cell.col_index}] "${cell.text}"`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
               {/* OVERLAY LAYER 2: Extracted Field Bounding Boxes */}
               {showFieldBoxes && (
                 <div className="absolute inset-0 pointer-events-none">
@@ -840,7 +893,11 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                 const isSelected = selectedFieldId === f.id;
                 const isHovered = hoveredFieldId === f.id;
                 const isResolved = f.locationStatus === 'resolved' || (f.bbox && f.bbox.length === 4);
-                const isUnresolved = f.locationStatus === 'unresolved' || !isResolved;
+                // Only a genuine match failure is a "location" problem. A field with no value,
+                // a derived flag, or a document with no OCR text at all are different states
+                // and were previously all rendered as "Location unavailable".
+                const locState = LOCATION_STATES[f.locationStatus ?? ''] ?? (isResolved ? null : LOCATION_STATES.unresolved);
+                const isUnresolved = !isResolved;
                 const color = getFieldColor(f.name, idx);
 
                 return (
@@ -898,11 +955,13 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                               </span>
                             ) : (
                               <span
-                                className="text-[10px] px-1.5 py-0.5 rounded font-medium flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200"
-                                title={f.reason || 'Location unavailable: No matching OCR text'}
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex items-center gap-1 border ${
+                                  locState?.chip ?? 'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}
+                                title={f.reason || locState?.title || 'Location unavailable'}
                               >
-                                <AlertCircle className="h-2.5 w-2.5 text-amber-500" />
-                                Location unavail.
+                                <AlertCircle className="h-2.5 w-2.5 opacity-70" />
+                                {locState?.label ?? 'Not located'}
                               </span>
                             )}
 
@@ -1002,7 +1061,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                             <AlertCircle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
                             <div>
                               <span className="font-semibold block">Location Unavailable</span>
-                              <span>{f.reason || 'Value was not found in OCR text or tables.'}</span>
+                              <span>{f.reason || locState?.title || 'No location recorded for this field.'}</span>
                             </div>
                           </div>
                         )}

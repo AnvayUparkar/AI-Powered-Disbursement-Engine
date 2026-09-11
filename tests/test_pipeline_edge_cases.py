@@ -2,10 +2,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from pipeline.audit import append_audit_entry
-from pipeline.nodes.comparison_utils import clean_numeric
-from pipeline.nodes.node3a_identity import node3a_identity
-from pipeline.nodes.node3b_financial import node3b_financial
-from pipeline.nodes.node3c_dates_ids import node3c_dates_ids
+from pipeline.engines.comparison import clean_numeric
+from pipeline.nodes.check_kyc import check_kyc as node3a_identity
+from pipeline.nodes.check_financial import check_financial as node3b_financial
+from pipeline.nodes.check_loan_app import check_loan_app as node3c_dates_ids
 from pipeline.state import PipelineState, compute_rollup
 from pipeline.storage import read_json, write_json
 

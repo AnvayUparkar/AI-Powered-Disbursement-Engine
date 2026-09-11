@@ -19,6 +19,8 @@ NEO_LOS_FIELD_MAP: dict[str, str] = {
     "application_date": "application_date",
     "bank_account_type": "bank_account_type",
     "applicant_gender": "applicant_gender",
+    "irr_percent": "irr_percent",
+    "emi": "emi",
 }
 
 # ── Centralized Field Aliases (Single Source of Truth) ────────────────────────
@@ -67,6 +69,8 @@ FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
     "bpi_charges": 2.0,
     "bpi": 2.0,
     "emi": 2.0,
+    "irr_percent": 2.0,
+    "irr": 2.0,
     # Tier 3: Contact & Demographic
     "mobile_no": 1.0,
     "applicant_mobile_no": 1.0,
@@ -87,8 +91,8 @@ FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
 KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "aadhaar": [
         {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name", "full_name"]},
-        {"doc_field": "fathers_name", "los_field": "fathers_name", "method": "jaro_winkler", "aliases": ["father_name"]},
-        {"doc_field": "gender", "los_field": "applicant_gender", "method": "exact_string_ci", "aliases": ["applicant_gender"]},
+        {"doc_field": "fathers_name", "los_field": "fathers_name", "method": "jaro_winkler", "aliases": ["father_name"], "optional": True},
+        {"doc_field": "gender", "los_field": "applicant_gender", "method": "exact_string_ci", "aliases": ["applicant_gender"], "optional": True},
         {"doc_field": "address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["current_address", "address_text"]},
         {"doc_field": "aadhaar_number", "los_field": "aadhaar_no", "method": "masked_aadhaar", "aliases": ["aadhaar", "aadhaar_no", "uid"]},
         {"doc_field": "mobile_no", "los_field": "applicant_mobile_no", "method": "exact_string", "aliases": ["applicant_mobile_no", "mobile", "phone"]},
@@ -119,7 +123,6 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "account_no", "los_field": "applicant_bank_account_no", "method": "exact_id", "aliases": ["account_number", "applicant_bank_account_no", "bank_account_no"]},
         {"doc_field": "type_of_account", "los_field": "bank_account_type", "method": "exact_string_ci", "aliases": ["bank_account_type", "account_type"]},
         {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
-        {"doc_field": "current_address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["address", "address_text"]},
     ],
     "kfs": [
         {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["funding_amount", "amount"]},
@@ -139,30 +142,27 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
         {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
         {"doc_field": "emi", "los_field": "emi", "method": "exact_numeric", "aliases": ["monthly_emi", "emi_amount"]},
-        {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
-        {"doc_field": "mobile_no", "los_field": "applicant_mobile_no", "method": "exact_string", "aliases": ["applicant_mobile_no", "mobile", "phone"]},
-        {"doc_field": "address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["current_address", "address_text"]},
+        {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": [], "optional": True},
+        {"doc_field": "mobile_no", "los_field": "applicant_mobile_no", "method": "exact_string", "aliases": ["applicant_mobile_no", "mobile", "phone"], "optional": True},
+        {"doc_field": "address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["current_address", "address_text"], "optional": True},
     ],
     "account_statement": [
         {"doc_field": "account_no", "los_field": "applicant_bank_account_no", "method": "exact_id", "aliases": ["account_number", "bank_account_no", "applicant_bank_account_no"]},
         {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name", "account_holder_name"]},
-        {"doc_field": "current_address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["address", "address_text"]},
+        {"doc_field": "current_address", "los_field": "current_address", "method": "tfidf_cosine", "aliases": ["address", "address_text"], "optional": True},
     ],
 }
 
 # ── 3. Loan Application Field Checks (Loan App Checker Node) ─────────────────
 LOAN_APP_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "application_form": [
-        {"doc_field": "application_date", "los_field": "application_date", "method": "exact_date", "aliases": ["date_of_application", "app_date"]},
         {"doc_field": "application_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["application_id", "loan_id"]},
     ],
     "kfs": [
         {"doc_field": "application_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["application_id", "loan_id"]},
-        {"doc_field": "application_date", "los_field": "application_date", "method": "exact_date", "aliases": ["date_of_application", "app_date"]},
     ],
     "sanction_letter": [
         {"doc_field": "application_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["application_id", "loan_id"]},
-        {"doc_field": "application_date", "los_field": "application_date", "method": "exact_date", "aliases": ["date_of_application", "app_date"]},
     ],
     "disbursal_memo": [
         {"doc_field": "loan_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["loan_id", "loan_number", "application_id"]},
@@ -288,8 +288,8 @@ CHECKPOINTS_SPEC: list[dict[str, Any]] = [
         "name": "Disbursement Authorization & Audit",
         "checker": "check_loan_application",
         "doc_types": ["application_form", "disbursal_memo"],
-        "fields": ["application_date", "application_no"],
-        "rule": "Application date, loan ID, and disbursement lifecycle dates must align.",
+        "fields": ["application_no"],
+        "rule": "Application ID, loan ID, and disbursement lifecycle identifiers must align.",
         "category": "Loan Application",
         "weight": 7.0,
     },

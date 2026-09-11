@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import S3_EXTRACTED_DIR
-from pipeline.nodes.llm_field_extractor import format_template_json
+from pipeline.engines.llm_field_extractor import format_template_json
 
 
 def build_default_processing_steps(doc_id: str) -> List[Dict[str, Any]]:

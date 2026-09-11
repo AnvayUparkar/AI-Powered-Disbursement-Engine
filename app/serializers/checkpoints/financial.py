@@ -14,6 +14,7 @@ from ..case_context import (
     format_tenure_months,
     inr_format,
     resolve_checkpoint_validation,
+    safe_float,
 )
 
 
@@ -40,16 +41,16 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if app_form.get("loan_amount") is not None or ctx.loan_amount > 0:
-        app_amt = float(app_form.get("loan_amount") or ctx.loan_amount)
+        app_amt = safe_float(app_form.get("loan_amount") or ctx.loan_amount)
         fields.append(build_field("Application Amount", inr_format(app_amt), 98.0, f"doc-{ctx.loan_id}-appform"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Amount", 1, "Loan Amount"))
 
     if kfs_doc.get("loan_amount") is not None:
-        fields.append(build_field("KFS Amount", inr_format(float(kfs_doc["loan_amount"])), 98.0, f"doc-{ctx.loan_id}-kfs"))
+        fields.append(build_field("KFS Amount", inr_format(kfs_doc["loan_amount"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — Amount", 1, "Loan Amount"))
 
     if sanction_doc.get("loan_amount") is not None:
-        fields.append(build_field("Sanction Amount", inr_format(float(sanction_doc["loan_amount"])), 98.0, f"doc-{ctx.loan_id}-sanction"))
+        fields.append(build_field("Sanction Amount", inr_format(sanction_doc["loan_amount"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Amount", 1, "Loan Amount"))
 
     has_amt_mismatch = (
@@ -58,22 +59,23 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     )
 
     if not fields:
-        fields.append(build_field("Loan Amount", "Not Available (Documents Missing)", 0.0, f"doc-{ctx.loan_id}"))
+        fields = [build_field("Loan Amount", "Not Available", 0.0, f"doc-{ctx.loan_id}")]
         status = "INDETERMINATE"
-        notes = "Loan amount documents not uploaded."
+        notes = "No loan documents available for amount verification."
+    elif has_amt_mismatch:
+        status = "DISCREPANCY"
+        notes = (r1.get("notes") if r1 else "") or "Loan amount discrepancy across documents."
     else:
-        status = "DISCREPANCY" if has_amt_mismatch else "VERIFIED"
-        if not has_amt_mismatch and r1 and r1.get("match_status") in ("PARTIAL", "NOT_FOUND"):
-            status = "INDETERMINATE"
+        status = "VERIFIED"
         notes = (r1.get("notes") if r1 else "") or (
-            "Loan amount discrepancy detected." if status == "DISCREPANCY" else "Loan amount consistency verified across application and sanction records."
+            f"Loan amount {inr_format(ctx.loan_amount)} consistent across all available documents."
         )
 
     has_loan_amt = bool(fields and fields[0]["confidence"] > 0)
     conf = compute_checkpoint_confidence(fields, [r1] if r1 else None, default_conf=98.5) if has_loan_amt else 0.0
 
     sanction_amt = sanction_doc.get("loan_amount")
-    right_val = inr_format(float(sanction_amt)) if sanction_amt else "N/A"
+    right_val = inr_format(sanction_amt) if sanction_amt else "N/A"
     default_left = inr_format(ctx.loan_amount) if ctx.loan_amount > 0 else "N/A"
 
     mismatched_amt = next(
@@ -84,11 +86,11 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         vals = mismatched_amt.get("values") or []
         srcs = mismatched_amt.get("sources") or []
         try:
-            m_left = inr_format(float(vals[0])) if len(vals) > 0 and vals[0] is not None else default_left
+            m_left = inr_format(vals[0]) if len(vals) > 0 and vals[0] is not None else default_left
         except (ValueError, TypeError):
             m_left = str(vals[0]) if len(vals) > 0 else default_left
         try:
-            m_right = inr_format(float(vals[1])) if len(vals) > 1 and vals[1] is not None else right_val
+            m_right = inr_format(vals[1]) if len(vals) > 1 and vals[1] is not None else right_val
         except (ValueError, TypeError):
             m_right = str(vals[1]) if len(vals) > 1 else right_val
 
@@ -246,14 +248,14 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if has_kfs:
-        kfs_amt_val = float(kfs_doc.get("loan_amount") or ctx.loan_amount)
+        kfs_amt_val = safe_float(kfs_doc.get("loan_amount") or ctx.loan_amount)
         fields.append(build_field("KFS Funding Amount", inr_format(kfs_amt_val), 96.0, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("loan_validity") is not None:
             fields.append(build_field("KFS Tenure", format_tenure_months(kfs_doc["loan_validity"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("irr_percent") is not None:
-            fields.append(build_field("KFS IRR", f"{float(kfs_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-kfs"))
+            fields.append(build_field("KFS IRR", f"{safe_float(kfs_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("emi") is not None:
-            fields.append(build_field("KFS EMI", inr_format(float(kfs_doc["emi"])), 98.0, f"doc-{ctx.loan_id}-kfs"))
+            fields.append(build_field("KFS EMI", inr_format(kfs_doc["emi"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
         if "customer_consent" in kfs_doc and kfs_doc["customer_consent"] is not None:
             consent_val = "Verified (Consented)" if bool(kfs_doc["customer_consent"]) else "Missing / Not Consented"
             consent_conf = 99.0 if bool(kfs_doc["customer_consent"]) else 0.0
@@ -273,11 +275,11 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             srcs = first_mis.get("sources") or []
             fld_name = first_mis.get("field", "")
             if fld_name == "irr_percent":
-                v0 = f"{float(vals[0]):.1f}%" if len(vals) > 0 and vals[0] is not None else ""
-                v1 = f"{float(vals[1]):.1f}%" if len(vals) > 1 and vals[1] is not None else ""
+                v0 = f"{safe_float(vals[0]):.1f}%" if len(vals) > 0 and vals[0] is not None else ""
+                v1 = f"{safe_float(vals[1]):.1f}%" if len(vals) > 1 and vals[1] is not None else ""
             elif fld_name in ("loan_amount", "funding_amount", "emi"):
-                v0 = inr_format(float(vals[0])) if len(vals) > 0 and vals[0] is not None else ""
-                v1 = inr_format(float(vals[1])) if len(vals) > 1 and vals[1] is not None else ""
+                v0 = inr_format(vals[0]) if len(vals) > 0 and vals[0] is not None else ""
+                v1 = inr_format(vals[1]) if len(vals) > 1 and vals[1] is not None else ""
             else:
                 v0 = str(vals[0]) if len(vals) > 0 else ""
                 v1 = str(vals[1]) if len(vals) > 1 else ""
@@ -296,7 +298,7 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             val_block = resolve_checkpoint_validation(
                 status,
                 default_left=inr_format(ctx.loan_amount) if ctx.loan_amount > 0 else "N/A",
-                default_right=inr_format(float(kfs_doc.get("loan_amount") or 0.0)),
+                default_right=inr_format(kfs_doc.get("loan_amount") or 0.0),
                 records=kfs_records,
                 default_left_source="los",
                 default_right_source="kfs",
@@ -309,7 +311,7 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             val_block = resolve_checkpoint_validation(
                 status,
                 default_left=inr_format(ctx.loan_amount) if ctx.loan_amount > 0 else "N/A",
-                default_right=inr_format(float(kfs_doc.get("loan_amount") or 0.0)),
+                default_right=inr_format(kfs_doc.get("loan_amount") or 0.0),
                 records=kfs_records,
                 default_left_source="los",
                 default_right_source="kfs",
@@ -366,14 +368,14 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if has_sanction:
-        sanc_amt_val = float(sanction_doc.get("loan_amount") or ctx.loan_amount)
+        sanc_amt_val = safe_float(sanction_doc.get("loan_amount") or ctx.loan_amount)
         fields.append(build_field("Sanction Amount", inr_format(sanc_amt_val), 97.0, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("loan_validity") is not None:
             fields.append(build_field("Sanction Tenure", format_tenure_months(sanction_doc["loan_validity"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("irr_percent") is not None:
-            fields.append(build_field("Sanction IRR", f"{float(sanction_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-sanction"))
+            fields.append(build_field("Sanction IRR", f"{safe_float(sanction_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("emi") is not None:
-            fields.append(build_field("Sanction EMI", inr_format(float(sanction_doc["emi"])), 98.0, f"doc-{ctx.loan_id}-sanction"))
+            fields.append(build_field("Sanction EMI", inr_format(sanction_doc["emi"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
 
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Terms", 1))
 
@@ -381,13 +383,13 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         los_irr = ctx.los_data.get("irr_percent")
         doc_irr = sanction_doc.get("irr_percent")
         direct_irr_mismatch = bool(
-            doc_irr is not None and los_irr is not None and abs(float(doc_irr) - float(los_irr)) >= 0.01
+            doc_irr is not None and los_irr is not None and abs(safe_float(doc_irr) - safe_float(los_irr)) >= 0.01
         )
 
         los_emi = ctx.los_data.get("emi")
         doc_emi = sanction_doc.get("emi")
         direct_emi_mismatch = bool(
-            doc_emi is not None and los_emi is not None and abs(float(doc_emi) - float(los_emi)) >= 1.0
+            doc_emi is not None and los_emi is not None and abs(safe_float(doc_emi) - safe_float(los_emi)) >= 1.0
         )
 
         has_record_mismatch = any(r.get("match_status") == "MISMATCH" for r in sanction_records)
@@ -401,13 +403,13 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         if has_mismatch:
             status = "DISCREPANCY"
             if direct_irr_mismatch:
-                notes = f"Sanction Letter IRR discrepancy: {float(doc_irr):.1f}% vs LOS {float(los_irr):.1f}%."
-                val_left = f"{float(doc_irr):.1f}%"
-                val_right = f"{float(los_irr):.1f}%"
+                notes = f"Sanction Letter IRR discrepancy: {safe_float(doc_irr):.1f}% vs LOS {safe_float(los_irr):.1f}%."
+                val_left = f"{safe_float(doc_irr):.1f}%"
+                val_right = f"{safe_float(los_irr):.1f}%"
             elif direct_emi_mismatch:
-                notes = f"Sanction Letter EMI discrepancy: {inr_format(float(doc_emi))} vs LOS {inr_format(float(los_emi))}."
-                val_left = inr_format(float(doc_emi))
-                val_right = inr_format(float(los_emi))
+                notes = f"Sanction Letter EMI discrepancy: {inr_format(doc_emi)} vs LOS {inr_format(los_emi)}."
+                val_left = inr_format(doc_emi)
+                val_right = inr_format(los_emi)
             elif has_record_mismatch:
                 first_mis = next(r for r in sanction_records if r.get("match_status") == "MISMATCH")
                 notes = first_mis.get("notes") or f"Sanction Letter discrepancy detected in {first_mis.get('field', 'terms')}."
@@ -512,20 +514,20 @@ def build_bpi_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if has_bpi:
-        fields = [build_field("BPI Value", inr_format(float(bpi_val)), 95.0, f"doc-{ctx.loan_id}-kfs")]
+        fields = [build_field("BPI Value", inr_format(bpi_val), 95.0, f"doc-{ctx.loan_id}-kfs")]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — BPI", 1)]
-        bpi_match = (float(los_bpi) == float(bpi_val)) if los_bpi is not None else True
+        bpi_match = (safe_float(los_bpi) == safe_float(bpi_val)) if los_bpi is not None else True
         if (r10 and r10.get("match_status") == "MISMATCH") or not bpi_match:
             status = "DISCREPANCY"
         elif r10 and r10.get("match_status") in ("PARTIAL", "NOT_FOUND"):
             status = "INDETERMINATE"
         else:
             status = "VERIFIED"
-        right_bpi_str = inr_format(float(los_bpi)) if los_bpi is not None else inr_format(float(bpi_val))
-        notes = (r10.get("notes") if r10 else "") or f"Broken Period Interest split of {inr_format(float(bpi_val))} verified against records."
+        right_bpi_str = inr_format(los_bpi) if los_bpi is not None else inr_format(bpi_val)
+        notes = (r10.get("notes") if r10 else "") or f"Broken Period Interest split of {inr_format(bpi_val)} verified against records."
         val_block = resolve_checkpoint_validation(
             status,
-            default_left=inr_format(float(bpi_val)),
+            default_left=inr_format(bpi_val),
             default_right=right_bpi_str,
             records=bpi_records,
             default_left_source="kfs",

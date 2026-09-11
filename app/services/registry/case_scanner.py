@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from config import DMS_DIR, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RAW_DIR
-from pipeline.nodes.llm_field_extractor import format_template_json
+from pipeline.engines.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
 from .normalizer import build_default_extracted_fields

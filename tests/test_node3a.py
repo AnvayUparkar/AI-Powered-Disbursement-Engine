@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from pipeline.nodes.node3a_identity import node3a_identity
+from pipeline.nodes.check_kyc import check_kyc as node3a_identity
 from pipeline.state import PipelineState
 
 
@@ -51,7 +51,7 @@ def test_node3a_missing_field_in_document(mock_state_001: PipelineState):
 
 
 def test_node3a_partial_name_triggers_llm_adjudication(mock_state_001: PipelineState, monkeypatch):
-    import pipeline.nodes.comparison_utils as comp_mod
+    import pipeline.engines.comparison as comp_mod
 
     monkeypatch.setattr(
         comp_mod,

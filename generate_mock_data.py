@@ -502,7 +502,7 @@ if __name__ == "__main__":
     from pipeline.storage import get_s3_los, get_all_s3_extracted_structured
     from pipeline.nodes.check_kyc import check_kyc
     from pipeline.nodes.check_financial import check_financial
-    from pipeline.nodes.check_loan_application import check_loan_application
+    from pipeline.nodes.check_loan_app import check_loan_app as check_loan_application
     from pipeline.nodes.compile_report import compile_report
     from pipeline.nodes.generate_scorecard import generate_scorecard
     from pipeline.nodes.push_results import push_results

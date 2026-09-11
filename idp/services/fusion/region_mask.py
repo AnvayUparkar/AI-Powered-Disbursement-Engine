@@ -119,10 +119,27 @@ class TableRegionMask:
             if is_spatially_inside:
                 # Cell-content gating: If table cells exist, check if text is already present
                 if norm_txt and region.table_data and region.table_data.cells:
+                    # Substring containment ("norm_txt in cell_txt") is only a
+                    # meaningful signal once the target string is long enough
+                    # to not trivially occur inside unrelated cell text. For
+                    # short strings (<=3 chars — the exact shape of a comb-box
+                    # character, e.g. a single handwritten letter) almost any
+                    # non-empty cell in the table will "contain" it by chance,
+                    # so this used to false-positive as "already captured" and
+                    # drop legitimate comb-box characters that the table cell
+                    # OCR had actually failed on. Below this length we require
+                    # an exact match against a specific cell instead.
+                    MIN_CONTAINMENT_LEN = 4
                     captured_in_cell = False
                     for cell in region.table_data.cells:
                         cell_txt = (cell.text or "").strip().lower()
-                        if cell_txt and (norm_txt in cell_txt or cell_txt in norm_txt):
+                        if not cell_txt:
+                            continue
+                        if len(norm_txt) < MIN_CONTAINMENT_LEN or len(cell_txt) < MIN_CONTAINMENT_LEN:
+                            if norm_txt == cell_txt:
+                                captured_in_cell = True
+                                break
+                        elif norm_txt in cell_txt or cell_txt in norm_txt:
                             captured_in_cell = True
                             break
                     if not captured_in_cell:

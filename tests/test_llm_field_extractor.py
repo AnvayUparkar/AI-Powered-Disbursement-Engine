@@ -1,4 +1,4 @@
-"""Tests for pipeline.nodes.llm_field_extractor."""
+"""Tests for pipeline.engines.llm_field_extractor."""
 
 import json
 import os
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from pipeline.nodes.llm_field_extractor import (
+from pipeline.engines.llm_field_extractor import (
     LARGE_DOC_TYPES,
     SMALL_DOC_TYPES,
     _CANONICAL_KEYS,
@@ -82,7 +82,7 @@ def test_build_user_content_large_doc_fallback_on_io_error(monkeypatch):
 
 def test_llm_extract_fields_no_api_key(monkeypatch):
     """Returns {} immediately when LLM_API_KEY is not configured."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", None)
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", None)
     result = llm_extract_fields("aadhaar", "some text", "DOC_001")
     assert result == {}
 
@@ -91,13 +91,13 @@ def test_llm_extract_fields_no_api_key(monkeypatch):
 
 def test_llm_extract_fields_empty_text(monkeypatch):
     """Returns {} without making a network call when OCR text is empty."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "fake-key")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "fake-key")
     result = llm_extract_fields("pan", "   ", "DOC_002")
     assert result == {}
 
 
 def test_llm_extract_fields_none_text(monkeypatch):
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "fake-key")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "fake-key")
     result = llm_extract_fields("pan", "", "DOC_003")
     assert result == {}
 
@@ -117,8 +117,8 @@ def _make_mock_response(payload: dict) -> MagicMock:
 
 def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
     """LLM returns a full valid JSON; all canonical keys present in result."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     llm_payload = {
         "applicant_name": "RAJESH SHARMA",
@@ -150,7 +150,7 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("aadhaar", "raw aadhaar ocr text", "LOAN_001_aadhaar")
 
     assert result["applicant_name"] == "RAJESH SHARMA"
@@ -169,8 +169,8 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
 
 def test_llm_extract_fields_partial_null_fields(monkeypatch):
     """LLM returns nulls for fields not in the document — stored as None."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     # Aadhaar-like: most financial fields absent
     llm_payload = {
@@ -203,7 +203,7 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("aadhaar", "aadhaar text", "LOAN_002_aadhaar")
 
     assert result["applicant_name"] == "PRIYA MEHTA"
@@ -218,8 +218,8 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
 
 def test_llm_extract_fields_user_new_format(monkeypatch):
     """Verifies that the exact user-specified JSON format is completely extracted with all 22 keys."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     user_payload = {
         "applicant_name": "PRAKASH KHATRI",
@@ -251,7 +251,7 @@ def test_llm_extract_fields_user_new_format(monkeypatch):
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("aadhaar", "raw ocr text", "LOAN_USER_FORMAT")
 
     assert result == user_payload
@@ -260,8 +260,8 @@ def test_llm_extract_fields_user_new_format(monkeypatch):
 
 def test_llm_extract_fields_discards_extra_keys(monkeypatch):
     """Extra keys in LLM response (hallucinated) are silently discarded."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     llm_payload = {
         "applicant_name": "TEST USER",
@@ -275,7 +275,7 @@ def test_llm_extract_fields_discards_extra_keys(monkeypatch):
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("pan", "pan card text", "LOAN_003_pan")
 
     assert "hallucinated_field" not in result
@@ -288,8 +288,8 @@ def test_llm_extract_fields_discards_extra_keys(monkeypatch):
 
 def test_llm_extract_fields_http_error_returns_empty(monkeypatch):
     """HTTP 4xx/5xx from OpenRouter returns {} without raising."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     error_response = MagicMock(spec=httpx.Response)
     error_response.status_code = 429
@@ -303,7 +303,7 @@ def test_llm_extract_fields_http_error_returns_empty(monkeypatch):
         "429", request=MagicMock(), response=error_response
     )
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("kfs", "kfs content", "LOAN_004_kfs")
 
     assert result == {}
@@ -311,15 +311,15 @@ def test_llm_extract_fields_http_error_returns_empty(monkeypatch):
 
 def test_llm_extract_fields_timeout_returns_empty(monkeypatch):
     """Timeout from OpenRouter returns {} without raising."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     mock_client_instance = MagicMock()
     mock_client_instance.post.side_effect = httpx.TimeoutException("timed out")
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("application_form", "form text", "LOAN_005_app")
 
     assert result == {}
@@ -327,8 +327,8 @@ def test_llm_extract_fields_timeout_returns_empty(monkeypatch):
 
 def test_llm_extract_fields_malformed_json_returns_empty(monkeypatch):
     """Invalid JSON from LLM returns {} without raising."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     bad_resp = MagicMock(spec=httpx.Response)
     bad_resp.status_code = 200
@@ -342,7 +342,7 @@ def test_llm_extract_fields_malformed_json_returns_empty(monkeypatch):
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("disbursal_memo", "memo text", "LOAN_006_memo")
 
     assert result == {}
@@ -350,8 +350,8 @@ def test_llm_extract_fields_malformed_json_returns_empty(monkeypatch):
 
 def test_llm_extract_fields_markdown_fenced_json_parsed_correctly(monkeypatch):
     """LLM wraps JSON in markdown fences — should still parse correctly."""
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_API_KEY", "sk-test")
-    monkeypatch.setattr("pipeline.nodes.llm_field_extractor.LLM_MODEL", "test-model")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
     fenced_content = '```json\n{"applicant_name": "ANKIT PATEL", "loan_no": "LN-999", "loan_amount": "300000"}\n```'
 
@@ -365,7 +365,7 @@ def test_llm_extract_fields_markdown_fenced_json_parsed_correctly(monkeypatch):
     mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
     mock_client_instance.__exit__ = MagicMock(return_value=False)
 
-    with patch("pipeline.nodes.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("disbursal_memo", "memo ocr", "LOAN_007_memo")
 
     assert result["applicant_name"] == "ANKIT PATEL"

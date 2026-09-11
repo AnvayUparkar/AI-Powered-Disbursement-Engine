@@ -19,12 +19,20 @@ logger = logging.getLogger("disbursement_pipeline.llm_structure")
 
 def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: str) -> dict[str, Any]:
     """Applies LLM field extraction or merges structured fields for a document."""
-    from pipeline.nodes.llm_field_extractor import format_template_json
+    from pipeline.engines.llm_field_extractor import format_template_json
     raw_text = doc_data.get("_raw_text") or doc_data.get("rawText") or ""
     structured = {}
 
-    # If raw text is present, extract canonical fields with LLM
-    if raw_text.strip():
+    # Check if valid structured fields are already present from IDP or upstream stage
+    has_preextracted = any(
+        k in doc_data and doc_data[k] is not None
+        for k in ("applicant_name", "loan_amount", "pan_number", "aadhaar_number", "dob", "bank_account_no", "irr_percent", "emi")
+    )
+
+    if has_preextracted:
+        logger.info("Reusing existing structured fields for %s in loan %s (skipping duplicate LLM call)", doc_key, loan_id)
+        structured = {k: v for k, v in doc_data.items() if not k.startswith("_") and k not in ("rawText", "formattedText")}
+    elif raw_text.strip():
         doc_id = f"{loan_id}_{doc_key}"
         structured = llm_extract_fields(doc_type=doc_key, raw_text=raw_text, doc_id=doc_id)
 
@@ -116,7 +124,8 @@ def llm_structure(state: PipelineState) -> PipelineState:
 
         with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="llm_struct_worker") as executor:
             futures = [executor.submit(_worker, t) for t in tasks]
-            for fut in futures:
+            from concurrent.futures import as_completed
+            for fut in as_completed(futures):
                 doc_key, structured = fut.result()
                 structured_data[doc_key] = structured
                 save_s3_extracted_structured(loan_id, doc_key, structured)

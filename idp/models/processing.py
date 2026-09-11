@@ -23,7 +23,7 @@ class ProcessingMetadata(BaseModel):
     page_count: int
     docling_used: bool = True
     ocr_engine: str = "rapidocr"
-    ocr_model: str = "PP-OCRv6"
+    ocr_model: str = "PP-OCRv6_medium"
     vlm_used: bool = False
     vlm_provider: Optional[str] = None
     metrics: ProcessingMetrics = Field(default_factory=ProcessingMetrics)

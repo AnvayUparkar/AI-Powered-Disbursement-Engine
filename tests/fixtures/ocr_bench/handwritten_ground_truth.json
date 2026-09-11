@@ -1,0 +1,624 @@
+{
+    "document_type": "handwritten_scanned",
+    "pages": [
+        {
+            "page_number": 1,
+            "expected_text": "06 08 2026\nAPPL00343265\n08AOOPK6924P172\nSELF\nPRAKASH KHATRI\nGYAN CHAND KHATRI\nGEETA KHATRI\nKAMLA\n22061976\n02\nUG\n9079533555\nHINDU\nAOOPK6924P\nXXXXXXXX5552\nKHATRIPRAKASH79@GMAIL.COM\n30/105, SINDHI COLONY, JHULELAL MAN\nDIR KE PASS, SANGANER, SANGANER PO: SANGANE\nR BAZAR DIST; JAIPUR\nJAIPUR\nRAJASTHAN\n302029\n0141\nKAMLA UDYOG\nK NO - 231 NEAR SANAI MADHOPUR PULIYA\nDIGGI MALPURA ROAD SANGANER JAIPUR JA\nIPUR\nJAIPUR\nRAJASTHAN\n302029\n0141",
+            "expected_fields": {
+                "Application Date": "06 08 2026",
+                "Appl No.": "APPL00343265",
+                "GSTIN No.": "08AOOPK6924P172",
+                "Relationship with Applicant": "SELF",
+                "Applicant Name": "PRAKASH KHATRI",
+                "Father's Name": "GYAN CHAND KHATRI",
+                "Spouse Name": "GEETA KHATRI",
+                "Mother's Name": "KAMLA",
+                "Date of Birth": "22061976",
+                "No. of dependents": "02",
+                "Education": "UG",
+                "Mobile": "9079533555",
+                "Religion": "HINDU",
+                "PAN": "AOOPK6924P",
+                "Aadhaar Card No.": "XXXXXXXX5552",
+                "Email": "[KHATRIPRAKASH79@GMAIL.COM](mailto:KHATRIPRAKASH79@GMAIL.COM)",
+                "Present Address (Residence)": "30/105, SINDHI COLONY, JHULELAL MAN DIR KE PASS, SANGANER, SANGANER PO: SANGANE",
+                "Landmark": "R BAZAR DIST; JAIPUR",
+                "City": "JAIPUR",
+                "State": "RAJASTHAN",
+                "Pincode": "302029",
+                "STD": "0141",
+                "Business / Employer's Name": "KAMLA UDYOG",
+                "Business Address": "K NO - 231 NEAR SANAI MADHOPUR PULIYA DIGGI MALPURA ROAD SANGANER JAIPUR JAIPUR",
+                "Business City": "JAIPUR",
+                "Business State": "RAJASTHAN",
+                "Business Pin": "302029",
+                "Business STD": "0141"
+            },
+            "expected_bboxes": [
+                {
+                    "label": "Application Date",
+                    "text": "06 08 2026",
+                    "bbox_normalized": [
+                        0.171,
+                        0.067,
+                        0.398,
+                        0.088
+                    ]
+                },
+                {
+                    "label": "Appl No.",
+                    "text": "APPL00343265",
+                    "bbox_normalized": [
+                        0.171,
+                        0.088,
+                        0.459,
+                        0.109
+                    ]
+                },
+                {
+                    "label": "GSTIN No.",
+                    "text": "08AOOPK6924P172",
+                    "bbox_normalized": [
+                        0.259,
+                        0.27,
+                        0.683,
+                        0.292
+                    ]
+                },
+                {
+                    "label": "Relationship with Applicant",
+                    "text": "SELF",
+                    "bbox_normalized": [
+                        0.735,
+                        0.294,
+                        0.826,
+                        0.315
+                    ]
+                },
+                {
+                    "label": "Applicant Name",
+                    "text": "PRAKASH KHATRI",
+                    "bbox_normalized": [
+                        0.151,
+                        0.369,
+                        0.442,
+                        0.391
+                    ]
+                },
+                {
+                    "label": "Father's Name",
+                    "text": "GYAN CHAND KHATRI",
+                    "bbox_normalized": [
+                        0.151,
+                        0.389,
+                        0.493,
+                        0.412
+                    ]
+                },
+                {
+                    "label": "Spouse Name",
+                    "text": "GEETA KHATRI",
+                    "bbox_normalized": [
+                        0.151,
+                        0.409,
+                        0.417,
+                        0.431
+                    ]
+                },
+                {
+                    "label": "Mother's Name",
+                    "text": "KAMLA",
+                    "bbox_normalized": [
+                        0.151,
+                        0.429,
+                        0.285,
+                        0.451
+                    ]
+                },
+                {
+                    "label": "Date of Birth",
+                    "text": "22061976",
+                    "bbox_normalized": [
+                        0.151,
+                        0.449,
+                        0.329,
+                        0.471
+                    ]
+                },
+                {
+                    "label": "No. of dependents",
+                    "text": "02",
+                    "bbox_normalized": [
+                        0.92,
+                        0.449,
+                        0.966,
+                        0.471
+                    ]
+                },
+                {
+                    "label": "Education",
+                    "text": "UG",
+                    "bbox_normalized": [
+                        0.129,
+                        0.47,
+                        0.19,
+                        0.491
+                    ]
+                },
+                {
+                    "label": "Mobile",
+                    "text": "9079533555",
+                    "bbox_normalized": [
+                        0.72,
+                        0.469,
+                        0.89,
+                        0.492
+                    ]
+                },
+                {
+                    "label": "Religion",
+                    "text": "HINDU",
+                    "bbox_normalized": [
+                        0.106,
+                        0.491,
+                        0.235,
+                        0.512
+                    ]
+                },
+                {
+                    "label": "PAN",
+                    "text": "AOOPK6924P",
+                    "bbox_normalized": [
+                        0.755,
+                        0.491,
+                        0.956,
+                        0.513
+                    ]
+                },
+                {
+                    "label": "Aadhaar Card No.",
+                    "text": "XXXXXXXX5552",
+                    "bbox_normalized": [
+                        0.237,
+                        0.53,
+                        0.474,
+                        0.55
+                    ]
+                },
+                {
+                    "label": "Email",
+                    "text": "[KHATRIPRAKASH79@GMAIL.COM](mailto:KHATRIPRAKASH79@GMAIL.COM)",
+                    "bbox_normalized": [
+                        0.431,
+                        0.57,
+                        0.754,
+                        0.593
+                    ]
+                },
+                {
+                    "label": "Present Address (Residence)",
+                    "text": "30/105, SINDHI COLONY, JHULELAL MAN DIR KE PASS, SANGANER, SANGANER PO: SANGANE",
+                    "bbox_normalized": [
+                        0.243,
+                        0.627,
+                        0.992,
+                        0.683
+                    ]
+                },
+                {
+                    "label": "Landmark",
+                    "text": "R BAZAR DIST; JAIPUR",
+                    "bbox_normalized": [
+                        0.143,
+                        0.672,
+                        0.458,
+                        0.696
+                    ]
+                },
+                {
+                    "label": "City",
+                    "text": "JAIPUR",
+                    "bbox_normalized": [
+                        0.618,
+                        0.672,
+                        0.739,
+                        0.695
+                    ]
+                },
+                {
+                    "label": "State",
+                    "text": "RAJASTHAN",
+                    "bbox_normalized": [
+                        0.111,
+                        0.695,
+                        0.313,
+                        0.718
+                    ]
+                },
+                {
+                    "label": "Pincode",
+                    "text": "302029",
+                    "bbox_normalized": [
+                        0.824,
+                        0.695,
+                        0.971,
+                        0.718
+                    ]
+                },
+                {
+                    "label": "STD",
+                    "text": "0141",
+                    "bbox_normalized": [
+                        0.113,
+                        0.718,
+                        0.188,
+                        0.741
+                    ]
+                },
+                {
+                    "label": "Business / Employer's Name",
+                    "text": "KAMLA UDYOG",
+                    "bbox_normalized": [
+                        0.236,
+                        0.741,
+                        0.431,
+                        0.764
+                    ]
+                },
+                {
+                    "label": "Business Address",
+                    "text": "K NO - 231 NEAR SANAI MADHOPUR PULIYA DIGGI MALPURA ROAD SANGANER JAIPUR JAIPUR",
+                    "bbox_normalized": [
+                        0.122,
+                        0.762,
+                        0.951,
+                        0.815
+                    ]
+                },
+                {
+                    "label": "Business City",
+                    "text": "JAIPUR",
+                    "bbox_normalized": [
+                        0.61,
+                        0.813,
+                        0.74,
+                        0.837
+                    ]
+                },
+                {
+                    "label": "Business State",
+                    "text": "RAJASTHAN",
+                    "bbox_normalized": [
+                        0.099,
+                        0.837,
+                        0.308,
+                        0.859
+                    ]
+                },
+                {
+                    "label": "Business Pin",
+                    "text": "302029",
+                    "bbox_normalized": [
+                        0.827,
+                        0.837,
+                        0.97,
+                        0.86
+                    ]
+                },
+                {
+                    "label": "Business STD",
+                    "text": "0141",
+                    "bbox_normalized": [
+                        0.099,
+                        0.86,
+                        0.175,
+                        0.882
+                    ]
+                }
+            ],
+            "quality_notes": {
+                "estimated_legibility": "94",
+                "skew_detected": "true",
+                "low_contrast_regions": [
+                    "Lower portion of the page around the permanent-address section is faint; some handwriting near the right edge of the present and business address fields is partially clipped by the form boundary."
+                ]
+            }
+        },
+        {
+            "page_number": 2,
+            "expected_text": "NA\nHDFC BANK\nMANSAROVAR JAIPUR\n50200064998229\n1125000\n036",
+            "expected_fields": {
+                "PAN": "NA",
+                "1. Bank details - Name of the Bank": "HDFC BANK",
+                "Branch": "MANSAROVAR JAIPUR",
+                "Account Number": "50200064998229",
+                "Type of Account": "Current",
+                "Loan Amount Rs.": "1125000",
+                "Tenure": "036"
+            },
+            "expected_bboxes": [
+                {
+                    "label": "PAN",
+                    "text": "NA",
+                    "bbox_normalized": [
+                        0.648,
+                        0.215,
+                        0.705,
+                        0.233
+                    ]
+                },
+                {
+                    "label": "1. Bank details - Name of the Bank",
+                    "text": "HDFC BANK",
+                    "bbox_normalized": [
+                        0.267,
+                        0.548,
+                        0.46,
+                        0.569
+                    ]
+                },
+                {
+                    "label": "Branch",
+                    "text": "MANSAROVAR JAIPUR",
+                    "bbox_normalized": [
+                        0.109,
+                        0.569,
+                        0.475,
+                        0.591
+                    ]
+                },
+                {
+                    "label": "Account Number",
+                    "text": "50200064998229",
+                    "bbox_normalized": [
+                        0.147,
+                        0.592,
+                        0.491,
+                        0.614
+                    ]
+                },
+                {
+                    "label": "Type of Account",
+                    "text": "Current",
+                    "bbox_normalized": [
+                        0.884,
+                        0.591,
+                        0.935,
+                        0.614
+                    ]
+                },
+                {
+                    "label": "Loan Amount Rs.",
+                    "text": "1125000",
+                    "bbox_normalized": [
+                        0.151,
+                        0.896,
+                        0.505,
+                        0.923
+                    ]
+                },
+                {
+                    "label": "Tenure",
+                    "text": "036",
+                    "bbox_normalized": [
+                        0.708,
+                        0.913,
+                        0.782,
+                        0.936
+                    ]
+                }
+            ],
+            "quality_notes": {
+                "estimated_legibility": "91",
+                "skew_detected": "true",
+                "low_contrast_regions": [
+                    "The handwritten entry in the Partners / Directors table is faint and appears as NA; much of the upper company-details section is blank and lightly printed.",
+                    "The lower requested-loan section is slightly shadowed near the page fold."
+                ]
+            }
+        },
+        {
+            "page_number": 3,
+            "expected_text": "NA\nMUKESH KHATRI\nFRIEND\nSINDHI COLONY SANGANER\nJAIPUR\nRAJASTHAN\n302029\n0141\n9828028666\nARVIND KHATRI\nFRIEND\nJHULELAL MANDIR SINDHI COLONY SANGANER\nJAIPUR\nRAJASTHAN\n302029\n0141\n9610443322",
+            "expected_fields": {
+                "Vehicle: Make / Model": "NA",
+                "(1) Name": "MUKESH KHATRI",
+                "Relationship with applicant": "FRIEND",
+                "Residential Address": "SINDHI COLONY SANGANER",
+                "City": "JAIPUR",
+                "State": "RAJASTHAN",
+                "Pin": "302029",
+                "STD": "0141",
+                "Mobile": "9828028666",
+                "(2) Name": "ARVIND KHATRI",
+                "Relationship with applicant (2)": "FRIEND",
+                "Residential Address (2)": "JHULELAL MANDIR SINDHI COLONY SANGANER",
+                "City (2)": "JAIPUR",
+                "State (2)": "RAJASTHAN",
+                "Pin (2)": "302029",
+                "STD (2)": "0141",
+                "Mobile (2)": "9610443322"
+            },
+            "expected_bboxes": [
+                {
+                    "label": "Vehicle: Make / Model",
+                    "text": "NA",
+                    "bbox_normalized": [
+                        0.528,
+                        0.414,
+                        0.578,
+                        0.433
+                    ]
+                },
+                {
+                    "label": "(1) Name",
+                    "text": "MUKESH KHATRI",
+                    "bbox_normalized": [
+                        0.113,
+                        0.65,
+                        0.437,
+                        0.672
+                    ]
+                },
+                {
+                    "label": "Relationship with applicant",
+                    "text": "FRIEND",
+                    "bbox_normalized": [
+                        0.227,
+                        0.675,
+                        0.37,
+                        0.696
+                    ]
+                },
+                {
+                    "label": "Residential Address",
+                    "text": "SINDHI COLONY SANGANER",
+                    "bbox_normalized": [
+                        0.136,
+                        0.699,
+                        0.705,
+                        0.722
+                    ]
+                },
+                {
+                    "label": "City",
+                    "text": "JAIPUR",
+                    "bbox_normalized": [
+                        0.098,
+                        0.754,
+                        0.239,
+                        0.777
+                    ]
+                },
+                {
+                    "label": "State",
+                    "text": "RAJASTHAN",
+                    "bbox_normalized": [
+                        0.562,
+                        0.752,
+                        0.778,
+                        0.777
+                    ]
+                },
+                {
+                    "label": "Pin",
+                    "text": "302029",
+                    "bbox_normalized": [
+                        0.097,
+                        0.78,
+                        0.227,
+                        0.802
+                    ]
+                },
+                {
+                    "label": "STD",
+                    "text": "0141",
+                    "bbox_normalized": [
+                        0.274,
+                        0.779,
+                        0.363,
+                        0.802
+                    ]
+                },
+                {
+                    "label": "Mobile",
+                    "text": "9828028666",
+                    "bbox_normalized": [
+                        0.719,
+                        0.779,
+                        0.924,
+                        0.802
+                    ]
+                },
+                {
+                    "label": "(2) Name",
+                    "text": "ARVIND KHATRI",
+                    "bbox_normalized": [
+                        0.114,
+                        0.819,
+                        0.435,
+                        0.841
+                    ]
+                },
+                {
+                    "label": "Relationship with applicant (2)",
+                    "text": "FRIEND",
+                    "bbox_normalized": [
+                        0.228,
+                        0.844,
+                        0.369,
+                        0.866
+                    ]
+                },
+                {
+                    "label": "Residential Address (2)",
+                    "text": "JHULELAL MANDIR SINDHI COLONY SANGANER",
+                    "bbox_normalized": [
+                        0.135,
+                        0.869,
+                        0.693,
+                        0.919
+                    ]
+                },
+                {
+                    "label": "City (2)",
+                    "text": "JAIPUR",
+                    "bbox_normalized": [
+                        0.098,
+                        0.925,
+                        0.239,
+                        0.947
+                    ]
+                },
+                {
+                    "label": "State (2)",
+                    "text": "RAJASTHAN",
+                    "bbox_normalized": [
+                        0.563,
+                        0.925,
+                        0.78,
+                        0.947
+                    ]
+                },
+                {
+                    "label": "Pin (2)",
+                    "text": "302029",
+                    "bbox_normalized": [
+                        0.098,
+                        0.95,
+                        0.228,
+                        0.971
+                    ]
+                },
+                {
+                    "label": "STD (2)",
+                    "text": "0141",
+                    "bbox_normalized": [
+                        0.274,
+                        0.95,
+                        0.363,
+                        0.972
+                    ]
+                },
+                {
+                    "label": "Mobile (2)",
+                    "text": "9610443322",
+                    "bbox_normalized": [
+                        0.714,
+                        0.95,
+                        0.925,
+                        0.973
+                    ]
+                }
+            ],
+            "quality_notes": {
+                "estimated_legibility": "96",
+                "skew_detected": "true",
+                "low_contrast_regions": [
+                    "Some handwriting in the collateral section is faint.",
+                    "The second reference address wraps across two handwritten lines and approaches the right page edge."
+                ]
+            }
+        }
+    ]
+}

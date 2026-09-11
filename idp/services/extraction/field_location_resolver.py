@@ -4,7 +4,12 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from idp.models.extraction import CandidateMatch, FieldLocation, OCRTokenDebug
+from idp.models.extraction import (
+    DERIVED_FLAG_FIELDS,
+    CandidateMatch,
+    FieldLocation,
+    OCRTokenDebug,
+)
 
 logger = logging.getLogger("disbursement_pipeline.field_location_resolver")
 
@@ -186,15 +191,46 @@ class FieldLocationResolver:
 
         results: Dict[str, FieldLocation] = {}
 
+        # Whether there is anything at all to match against. Distinguishes "we searched and
+        # failed" from "there was nothing to search".
+        has_searchable_text = any(tokens_by_page.values())
+
         for field_name, value in extracted_fields.items():
-            if field_name.startswith("_") or value is None:
-                continue
-            if isinstance(value, bool):
-                # Presence/boolean flags don't have a single literal bounding box
+            # Internal bookkeeping keys are not user-facing fields.
+            if field_name.startswith("_"):
                 continue
 
             val_str = _clean_text(value)
-            if not val_str:
+
+            # A field with nothing to locate is NOT a location failure. These three cases
+            # used to `continue` silently, leaving the UI to infer failure from the absence
+            # of a record and show "value was not found in OCR text" for fields the
+            # extractor never populated -- or that can never appear on a page at all.
+            if field_name in DERIVED_FLAG_FIELDS or isinstance(value, bool):
+                results[field_name] = FieldLocation(
+                    field_name=field_name, value=value,
+                    location_status="not_locatable",
+                    reason="Derived flag, computed from document checks rather than read off the page.",
+                    candidates=[],
+                )
+                continue
+
+            if value is None or not val_str or val_str.strip().lower() == "none":
+                results[field_name] = FieldLocation(
+                    field_name=field_name, value=value,
+                    location_status="not_extracted",
+                    reason="No value was extracted for this field, so there is nothing to locate.",
+                    candidates=[],
+                )
+                continue
+
+            if not has_searchable_text:
+                results[field_name] = FieldLocation(
+                    field_name=field_name, value=value,
+                    location_status="no_ocr_text",
+                    reason="This document produced no OCR tokens or table cells to search.",
+                    candidates=[],
+                )
                 continue
 
             location = self._resolve_single_field(
@@ -511,7 +547,7 @@ class FieldLocationResolver:
                 field_name=field_name,
                 value=value,
                 location_status="unresolved",
-                reason="No sufficiently confident OCR match found",
+                reason="Value was extracted but no sufficiently confident match was found in the OCR text or tables.",
                 candidates=[]
             )
 

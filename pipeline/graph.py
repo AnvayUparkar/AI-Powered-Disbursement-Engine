@@ -7,9 +7,9 @@ from langgraph.graph import END, StateGraph
 
 from pipeline.nodes.check_financial import check_financial
 from pipeline.nodes.check_kyc import check_kyc
-from pipeline.nodes.check_loan_application import check_loan_application
+from pipeline.nodes.check_loan_app import check_loan_app
 from pipeline.nodes.compile_report import compile_report
-from pipeline.nodes.fetch_dms import fetch_dms
+from pipeline.nodes.fetch_documents import fetch_documents
 from pipeline.nodes.fetch_los import fetch_los
 from pipeline.nodes.generate_scorecard import generate_scorecard
 from pipeline.nodes.idp_scan import idp_scan
@@ -22,7 +22,7 @@ logger = logging.getLogger("disbursement_pipeline.graph")
 
 
 def _run_parallel_checkers(state: PipelineState) -> PipelineState:
-    """Runs check_kyc, check_financial, and check_loan_application concurrently."""
+    """Runs check_kyc, check_financial, and check_loan_app concurrently."""
     loan_id = state["loan_id"]
     errors = list(state.get("errors", []))
     history = list(state.get("node_history", []))
@@ -36,7 +36,7 @@ def _run_parallel_checkers(state: PipelineState) -> PipelineState:
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="checker_worker") as executor:
         future_kyc = executor.submit(check_kyc, state)
         future_fin = executor.submit(check_financial, state)
-        future_app = executor.submit(check_loan_application, state)
+        future_app = executor.submit(check_loan_app, state)
 
         checker_futures = [
             ("check_kyc", future_kyc),
@@ -78,7 +78,7 @@ def build_pipeline_graph():
     graph = StateGraph(PipelineState)
 
     graph.add_node("fetch_los", fetch_los)
-    graph.add_node("fetch_dms", fetch_dms)
+    graph.add_node("fetch_documents", fetch_documents)
     graph.add_node("idp_scan", idp_scan)
     graph.add_node("llm_structure", llm_structure)
     graph.add_node("check_parallel", _run_parallel_checkers)
@@ -87,8 +87,8 @@ def build_pipeline_graph():
     graph.add_node("push_results", push_results)
 
     graph.set_entry_point("fetch_los")
-    graph.add_edge("fetch_los", "fetch_dms")
-    graph.add_edge("fetch_dms", "idp_scan")
+    graph.add_edge("fetch_los", "fetch_documents")
+    graph.add_edge("fetch_documents", "idp_scan")
     graph.add_edge("idp_scan", "llm_structure")
     graph.add_edge("llm_structure", "check_parallel")
     graph.add_edge("check_parallel", "compile_report")
@@ -137,7 +137,8 @@ def stream_pipeline(loan_id: str) -> Iterator[dict]:
 
     node_labels = {
         "fetch_los": "Node 1: Fetch LOS (Loan Record Ingestion)",
-        "fetch_dms": "Node 2: Fetch DMS (Document Ingestion)",
+        "fetch_documents": "Node 2: Fetch Documents (Document Package Ingestion)",
+        "fetch_dms": "Node 2: Fetch Documents (Document Package Ingestion)",
         "idp_scan": "Node 3: IDP Scan (Docling & OCR Processing)",
         "llm_structure": "Node 4: LLM Structure (Field Normalization)",
         "check_parallel": "Node 5: Verification (KYC, Financial & Loan Application)",
@@ -172,5 +173,5 @@ def stream_pipeline(loan_id: str) -> Iterator[dict]:
         "loan_id": loan_id,
         "status": "done",
         "label": "Verification Complete",
-        "node_history": ["fetch_los", "fetch_dms", "idp_scan", "llm_structure", "check_parallel", "compile_report", "generate_scorecard", "push_results", "done"],
+        "node_history": ["fetch_los", "fetch_documents", "idp_scan", "llm_structure", "check_parallel", "compile_report", "generate_scorecard", "push_results", "done"],
     }
