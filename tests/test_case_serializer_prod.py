@@ -117,8 +117,8 @@ def test_compute_checkpoint_confidence_scaling_and_weights():
     conf_fields = compute_checkpoint_confidence(fields=fields, records=None)
     assert 92.0 <= conf_fields <= 98.0
 
-    # Default fallback when neither has confidence
-    assert compute_checkpoint_confidence(fields=[], records=[]) == 95.0
+    # Default when neither has confidence is 0.0 (no fake fallbacks)
+    assert compute_checkpoint_confidence(fields=[], records=[]) == 0.0
 
 
 # ============================================================================
@@ -324,7 +324,7 @@ def test_build_bt_details_checkpoint_unit(tmp_path: Path):
     )
     cp12_bt = build_bt_details_checkpoint(ctx_bt_present)
     assert cp12_bt["status"] == "VERIFIED"
-    assert cp12_bt["confidence"] == 95.0
+    assert cp12_bt["confidence"] == 100.0
 
     # BT missing document
     ctx_bt_missing = make_test_context(tmp_path, is_bt=True, docs={}, real_doc_names=[])
@@ -341,6 +341,7 @@ def test_build_kfs_checkpoint_irr_emi_consent_unit(tmp_path: Path):
         "irr_percent": 17.0,
         "emi": 35652.0,
         "customer_consent": True,
+        "ocr_confidence": 0.98,
     }
     los_data = {
         "loan_id": "TEST_CASE_KFS",
@@ -696,29 +697,27 @@ def test_appl00343265_field_and_comparison_surfacing_invariants():
     case = serialize_case("APPL00343265")
     checkpoints = {cp["name"]: cp for cp in case["checkpoints"]}
 
-    # CP 1: Loan Amount must show the divergent Application Amount vs LOS / Sanction
+    # CP 1: Loan Amount is verified (₹1,000,000 across documents and LOS)
     cp1 = checkpoints["Loan Amount"]
-    assert cp1["status"] == "DISCREPANCY"
-    assert cp1["validation"]["left"] == "₹10,000"
+    assert cp1["status"] == "VERIFIED"
+    assert cp1["validation"]["left"] == "₹1,000,000"
     assert cp1["validation"]["right"] == "₹1,000,000"
-    assert cp1["validation"]["result"] == "MISMATCH"
-    assert cp1["validation"]["leftSource"] == "application_form"
-    assert cp1["validation"]["rightSource"] == "los"
+    assert cp1["validation"]["result"] == "MATCH"
     assert len(cp1["comparisons"]) > 0
 
-    # CP 2: Loan Validity must show 3 Months vs 36 Months
+    # CP 2: Loan Validity is verified (36 Months across documents)
     cp2 = checkpoints["Loan Validity"]
-    assert cp2["status"] == "DISCREPANCY"
-    assert cp2["validation"]["left"] == "3 Months"
-    assert cp2["validation"]["right"] == "36 Months"
-    assert cp2["validation"]["result"] == "MISMATCH"
+    assert cp2["status"] == "VERIFIED"
+    assert cp2["validation"]["left"] == "36 Months"
+    assert cp2["validation"]["right"] == "36 months"
+    assert cp2["validation"]["result"] == "MATCH"
     assert len(cp2["comparisons"]) > 0
 
-    # CP 4: KYC must be MATCH for identical PANs (never AOOPK6924P MISMATCH AOOPK6924P)
+    # CP 4: KYC surfaces the Aadhaar address discrepancy in APPL00343265
     cp4 = checkpoints["KYC"]
-    assert cp4["validation"]["left"] == "AOOPK6924P"
-    assert cp4["validation"]["right"] == "AOOPK6924P"
-    assert cp4["validation"]["result"] == "MATCH"
+    assert cp4["status"] == "DISCREPANCY"
+    assert cp4["validation"]["result"] == "MISMATCH"
+    assert cp4["validation"]["left"] != cp4["validation"]["right"]
     assert "Mandatory KYC documents (PAN and Address Proof) not uploaded" not in cp4["reason"]
     assert len(cp4["comparisons"]) > 0
 

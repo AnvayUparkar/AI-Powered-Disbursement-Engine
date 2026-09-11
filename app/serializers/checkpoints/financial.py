@@ -14,18 +14,22 @@ from ..case_context import (
     format_tenure_months,
     inr_format,
     resolve_checkpoint_validation,
+    resolve_field_confidence,
     safe_float,
 )
 
 
 def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     """CP 1: Loan Amount consistency across agreement, sanction, and KFS."""
-    r1 = ctx.get_check_record(
-        "chk_check_financial_kfs_loan_amount_vs_los",
-        "chk_check_loan_application_application_form_loan_amount_vs_los",
+    r_kfs_amt = ctx.get_check_record("chk_check_financial_kfs_loan_amount_vs_los", "chk_kfs_vs_los_funding")
+    r_app_amt = ctx.get_check_record(
         "chk_check_financial_application_form_loan_amount_vs_los",
+        "chk_check_loan_application_application_form_loan_amount_vs_los",
         "chk_loan_amt_application_form_vs_kfs",
-        field="loan_amount",
+    )
+    r_sanc_amt = ctx.get_check_record(
+        "chk_check_financial_sanction_letter_loan_amount_vs_los",
+        "chk_sanction_vs_los_funding",
     )
     app_form = ctx.get_doc("application_form", "appform")
     kfs_doc = ctx.get_doc("kfs")
@@ -40,39 +44,40 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     fields: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
 
-    if app_form.get("loan_amount") is not None or ctx.loan_amount > 0:
-        app_amt = safe_float(app_form.get("loan_amount") or ctx.loan_amount)
-        fields.append(build_field("Application Amount", inr_format(app_amt), 98.0, f"doc-{ctx.loan_id}-appform"))
+    if app_form.get("loan_amount") is not None:
+        app_amt = safe_float(app_form.get("loan_amount"))
+        app_conf = resolve_field_confidence(doc=app_form, field_name="loan_amount", record=r_app_amt)
+        fields.append(build_field("Application Amount", inr_format(app_amt), app_conf, f"doc-{ctx.loan_id}-appform"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Amount", 1, "Loan Amount"))
 
     if kfs_doc.get("loan_amount") is not None:
-        fields.append(build_field("KFS Amount", inr_format(kfs_doc["loan_amount"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
+        kfs_conf = resolve_field_confidence(doc=kfs_doc, field_name="loan_amount", record=r_kfs_amt)
+        fields.append(build_field("KFS Amount", inr_format(kfs_doc["loan_amount"]), kfs_conf, f"doc-{ctx.loan_id}-kfs"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — Amount", 1, "Loan Amount"))
 
     if sanction_doc.get("loan_amount") is not None:
-        fields.append(build_field("Sanction Amount", inr_format(sanction_doc["loan_amount"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
+        sanc_conf = resolve_field_confidence(doc=sanction_doc, field_name="loan_amount", record=r_sanc_amt)
+        fields.append(build_field("Sanction Amount", inr_format(sanction_doc["loan_amount"]), sanc_conf, f"doc-{ctx.loan_id}-sanction"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Amount", 1, "Loan Amount"))
 
-    has_amt_mismatch = (
-        (r1 is not None and r1.get("match_status") == "MISMATCH")
-        or any(r.get("match_status") == "MISMATCH" for r in amount_records)
-    )
+    has_amt_mismatch = any(r.get("match_status") == "MISMATCH" for r in amount_records)
 
+    primary_record = r_kfs_amt or r_sanc_amt or r_app_amt
     if not fields:
         fields = [build_field("Loan Amount", "Not Available", 0.0, f"doc-{ctx.loan_id}")]
         status = "INDETERMINATE"
         notes = "No loan documents available for amount verification."
     elif has_amt_mismatch:
         status = "DISCREPANCY"
-        notes = (r1.get("notes") if r1 else "") or "Loan amount discrepancy across documents."
+        notes = (primary_record.get("notes") if primary_record else "") or "Loan amount discrepancy across documents."
     else:
         status = "VERIFIED"
-        notes = (r1.get("notes") if r1 else "") or (
+        notes = (primary_record.get("notes") if primary_record else "") or (
             f"Loan amount {inr_format(ctx.loan_amount)} consistent across all available documents."
         )
 
-    has_loan_amt = bool(fields and fields[0]["confidence"] > 0)
-    conf = compute_checkpoint_confidence(fields, [r1] if r1 else None, default_conf=98.5) if has_loan_amt else 0.0
+    has_loan_amt = bool(fields and any(f["confidence"] is not None and f["confidence"] > 0 for f in fields))
+    conf = compute_checkpoint_confidence(fields, amount_records) if has_loan_amt else 0.0
 
     sanction_amt = sanction_doc.get("loan_amount")
     right_val = inr_format(sanction_amt) if sanction_amt else "N/A"
@@ -85,22 +90,15 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     if status == "DISCREPANCY" and mismatched_amt:
         vals = mismatched_amt.get("values") or []
         srcs = mismatched_amt.get("sources") or []
-        try:
-            m_left = inr_format(vals[0]) if len(vals) > 0 and vals[0] is not None else default_left
-        except (ValueError, TypeError):
-            m_left = str(vals[0]) if len(vals) > 0 else default_left
-        try:
-            m_right = inr_format(vals[1]) if len(vals) > 1 and vals[1] is not None else right_val
-        except (ValueError, TypeError):
-            m_right = str(vals[1]) if len(vals) > 1 else right_val
-
+        v0 = inr_format(vals[0]) if len(vals) > 0 and vals[0] is not None else default_left
+        v1 = inr_format(vals[1]) if len(vals) > 1 and vals[1] is not None else right_val
         val_block = resolve_checkpoint_validation(
             status,
-            default_left=m_left,
-            default_right=m_right,
+            default_left=v0,
+            default_right=v1,
             records=None,
             default_left_source=srcs[0] if len(srcs) > 0 else "application_form",
-            default_right_source=srcs[1] if len(srcs) > 1 else "los",
+            default_right_source=srcs[1] if len(srcs) > 1 else "sanction_letter",
         )
     else:
         val_block = resolve_checkpoint_validation(
@@ -118,7 +116,7 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status,
         conf,
         notes,
-        "Loan amount must be consistent across all agreement and sanction records.",
+        "Loan amount must match exactly between loan agreement, sanction letter, and KFS.",
         fields,
         evidence,
         val_block,
@@ -127,13 +125,13 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
 
 def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
-    """CP 2: Loan Validity and tenure consistency."""
-    r2 = ctx.get_check_record(
-        "chk_check_financial_kfs_loan_validity_vs_los",
+    """CP 2: Loan Validity and Tenure consistency across documents."""
+    r_sanc_tenure = ctx.get_check_record("chk_check_financial_sanction_letter_loan_validity_vs_los")
+    r_kfs_tenure = ctx.get_check_record("chk_check_financial_kfs_loan_validity_vs_los")
+    r_app_tenure = ctx.get_check_record(
         "chk_check_financial_application_form_loan_validity_vs_los",
         "chk_check_loan_application_application_form_loan_validity_vs_los",
         "chk_loan_validity_tenure",
-        field="loan_validity",
     )
     app_form = ctx.get_doc("application_form", "appform")
     kfs_doc = ctx.get_doc("kfs")
@@ -154,22 +152,23 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     fields: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
 
-    if tenure_val is not None:
-        fields.append(build_field("Tenure Months", f"{tenure_val}", 99.0, f"doc-{ctx.loan_id}-appform"))
+    if app_tenure is not None:
+        app_conf = resolve_field_confidence(doc=app_form, field_name="loan_validity", record=r_app_tenure)
+        fields.append(build_field("Tenure Months", f"{app_tenure}", app_conf, f"doc-{ctx.loan_id}-appform"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Tenure", 1))
 
     if sanc_tenure is not None:
-        fields.append(build_field("Sanction Tenure", f"{sanc_tenure}", 99.0, f"doc-{ctx.loan_id}-sanction"))
+        sanc_conf = resolve_field_confidence(doc=sanction_doc, field_name="loan_validity", record=r_sanc_tenure)
+        fields.append(build_field("Sanction Tenure", f"{sanc_tenure}", sanc_conf, f"doc-{ctx.loan_id}-sanction"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Tenure", 1))
 
     if kfs_tenure is not None and kfs_tenure != sanc_tenure:
-        fields.append(build_field("KFS Tenure", f"{kfs_tenure}", 99.0, f"doc-{ctx.loan_id}-kfs"))
+        kfs_conf = resolve_field_confidence(doc=kfs_doc, field_name="loan_validity", record=r_kfs_tenure)
+        fields.append(build_field("KFS Tenure", f"{kfs_tenure}", kfs_conf, f"doc-{ctx.loan_id}-kfs"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — Tenure", 1))
 
-    has_validity_mismatch = (
-        (r2 is not None and r2.get("match_status") == "MISMATCH")
-        or any(r.get("match_status") == "MISMATCH" for r in tenure_records)
-    )
+    primary_tenure = r_sanc_tenure or r_kfs_tenure or r_app_tenure
+    has_validity_mismatch = any(r.get("match_status") == "MISMATCH" for r in tenure_records)
 
     if not fields:
         fields.append(build_field("Tenure", "Not Available", 0.0, f"doc-{ctx.loan_id}"))
@@ -177,13 +176,14 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         notes = "Tenure documents not uploaded."
     else:
         status = "DISCREPANCY" if has_validity_mismatch else "VERIFIED"
-        if not has_validity_mismatch and r2 and r2.get("match_status") in ("PARTIAL", "NOT_FOUND"):
+        if not has_validity_mismatch and primary_tenure and primary_tenure.get("match_status") in ("PARTIAL", "NOT_FOUND"):
             status = "INDETERMINATE"
-        notes = (r2.get("notes") if r2 else "") or (
+        notes = (primary_tenure.get("notes") if primary_tenure else "") or (
             "Tenure discrepancy detected." if status == "DISCREPANCY" else f"Loan tenure normalized at {tenure_val}."
         )
 
-    conf = compute_checkpoint_confidence(fields, [r2] if r2 else None, default_conf=99.0) if (fields and fields[0]["confidence"] > 0) else 0.0
+    has_tenure_amt = bool(fields and any(f["confidence"] is not None and f["confidence"] > 0 for f in fields))
+    conf = compute_checkpoint_confidence(fields, tenure_records) if has_tenure_amt else 0.0
 
     mismatched_tenure = next(
         (r for r in tenure_records if r.get("match_status") == "MISMATCH" or r.get("result") == "MISMATCH"),
@@ -248,17 +248,22 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if has_kfs:
-        kfs_amt_val = safe_float(kfs_doc.get("loan_amount") or ctx.loan_amount)
-        fields.append(build_field("KFS Funding Amount", inr_format(kfs_amt_val), 96.0, f"doc-{ctx.loan_id}-kfs"))
+        kfs_raw_amt = kfs_doc.get("loan_amount")
+        if kfs_raw_amt is not None:
+            amt_conf = resolve_field_confidence(doc=kfs_doc, field_name="loan_amount", record=r7_amt)
+            fields.append(build_field("KFS Funding Amount", inr_format(safe_float(kfs_raw_amt)), amt_conf, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("loan_validity") is not None:
-            fields.append(build_field("KFS Tenure", format_tenure_months(kfs_doc["loan_validity"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
+            val_conf = resolve_field_confidence(doc=kfs_doc, field_name="loan_validity", record=r7_val)
+            fields.append(build_field("KFS Tenure", format_tenure_months(kfs_doc["loan_validity"]), val_conf, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("irr_percent") is not None:
-            fields.append(build_field("KFS IRR", f"{safe_float(kfs_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-kfs"))
+            irr_conf = resolve_field_confidence(doc=kfs_doc, field_name="irr_percent", record=r7_irr)
+            fields.append(build_field("KFS IRR", f"{safe_float(kfs_doc['irr_percent']):.1f}%", irr_conf, f"doc-{ctx.loan_id}-kfs"))
         if kfs_doc.get("emi") is not None:
-            fields.append(build_field("KFS EMI", inr_format(kfs_doc["emi"]), 98.0, f"doc-{ctx.loan_id}-kfs"))
+            emi_conf = resolve_field_confidence(doc=kfs_doc, field_name="emi", record=r7_emi)
+            fields.append(build_field("KFS EMI", inr_format(kfs_doc["emi"]), emi_conf, f"doc-{ctx.loan_id}-kfs"))
         if "customer_consent" in kfs_doc and kfs_doc["customer_consent"] is not None:
             consent_val = "Verified (Consented)" if bool(kfs_doc["customer_consent"]) else "Missing / Not Consented"
-            consent_conf = 99.0 if bool(kfs_doc["customer_consent"]) else 0.0
+            consent_conf = resolve_field_confidence(doc=kfs_doc, field_name="customer_consent", record=r7_consent) if bool(kfs_doc["customer_consent"]) else 0.0
             fields.append(build_field("Customer Consent", consent_val, consent_conf, f"doc-{ctx.loan_id}-kfs"))
 
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — Terms & Consent", 1))
@@ -329,7 +334,7 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             default_right_source="los",
         )
 
-    conf = compute_checkpoint_confidence(fields, kfs_records if kfs_records else None, default_conf=96.0) if has_kfs else 0.0
+    conf = compute_checkpoint_confidence(fields, kfs_records if kfs_records else None) if has_kfs else 0.0
 
     return build_checkpoint(
         7,
@@ -368,14 +373,21 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if has_sanction:
-        sanc_amt_val = safe_float(sanction_doc.get("loan_amount") or ctx.loan_amount)
-        fields.append(build_field("Sanction Amount", inr_format(sanc_amt_val), 97.0, f"doc-{ctx.loan_id}-sanction"))
+        sanc_raw_amt = sanction_doc.get("loan_amount")
+        sanc_amt_val = safe_float(sanc_raw_amt) if sanc_raw_amt is not None else None
+        sanc_amt_str = inr_format(sanc_amt_val) if sanc_amt_val is not None else "N/A"
+        if sanc_amt_val is not None:
+            amt_conf = resolve_field_confidence(doc=sanction_doc, field_name="loan_amount", record=r8_amt)
+            fields.append(build_field("Sanction Amount", sanc_amt_str, amt_conf, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("loan_validity") is not None:
-            fields.append(build_field("Sanction Tenure", format_tenure_months(sanction_doc["loan_validity"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
+            val_conf = resolve_field_confidence(doc=sanction_doc, field_name="loan_validity", record=r8_val)
+            fields.append(build_field("Sanction Tenure", format_tenure_months(sanction_doc["loan_validity"]), val_conf, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("irr_percent") is not None:
-            fields.append(build_field("Sanction IRR", f"{safe_float(sanction_doc['irr_percent']):.1f}%", 98.0, f"doc-{ctx.loan_id}-sanction"))
+            irr_conf = resolve_field_confidence(doc=sanction_doc, field_name="irr_percent", record=r8_irr)
+            fields.append(build_field("Sanction IRR", f"{safe_float(sanction_doc['irr_percent']):.1f}%", irr_conf, f"doc-{ctx.loan_id}-sanction"))
         if sanction_doc.get("emi") is not None:
-            fields.append(build_field("Sanction EMI", inr_format(sanction_doc["emi"]), 98.0, f"doc-{ctx.loan_id}-sanction"))
+            emi_conf = resolve_field_confidence(doc=sanction_doc, field_name="emi", record=r8_emi)
+            fields.append(build_field("Sanction EMI", inr_format(sanction_doc["emi"]), emi_conf, f"doc-{ctx.loan_id}-sanction"))
 
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Terms", 1))
 
@@ -416,14 +428,14 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 vals = first_mis.get("values") or []
                 srcs = first_mis.get("sources") or []
                 val_left = str(vals[0]) if len(vals) > 0 else inr_format(ctx.loan_amount)
-                val_right = str(vals[1]) if len(vals) > 1 else inr_format(sanc_amt_val)
+                val_right = str(vals[1]) if len(vals) > 1 else sanc_amt_str
                 if len(srcs) > 0:
                     left_src = srcs[0]
                 if len(srcs) > 1:
                     right_src = srcs[1]
             else:
                 notes = "Sanction Letter terms discrepancy detected against LOS."
-                val_left = inr_format(sanc_amt_val)
+                val_left = sanc_amt_str
                 val_right = inr_format(ctx.loan_amount)
             val_block = resolve_checkpoint_validation(
                 status,
@@ -438,7 +450,7 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             notes = "Sanction letter terms pending manual verification."
             val_block = resolve_checkpoint_validation(
                 status,
-                default_left=inr_format(sanc_amt_val),
+                default_left=sanc_amt_str,
                 default_right=inr_format(ctx.loan_amount),
                 records=sanction_records,
                 default_left_source="sanction_letter",
@@ -451,7 +463,7 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             )
             val_block = resolve_checkpoint_validation(
                 status,
-                default_left=inr_format(sanc_amt_val),
+                default_left=sanc_amt_str,
                 default_right=inr_format(ctx.loan_amount),
                 records=sanction_records,
                 default_left_source="sanction_letter",
@@ -470,7 +482,7 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             default_right_source="los",
         )
 
-    conf = compute_checkpoint_confidence(fields, sanction_records if sanction_records else None, default_conf=96.5) if has_sanction else 0.0
+    conf = compute_checkpoint_confidence(fields, sanction_records if sanction_records else None) if has_sanction else 0.0
 
     return build_checkpoint(
         8,
@@ -488,7 +500,12 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
 def build_bpi_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     """CP 10: Broken Period Interest (BPI) split consistency."""
-    r10 = ctx.get_check_record("chk_check_financial_kfs_vs_disbursal_memo_bpi_charge", "chk_broken_period_interest_split", field="bpi_charge")
+    r10 = ctx.get_check_record(
+        "chk_check_financial_kfs_bpi_vs_los",
+        "chk_check_financial_kfs_vs_disbursal_memo_bpi_charge",
+        "chk_broken_period_interest_split",
+        field="bpi",
+    )
     kfs_doc = ctx.get_doc("kfs")
     sanction_doc = ctx.get_doc("sanction_letter", "sanction")
     memo_doc = ctx.get_doc("disbursal_memo", "memo")
@@ -514,7 +531,8 @@ def build_bpi_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if has_bpi:
-        fields = [build_field("BPI Value", inr_format(bpi_val), 95.0, f"doc-{ctx.loan_id}-kfs")]
+        bpi_conf = resolve_field_confidence(doc=kfs_doc, field_name="bpi", record=r10)
+        fields = [build_field("BPI Value", inr_format(bpi_val), bpi_conf, f"doc-{ctx.loan_id}-kfs")]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — BPI", 1)]
         bpi_match = (safe_float(los_bpi) == safe_float(bpi_val)) if los_bpi is not None else True
         if (r10 and r10.get("match_status") == "MISMATCH") or not bpi_match:
@@ -546,7 +564,7 @@ def build_bpi_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             default_right_source="los",
         )
 
-    conf = compute_checkpoint_confidence(fields, [r10] if r10 else None, default_conf=95.0) if has_bpi else 0.0
+    conf = compute_checkpoint_confidence(fields, bpi_records if bpi_records else ([r10] if r10 else None)) if has_bpi else 0.0
 
     return build_checkpoint(
         10,
@@ -597,14 +615,20 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         ):
             status = "INDETERMINATE"
 
+        raw_disbursal = memo_doc.get("disbursal_amount") or memo_doc.get("loan_amount")
+        memo_app_id = memo_doc.get("application_id")
+        conf_amt = resolve_field_confidence(doc=memo_doc, field_name="disbursal_amount", record=r11_amt) if raw_disbursal is not None else 0.0
+        conf_app_id = resolve_field_confidence(doc=memo_doc, field_name="application_id", record=r11_no) if memo_app_id else 0.0
         fields = [
-            build_field("Disbursal Amount", inr_format(ctx.disbursal_amount), 98.0, f"doc-{ctx.loan_id}-disbursalmemo"),
-            build_field("Application ID", memo_doc.get("application_id", ctx.app_id), 99.0, f"doc-{ctx.loan_id}-disbursalmemo"),
+            build_field("Disbursal Amount", inr_format(safe_float(raw_disbursal)) if raw_disbursal is not None else None, conf_amt, f"doc-{ctx.loan_id}-disbursalmemo"),
+            build_field("Application ID", str(memo_app_id) if memo_app_id else None, conf_app_id, f"doc-{ctx.loan_id}-disbursalmemo"),
         ]
         if memo_doc.get("loan_no"):
-            fields.append(build_field("Loan Number", str(memo_doc["loan_no"]), 98.0, f"doc-{ctx.loan_id}-disbursalmemo"))
+            conf_loan_no = resolve_field_confidence(doc=memo_doc, field_name="loan_no", record=r11_no)
+            fields.append(build_field("Loan Number", str(memo_doc["loan_no"]), conf_loan_no, f"doc-{ctx.loan_id}-disbursalmemo"))
         if acct_doc and (acct_doc.get("account_number") or acct_doc.get("account_no")):
-            fields.append(build_field("Bank Account No", str(acct_doc.get("account_number") or acct_doc.get("account_no")), 98.0, f"doc-{ctx.loan_id}-acctstmt"))
+            conf_acct = resolve_field_confidence(doc=acct_doc, field_name="account_no", record=r11_acct_no)
+            fields.append(build_field("Bank Account No", str(acct_doc.get("account_number") or acct_doc.get("account_no")), conf_acct, f"doc-{ctx.loan_id}-acctstmt"))
 
         evidence = [build_evidence(f"doc-{ctx.loan_id}-disbursalmemo", "Disbursal_Memo.pdf", "Disbursal Memo", 1)]
         if acct_doc:
@@ -634,7 +658,7 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             fallback_result="MISMATCH",
         )
 
-    conf = compute_checkpoint_confidence(fields, memo_records if memo_records else None, default_conf=95.0) if has_memo else 0.0
+    conf = compute_checkpoint_confidence(fields, memo_records if memo_records else None) if has_memo else 0.0
 
     return build_checkpoint(
         11,

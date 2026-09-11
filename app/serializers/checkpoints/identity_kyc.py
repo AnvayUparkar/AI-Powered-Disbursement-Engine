@@ -15,6 +15,7 @@ from ..case_context import (
     format_tenure_months,
     inr_format,
     resolve_checkpoint_validation,
+    resolve_field_confidence,
     safe_float,
 )
 
@@ -40,51 +41,52 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     has_app_form = bool(app_form) or ctx.has_doc_matching("app")
 
-    app_name_val = app_form.get("applicant_name") or ctx.applicant_name
-    app_no_val = app_form.get("application_no") or ctx.app_id
-    app_date_val = app_form.get("application_date") or ctx.los_data.get("application_date")
-    app_father_val = app_form.get("fathers_name") or ctx.los_data.get("fathers_name")
-    app_dob_val = app_form.get("dob") or ctx.los_data.get("applicant_dob")
-    app_gender_val = app_form.get("gender") or ctx.los_data.get("applicant_gender")
-    app_mobile_val = app_form.get("mobile_no") or ctx.los_data.get("applicant_mobile_no")
-    app_pan_val = app_form.get("pan_number") or ctx.los_data.get("applicant_pan_number")
-    app_addr_val = app_form.get("current_address") or app_form.get("address") or ctx.los_data.get("current_address")
-    app_bank_val = app_form.get("bank_account_no") or ctx.los_data.get("applicant_bank_account_no")
-    app_acct_type = app_form.get("type_of_account") or ctx.los_data.get("bank_account_type")
-    app_type_val = app_form.get("loan_type") or ctx.los_data.get("loan_type")
-    app_amt_val = app_form.get("loan_amount") or ctx.loan_amount
-    app_tenure_val = app_form.get("loan_validity") or ctx.los_data.get("tenure")
-
-    fields: list[dict[str, Any]] = []
-    evidence: list[dict[str, Any]] = []
-
-    if has_app_form:
-        fields = [
-            build_field("Application No", str(app_no_val), 99.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Application Date", str(app_date_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Applicant Name", str(app_name_val), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Father's Name", str(app_father_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Date of Birth", str(app_dob_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Gender", str(app_gender_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Mobile No", str(app_mobile_val or "N/A"), 97.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("PAN Number", str(app_pan_val or "N/A"), 99.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Address", str(app_addr_val or "N/A")[:80], 95.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Bank Account No", str(app_bank_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Account Type", str(app_acct_type or "N/A"), 95.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Loan Type", str(app_type_val or "N/A"), 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Requested Amount", inr_format(app_amt_val) if app_amt_val else "N/A", 98.0, f"doc-{ctx.loan_id}-appform"),
-            build_field("Requested Tenure", format_tenure_months(app_tenure_val), 98.0, f"doc-{ctx.loan_id}-appform"),
-        ]
-        evidence = [build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Details", 1, "Application Form")]
+    app_name_val = app_form.get("applicant_name")
+    app_no_val = app_form.get("application_no")
+    app_date_val = app_form.get("application_date")
+    app_father_val = app_form.get("fathers_name")
+    app_dob_val = app_form.get("dob")
+    app_gender_val = app_form.get("gender")
+    app_mobile_val = app_form.get("mobile_no")
+    app_pan_val = app_form.get("pan_number")
+    app_addr_val = app_form.get("current_address") or app_form.get("address")
+    app_bank_val = app_form.get("bank_account_no")
+    app_acct_type = app_form.get("type_of_account")
+    app_type_val = app_form.get("loan_type")
+    app_amt_val = app_form.get("loan_amount")
+    app_tenure_val = app_form.get("loan_validity")
 
     app_form_checks = [
         r for r in ctx.records
         if "application_form" in (r.get("sources") or [])
         or (r.get("check_id") and "application_form" in r.get("check_id", "").lower())
     ]
-    left_app_name = str(app_form.get("applicant_name") or "N/A")
+    app_checks_by_field = {r.get("field"): r for r in app_form_checks if r.get("field")}
+
+    fields: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
+
+    if has_app_form:
+        fields = [
+            build_field("Application No", str(app_no_val) if app_no_val else None, resolve_field_confidence(app_form, "application_no", app_checks_by_field.get("application_no")) if app_no_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Application Date", str(app_date_val) if app_date_val else None, resolve_field_confidence(app_form, "application_date", app_checks_by_field.get("application_date")) if app_date_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Applicant Name", str(app_name_val) if app_name_val else None, resolve_field_confidence(app_form, "applicant_name", r3_name or app_checks_by_field.get("applicant_name")) if app_name_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Father's Name", str(app_father_val) if app_father_val else None, resolve_field_confidence(app_form, "fathers_name", app_checks_by_field.get("fathers_name")) if app_father_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Date of Birth", str(app_dob_val) if app_dob_val else None, resolve_field_confidence(app_form, "dob", app_checks_by_field.get("dob")) if app_dob_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Gender", str(app_gender_val) if app_gender_val else None, resolve_field_confidence(app_form, "gender", app_checks_by_field.get("gender")) if app_gender_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Mobile No", str(app_mobile_val) if app_mobile_val else None, resolve_field_confidence(app_form, "mobile_no", app_checks_by_field.get("mobile_no")) if app_mobile_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("PAN Number", str(app_pan_val) if app_pan_val else None, resolve_field_confidence(app_form, "pan_number", app_checks_by_field.get("pan_number")) if app_pan_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Address", str(app_addr_val)[:80] if app_addr_val else None, resolve_field_confidence(app_form, "current_address", app_checks_by_field.get("current_address") or app_checks_by_field.get("address")) if app_addr_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Bank Account No", str(app_bank_val) if app_bank_val else None, resolve_field_confidence(app_form, "bank_account_no", app_checks_by_field.get("bank_account_no") or app_checks_by_field.get("account_no")) if app_bank_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Account Type", str(app_acct_type) if app_acct_type else None, resolve_field_confidence(app_form, "type_of_account", app_checks_by_field.get("type_of_account") or app_checks_by_field.get("account_type")) if app_acct_type else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Loan Type", str(app_type_val) if app_type_val else None, resolve_field_confidence(app_form, "loan_type", app_checks_by_field.get("loan_type")) if app_type_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Requested Amount", inr_format(app_amt_val) if app_amt_val else None, resolve_field_confidence(app_form, "loan_amount", app_checks_by_field.get("loan_amount")) if app_amt_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+            build_field("Requested Tenure", format_tenure_months(app_tenure_val) if app_tenure_val else None, resolve_field_confidence(app_form, "loan_validity", app_checks_by_field.get("loan_validity") or app_checks_by_field.get("tenure")) if app_tenure_val else 0.0, f"doc-{ctx.loan_id}-appform"),
+        ]
+        evidence = [build_evidence(f"doc-{ctx.loan_id}-appform", "Application_Form.pdf", "Application Form — Details", 1, "Application Form")]
+    left_app_name = str(app_name_val) if app_name_val else "Missing"
     right_los_name = str(ctx.los_data.get("applicant_name") or "N/A")
-    name_mismatch = bool(r3_name and (r3_name.get("match_status") == "MISMATCH" or r3_name.get("result") == "MISMATCH"))
+    name_mismatch = bool(r3_name and (r3_name.get("match_status") in ("MISMATCH", "NOT_FOUND") or r3_name.get("result") in ("MISMATCH", "NOT_FOUND")))
     mismatched_app_checks = [r for r in app_form_checks if r.get("match_status") == "MISMATCH" or r.get("result") == "MISMATCH"]
 
     matched_field_count = 0
@@ -110,10 +112,13 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         ]
 
         for fld_name, doc_v, los_v in eval_fields:
-            if doc_v is not None and los_v is not None:
+            if los_v is not None:
                 total_field_count += 1
                 fw = FIELD_CRITICALITY_WEIGHTS.get(fld_name, 1.0)
                 total_w += fw
+
+                if doc_v is None:
+                    continue
 
                 d_str = _normalize_clean_str(doc_v)
                 l_str = _normalize_clean_str(los_v)
@@ -139,8 +144,8 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 else:
                     detected_mismatches.append((fld_name, doc_v, los_v))
 
-        match_score = round((earned_w / total_w * 100.0), 1) if total_w > 0 else 98.0
-        conf = compute_checkpoint_confidence(fields, app_form_checks, default_conf=98.0)
+        match_score = round((earned_w / total_w * 100.0), 1) if total_w > 0 else 0.0
+        conf = compute_checkpoint_confidence(fields, app_form_checks)
     else:
         match_score = 0.0
         conf = 0.0
@@ -172,10 +177,10 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     elif any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in app_form_checks) and match_score < 90.0:
         status = "INDETERMINATE"
         notes = f"Application form fields pending manual verification ({matched_field_count}/{total_field_count} verified, {match_score}% match fidelity)."
-        val = {"left": left_app_name, "right": right_los_name, "result": "MATCH", "leftSource": "application_form", "rightSource": "los"}
+        val = {"left": left_app_name, "right": right_los_name, "result": "MATCH" if left_app_name == right_los_name else "MISMATCH", "leftSource": "application_form", "rightSource": "los"}
     else:
         status = "VERIFIED"
-        notes = f"Application Form verified against LOS records for '{app_name_val}' ({matched_field_count}/{total_field_count} fields verified, {match_score}% match fidelity)."
+        notes = f"Application Form verified against LOS records for '{app_name_val or 'Applicant'}' ({matched_field_count}/{total_field_count} fields verified, {match_score}% match fidelity)."
         val = {"left": left_app_name, "right": right_los_name, "result": "MATCH", "leftSource": "application_form", "rightSource": "los"}
 
     return build_checkpoint(
@@ -214,7 +219,7 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     doc_pan = (
         kyc_pan.get("pan_number")
-        or app_form.get("pan_number")
+        or kyc_pan.get("pan")
         or (r4_pan.get("values")[0] if r4_pan and r4_pan.get("values") else None)
     )
     los_pan = (
@@ -226,8 +231,6 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     doc_addr = (
         kyc_addr.get("address_text")
         or kyc_addr.get("address")
-        or app_form.get("current_address")
-        or app_form.get("address_text")
         or (r4_addr.get("values")[0] if r4_addr and r4_addr.get("values") else None)
     )
     los_addr = (
@@ -290,20 +293,22 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
 
     if doc_aadhaar_name:
-        conf_aadhaar = (r4_name_aadhaar.get("confidence") or 0.95) * 100 if r4_name_aadhaar else 95.0
+        conf_aadhaar = resolve_field_confidence(doc=kyc_addr, field_name="applicant_name", record=r4_name_aadhaar)
         fields.append(build_field("Aadhaar Name", str(doc_aadhaar_name), conf_aadhaar, f"doc-{ctx.loan_id}-aadhaar"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-aadhaar", "Aadhaar.pdf", "Aadhaar — Applicant Name", 1, "Applicant Name"))
 
     if doc_pan_name and doc_pan_name != doc_aadhaar_name:
-        conf_pan_name = (r4_name_pan.get("confidence") or 0.98) * 100 if r4_name_pan else 98.0
+        conf_pan_name = resolve_field_confidence(doc=kyc_pan, field_name="applicant_name", record=r4_name_pan)
         fields.append(build_field("PAN Name", str(doc_pan_name), conf_pan_name, f"doc-{ctx.loan_id}-pan"))
 
     if doc_pan:
-        fields.append(build_field("PAN Number", str(doc_pan), 99.0, f"doc-{ctx.loan_id}-pan"))
+        conf_pan = resolve_field_confidence(doc=kyc_pan, field_name="pan_number", record=r4_pan)
+        fields.append(build_field("PAN Number", str(doc_pan), conf_pan, f"doc-{ctx.loan_id}-pan"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-pan", "PAN.pdf", "PAN Card Document", 1, "PAN"))
 
     if doc_addr:
-        fields.append(build_field("Address", str(doc_addr)[:80], 95.0, f"doc-{ctx.loan_id}-kyc"))
+        conf_addr = resolve_field_confidence(doc=kyc_addr, field_name="address", record=r4_addr)
+        fields.append(build_field("Address", str(doc_addr)[:80], conf_addr, f"doc-{ctx.loan_id}-kyc"))
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kyc", "Address_Proof.pdf", "Address Proof", 1, "Address"))
 
     if not fields:
@@ -317,7 +322,7 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     pan_matches = bool(doc_pan and los_pan and str(doc_pan).strip().upper() == str(los_pan).strip().upper())
     val_result = "MATCH" if pan_matches else "MISMATCH"
 
-    dyn_conf = compute_checkpoint_confidence(fields, kyc_records, default_conf=96.0) if (has_pan_doc or has_addr_doc) else 0.0
+    dyn_conf = compute_checkpoint_confidence(fields, kyc_records) if (has_pan_doc or has_addr_doc) else 0.0
 
     left_source = "pan" if doc_pan else "aadhaar"
     right_source = "los"
@@ -434,20 +439,22 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     fields: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
 
+    conf_val: float | None = None
     if has_selfie:
         status = "VERIFIED"
         if r5 and r5.get("match_status") == "MISMATCH":
             status = "DISCREPANCY"
         elif r5 and r5.get("match_status") in ("PARTIAL", "NOT_FOUND"):
             status = "INDETERMINATE"
-        conf_val = ((r5.get("confidence") if r5 else 0.95) or 0.95) * 100
-        fields = [build_field("Face Match Confidence", f"{conf_val:.1f}%", 96.0, f"doc-{ctx.loan_id}-selfie")]
+        conf_val = resolve_field_confidence(record=r5)
+        conf_label = f"{conf_val:.1f}%" if conf_val is not None else "No telemetry"
+        fields = [build_field("Face Match Confidence", conf_label, conf_val, f"doc-{ctx.loan_id}-selfie")]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-selfie", "Selfie.jpg", "Selfie Live Photo", 1)]
     else:
         fields = [build_field("Selfie", "Not Uploaded", 0.0, f"doc-{ctx.loan_id}")]
         status = "INDETERMINATE"
 
-    conf = (r5.get("confidence") or 0.95) * 100 if (r5 and status == "VERIFIED") else (0.0 if not has_selfie else 50.0)
+    conf = conf_val if (conf_val is not None and status == "VERIFIED") else 0.0
     notes = (r5.get("notes") if r5 else "") or ("Live selfie embedding verification." if has_selfie else "Selfie photo not uploaded.")
 
     val_block = resolve_checkpoint_validation(
@@ -496,7 +503,8 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     if r9 and r9.get("match_status") == "MISMATCH":
         status = "DISCREPANCY"
 
-    fields = [build_field("Aadhaar XML Presence", "Present" if has_xml else "Missing", 99.0 if has_xml else 0.0, f"doc-{ctx.loan_id}-aadhaarxml")]
+    xml_conf = resolve_field_confidence(doc=xml_doc, record=r9) if has_xml else 0.0
+    fields = [build_field("Aadhaar XML Presence", "Present" if has_xml else "Missing", xml_conf, f"doc-{ctx.loan_id}-aadhaarxml")]
 
     notes = (r9.get("notes") if r9 else "") or (
         "Aadhaar XML present in repository and verified." if has_xml else "Aadhaar XML missing from repository."
@@ -516,7 +524,7 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         9,
         "Aadhaar XML",
         status,
-        99.0 if status == "VERIFIED" else 0.0,
+        xml_conf or 0.0 if status == "VERIFIED" else 0.0,
         notes,
         "Aadhaar XML is a mandatory hard gate for all cases.",
         fields,

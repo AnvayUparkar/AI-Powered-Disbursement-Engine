@@ -8,6 +8,8 @@ from ..case_context import (
     build_checkpoint,
     build_evidence,
     build_field,
+    compute_checkpoint_confidence,
+    resolve_field_confidence,
 )
 
 
@@ -38,11 +40,16 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     fields: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
 
+    agree_records = [r for r in ctx.records if "agreement" in (r.get("check_id") or "").lower() or "signature" in (r.get("check_id") or "").lower()]
+    r6_presence = ctx.records_by_id.get("chk_loan_agreement_presence")
+    sig_conf = resolve_field_confidence(doc=agree_doc, field_name="signature", record=r6_sig)
+    presence_conf = resolve_field_confidence(doc=agree_doc, field_name="presence", record=r6_presence) if has_agree else 0.0
+
     if has_agree and is_signed:
         status = "VERIFIED"
         fields = [
-            build_field("Loan Agreement Presence", "Present", 99.0, f"doc-{ctx.loan_id}-agreement"),
-            build_field("Loan Agreement Signature", "Signed", 98.0, f"doc-{ctx.loan_id}-agreement"),
+            build_field("Loan Agreement Presence", "Present", presence_conf, f"doc-{ctx.loan_id}-agreement"),
+            build_field("Loan Agreement Signature", "Signed", sig_conf, f"doc-{ctx.loan_id}-agreement"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Agreement Signature")]
         val = {"left": "Present & Signed", "right": "Mandatory Signed Agreement", "result": "MATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
@@ -50,7 +57,7 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     elif has_agree and not is_signed:
         status = "DISCREPANCY"
         fields = [
-            build_field("Loan Agreement Presence", "Present", 99.0, f"doc-{ctx.loan_id}-agreement"),
+            build_field("Loan Agreement Presence", "Present", presence_conf, f"doc-{ctx.loan_id}-agreement"),
             build_field("Loan Agreement Signature", "Unsigned", 0.0, f"doc-{ctx.loan_id}-agreement"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Unsigned", 1, "Agreement Signature")]
@@ -63,9 +70,7 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         val = {"left": "Missing", "right": "Mandatory Signed Agreement", "result": "MISMATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
         notes = "Loan agreement not uploaded."
 
-    conf = 98.5 if status == "VERIFIED" else (40.0 if has_agree else 0.0)
-
-    agree_records = [r for r in ctx.records if "agreement" in (r.get("check_id") or "").lower() or "signature" in (r.get("check_id") or "").lower()]
+    conf = compute_checkpoint_confidence(fields, agree_records) if status == "VERIFIED" else 0.0
 
     return build_checkpoint(
         6,
@@ -93,17 +98,24 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         bt_doc = ctx.get_doc("bt_details", "bt")
         has_bt_doc = bool(bt_doc) or ctx.has_doc_matching("bt", "foreclosure")
         if has_bt_doc:
+            bt_presence_conf = resolve_field_confidence(
+                doc=bt_doc,
+                field_name="presence",
+                record=bt_records[0] if bt_records else None,
+            )
+            bt_fields = [
+                build_field("Balance Transfer", "1 (Applicable)", 100.0, f"doc-{ctx.loan_id}-bt"),
+                build_field("BT Details Presence", "Present", bt_presence_conf, f"doc-{ctx.loan_id}-bt"),
+            ]
+            bt_conf = compute_checkpoint_confidence(bt_fields, bt_records)
             return build_checkpoint(
                 12,
                 "BT Details",
                 "VERIFIED",
-                95.0,
+                bt_conf,
                 "BT details document present and verified.",
                 "BT Details required for Balance Transfer loans.",
-                [
-                    build_field("Balance Transfer", "1 (Applicable)", 100.0, f"doc-{ctx.loan_id}-bt"),
-                    build_field("BT Details Presence", "Present", 95.0, f"doc-{ctx.loan_id}-bt"),
-                ],
+                bt_fields,
                 [build_evidence(f"doc-{ctx.loan_id}-bt", "BT_Details.pdf", "BT Details Document", 1, "Previous Lender")],
                 {"left": "Present", "right": "Mandatory for BT", "result": "MATCH", "leftSource": "bt_details", "rightSource": "los"},
                 comparisons=bt_records,

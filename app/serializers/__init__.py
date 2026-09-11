@@ -6,6 +6,7 @@ from .case_context import (
     build_field,
     compute_checkpoint_confidence,
     inr_format,
+    resolve_field_confidence,
 )
 from .case_serializer import (
     get_case_results,

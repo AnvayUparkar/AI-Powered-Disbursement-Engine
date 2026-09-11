@@ -130,6 +130,7 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
         {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
         {"doc_field": "emi", "los_field": "emi", "method": "exact_numeric", "aliases": ["monthly_emi", "emi_amount"]},
+        {"doc_field": "bpi", "los_field": "bpi_charges", "method": "exact_numeric", "aliases": ["bpi_charges", "bpi_charge", "broken_period_interest", "BPI"], "optional": True},
         {"doc_field": "customer_consent", "los_field": None, "method": "presence_only", "aliases": ["consent", "is_consented"]},
     ],
     "disbursal_memo": [

@@ -356,6 +356,7 @@ def test_checkpoint_3_weighted_match_and_dynamic_confidence(tmp_path: Path, monk
         "loan_validity": 24,
         "application_no": loan_id,
         "application_date": "10/01/2024",
+        "ocr_confidence": 0.95,
     }
     (struct_dir / f"{loan_id}_loan_application.json").write_text(json.dumps(app_form_data))
 
