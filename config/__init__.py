@@ -32,6 +32,7 @@ from config.settings import (
     MAX_DOC_WORKERS,
     NAME_MATCH_ALGO,
     SKIP_IDP,
+    USE_EQUAL_FIELD_WEIGHTS,
 )
 from config.doc_types import (
     DOC_TYPE_ALIASES,
@@ -41,12 +42,15 @@ from config.doc_types import (
 )
 from config.pipeline_checks import (
     CHECKPOINTS_SPEC,
+    EQUAL_FIELD_CRITICALITY_WEIGHTS,
     FIELD_ALIASES,
     FIELD_CRITICALITY_WEIGHTS,
     FINANCIAL_FIELD_CHECKS,
     KYC_FIELD_CHECKS,
     LOAN_APP_FIELD_CHECKS,
     NEO_LOS_FIELD_MAP,
+    TIERED_FIELD_CRITICALITY_WEIGHTS,
+    get_field_criticality_weights,
 )
 
 __all__ = [
@@ -84,6 +88,10 @@ __all__ = [
     "get_display_name",
     "NEO_LOS_FIELD_MAP",
     "FIELD_CRITICALITY_WEIGHTS",
+    "TIERED_FIELD_CRITICALITY_WEIGHTS",
+    "EQUAL_FIELD_CRITICALITY_WEIGHTS",
+    "get_field_criticality_weights",
+    "USE_EQUAL_FIELD_WEIGHTS",
     "KYC_FIELD_CHECKS",
     "FINANCIAL_FIELD_CHECKS",
     "LOAN_APP_FIELD_CHECKS",

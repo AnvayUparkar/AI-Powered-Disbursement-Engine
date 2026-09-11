@@ -44,3 +44,8 @@ SKIP_IDP = os.getenv("SKIP_IDP", "false").lower() in ("true", "1", "yes")
 # Turn on while iterating on Docling/OCR config so "Run Verification Engine" reflects current code
 # instead of replaying a stale extraction from an earlier run.
 DISABLE_IDP_EXTRACTION_CACHE = os.getenv("DISABLE_IDP_EXTRACTION_CACHE", "false").lower() in ("true", "1", "yes")
+
+# Field weight strategy: When True, all fields in all documents receive equal weight (1.0).
+# When False (default), the tiered criticality weights (3.0, 2.0, 1.0) are applied.
+USE_EQUAL_FIELD_WEIGHTS = os.getenv("USE_EQUAL_FIELD_WEIGHTS", "false").lower() in ("true", "1", "yes")
+

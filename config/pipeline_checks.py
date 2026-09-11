@@ -1,6 +1,8 @@
 """Pipeline verification checks configuration — field match specifications and 12-checkpoint metadata."""
 from typing import Any, Dict, List
 
+from config.settings import USE_EQUAL_FIELD_WEIGHTS
+
 # ── NEO LOS DB column -> canonical field name ──────────────────────────────
 NEO_LOS_FIELD_MAP: dict[str, str] = {
     "loan_id": "loan_id",
@@ -42,7 +44,7 @@ FIELD_ALIASES: dict[str, list[str]] = {
 # Tier 1 (3.0): Core identity and regulatory hard gates
 # Tier 2 (2.0): Core loan financials
 # Tier 3 (1.0): Contact, demographic, and metadata
-FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
+TIERED_FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
     # Tier 1: Core Identity
     "applicant_name": 3.0,
     "customer_name": 3.0,
@@ -86,6 +88,24 @@ FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
     "account_type": 1.0,
     "type_of_account": 1.0,
 }
+
+EQUAL_FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
+    k: 1.0 for k in TIERED_FIELD_CRITICALITY_WEIGHTS
+}
+
+FIELD_CRITICALITY_WEIGHTS: dict[str, float] = (
+    EQUAL_FIELD_CRITICALITY_WEIGHTS
+    if USE_EQUAL_FIELD_WEIGHTS
+    else TIERED_FIELD_CRITICALITY_WEIGHTS
+)
+
+
+def get_field_criticality_weights(use_equal: bool | None = None) -> dict[str, float]:
+    """Returns field weights dictionary: equal weights (all 1.0) if True, tiered if False."""
+    if use_equal is None:
+        use_equal = USE_EQUAL_FIELD_WEIGHTS
+    return EQUAL_FIELD_CRITICALITY_WEIGHTS if use_equal else TIERED_FIELD_CRITICALITY_WEIGHTS
+
 
 # ── 1. KYC Field Checks (KYC Checker Node) ───────────────────────────────────
 KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
