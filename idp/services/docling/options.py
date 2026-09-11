@@ -15,7 +15,6 @@ class DoclingOptions(BaseModel):
     do_table_structure: bool = True  # Enable/disable table detection
     table_mode: str = "ACCURATE"  # FAST mode is disabled repo-wide (see pipeline.py) -- this is always forced to ACCURATE regardless of value
     
-    # TableFormer Model Selection
     table_model_type: str = "default"  # 'default', 'custom', 'none'
     table_model_path: Optional[str] = None  # Custom model checkpoint path
 
@@ -27,39 +26,31 @@ class DoclingOptions(BaseModel):
     do_cell_matching: bool = False
 
     # Table Detection Thresholds
-    # NOTE: Docling's TableStructureOptions has no native "confidence"/"min_rows"/
-    # "min_cols" knobs -- these are enforced as a POST-FILTER in parser.py after
-    # TableFormer returns its grid (tables that don't pass are dropped before
-    # reaching the output, never silently ignored).
-    table_confidence_threshold: float = 0.3  # Min non-empty-cell fill ratio to accept table (0.0-1.0)
-    table_min_rows: int = 1  # Minimum rows to qualify as table
+    table_confidence_threshold: float = 0.3  # Min confidence to accept table (lowered to detect light/borderless form grids)
+    table_min_rows: int = 1  # Minimum rows to qualify as table (allows single-row boxed headers like Application No)
     table_min_cols: int = 1  # Minimum columns to qualify as table
 
     # Cell Merging & Structure
-    # NOTE: not currently wired into the Docling pipeline or post-processing.
-    # Reserved for a future comb-box/cell-merge post-processor.
     merge_adjacent_cells: bool = True  # Merge cells with same content
     cell_merge_threshold: float = 0.5  # Similarity threshold for merging
-    detect_cell_spans: bool = True  # Detect row/col spans
+    detect_cell_spans: bool = True  # Detect row/col spans (native spans parsed directly)
 
     # Table Structure Refinement
-    # NOTE: not currently wired -- reserved for a future post-processor.
     refine_table_structure: bool = True  # Post-process table grid
     remove_empty_rows: bool = False  # Filter out empty rows
     remove_empty_cols: bool = False  # Filter out empty columns
 
     # Character Box Handling (CRITICAL for forms with character-level boxes)
-    # NOTE: not currently wired -- reserved for a future comb-box detector.
-    merge_character_boxes: bool = True  # Merge adjacent single-char cells
-    character_box_max_width: float = 300.0  # Max width (pixels) for char box
-    character_box_gap_threshold: float = 2.0  # Max gap to merge chars
+    merge_character_boxes: bool = True  # Merge adjacent single-char cells (handled by CombBoxDetector with independent defaults)
+    character_box_max_width: float = 300.0  # Max width (pixels) for char box (expanded for digit boxes)
+    character_box_gap_threshold: float = 2.0  # Max gap to merge chars (bridges spacing between boxed characters)
     
     # ═══════════════════════════════════════════════════════════════════════
     # OCR ENGINE (RapidOCR PP-OCRv6)
     # ═══════════════════════════════════════════════════════════════════════
     do_ocr: bool = True  # Enable OCR for text extraction
-    ocr_engine_name: str = "rapidocr"  # Engine backend
-    ocr_model_name: str = "PP-OCRv6_medium"  # Model variant
+    ocr_engine_name: str = "rapidocr"  # [INERT] Engine backend (RapidOCR backend is fixed)
+    ocr_model_name: str = "PP-OCRv6_medium"  # Model variant (used in cache key & logging)
     
     # OCR Model Paths (optional custom models)
     det_model_path: Optional[str] = None  # Detection model
@@ -71,8 +62,8 @@ class DoclingOptions(BaseModel):
     
     # OCR Mode
     force_full_page_ocr: bool = False  # False = use native text when available
-    adaptive_full_page_ocr: bool = True  # Trigger full-page OCR when digital text density is low
-    ocr_on_tables_only: bool = False  # OCR only table regions
+    adaptive_full_page_ocr: bool = True  # [INERT] Trigger full-page OCR when digital text density is low
+    ocr_on_tables_only: bool = False  # [INERT] OCR only table regions
     
     # OCR Quality & Performance
     det_limit_side_len: int = 1536  # Detection input size (higher = slower, better)
@@ -111,21 +102,20 @@ class DoclingOptions(BaseModel):
     layout_detection_threshold: float = 0.1
 
     # Reading Order
-    detect_reading_order: bool = True  # Determine element sequence
-    reading_order_method: str = "spatial"  # 'spatial', 'column_aware'
+    detect_reading_order: bool = True  # [INERT] Determine element sequence
+    reading_order_method: str = "spatial"  # [INERT] 'spatial', 'column_aware'
     
     # ═══════════════════════════════════════════════════════════════════════
     # DOCUMENT PROCESSING
     # ═══════════════════════════════════════════════════════════════════════
-    max_num_pages: int = 100  # Max pages to process
-    process_images: bool = True  # Process embedded images
-    extract_figures: bool = False  # Extract figure regions
+    max_num_pages: int = 100  # [INERT] Max pages to process
+    process_images: bool = True  # [INERT] Process embedded images
+    extract_figures: bool = False  # [INERT] Extract figure regions
     
     # ═══════════════════════════════════════════════════════════════════════
     # PERFORMANCE & DEBUGGING
     # ═══════════════════════════════════════════════════════════════════════
-    use_gpu: bool = True  # Use GPU acceleration (if available)
+    use_gpu: bool = False  # Use GPU acceleration (if available)
     num_threads: int = 4  # CPU threads for processing
-    debug_mode: bool = True  # Save debug visualizations
+    debug_mode: bool = False  # Save debug visualizations
     log_level: str = "INFO"  # Logging verbosity
-

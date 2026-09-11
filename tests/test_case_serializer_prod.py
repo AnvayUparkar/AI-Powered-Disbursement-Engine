@@ -41,6 +41,19 @@ def test_inr_format_various_inputs():
     assert inr_format(0.0) == "₹0"
     assert inr_format(500000.0) == "₹500,000"
     assert inr_format(1234567.89) == "₹1,234,567"
+    assert inr_format("38,200") == "₹38,200"
+    assert inr_format("₹ 1,500,000.50") == "₹1,500,000"
+    assert inr_format("") == "₹0"
+
+
+def test_safe_float_parsing():
+    """Validates safe_float parsing of strings with commas, currency symbols, percentages."""
+    from app.serializers.case_context import safe_float
+    assert safe_float("38,200") == 38200.0
+    assert safe_float("₹ 1,500,000.50") == 1500000.50
+    assert safe_float("17.5%") == 17.5
+    assert safe_float(None, default=0.0) == 0.0
+    assert safe_float("invalid", default=0.0) == 0.0
 
 
 def test_build_field_structure():

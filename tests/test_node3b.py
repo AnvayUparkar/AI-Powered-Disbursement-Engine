@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from pipeline.nodes.node3b_financial import node3b_financial
+from pipeline.nodes.check_financial import check_financial as node3b_financial
 from pipeline.state import PipelineState
 
 

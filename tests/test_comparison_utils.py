@@ -1,6 +1,6 @@
 import pytest
 
-from pipeline.nodes.comparison_utils import (
+from pipeline.engines.comparison import (
     clean_aadhaar,
     clean_id,
     clean_numeric,

@@ -99,11 +99,23 @@ def format_datetime_dmy_12h(val: datetime | str | None) -> str:
     return f"{date_part}, {time_part}"
 
 
-def inr_format(val: float | None) -> str:
+from pipeline.engines.comparison import clean_numeric
+
+
+def safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely parses a float from string/int/float, stripping commas, currency symbols, etc."""
+    num = clean_numeric(val)
+    return float(num) if num is not None else default
+
+
+def inr_format(val: Any) -> str:
     """Formats numeric value to INR string with comma grouping."""
-    if val is None:
+    if val is None or val == "":
         return "₹0"
-    return f"₹{int(val):,}"
+    num = clean_numeric(val)
+    if num is None:
+        return "₹0"
+    return f"₹{int(num):,}"
 
 
 def format_tenure_months(val: Any) -> str:

@@ -15,5 +15,16 @@
   "application_no": "LOAN_001",
   "tenure_months": 24,
   "address_text": "123 MG Road, Bengaluru, Karnataka, 560001",
-  "application_id": "LOAN_001"
+  "application_id": "LOAN_001",
+  "aadhaar_number": null,
+  "address": "123 MG Road, Bengaluru, Karnataka, 560001",
+  "bank_account_no": "987654321012",
+  "BPI": null,
+  "irr_percent": null,
+  "emi": null,
+  "aadhaar_xml_present": false,
+  "loan_agreement_present": false,
+  "loan_agreement_signed": false,
+  "_formatted_text": "{\n  \"applicant_name\": \"Rajesh Sharma\",\n  \"fathers_name\": \"Suresh Sharma\",\n  \"dob\": \"1990-05-15\",\n  \"mobile_no\": \"9876543210\",\n  \"gender\": \"Male\",\n  \"aadhaar_number\": null,\n  \"pan_number\": \"ABCDE1234F\",\n  \"address\": \"123 MG Road, Bengaluru, Karnataka, 560001\",\n  \"current_address\": \"123 MG Road, Bengaluru, Karnataka, 560001\",\n  \"bank_account_no\": \"987654321012\",\n  \"type_of_account\": \"Savings\",\n  \"loan_amount\": \"500000\",\n  \"loan_validity\": \"24 months\",\n  \"loan_type\": \"Personal Loan\",\n  \"application_no\": \"LOAN_001\",\n  \"application_date\": \"2024-01-10\",\n  \"BPI\": null,\n  \"irr_percent\": null,\n  \"emi\": null,\n  \"aadhaar_xml_present\": false,\n  \"loan_agreement_present\": false,\n  \"loan_agreement_signed\": false\n}",
+  "formattedText": "{\n  \"applicant_name\": \"Rajesh Sharma\",\n  \"fathers_name\": \"Suresh Sharma\",\n  \"dob\": \"1990-05-15\",\n  \"mobile_no\": \"9876543210\",\n  \"gender\": \"Male\",\n  \"aadhaar_number\": null,\n  \"pan_number\": \"ABCDE1234F\",\n  \"address\": \"123 MG Road, Bengaluru, Karnataka, 560001\",\n  \"current_address\": \"123 MG Road, Bengaluru, Karnataka, 560001\",\n  \"bank_account_no\": \"987654321012\",\n  \"type_of_account\": \"Savings\",\n  \"loan_amount\": \"500000\",\n  \"loan_validity\": \"24 months\",\n  \"loan_type\": \"Personal Loan\",\n  \"application_no\": \"LOAN_001\",\n  \"application_date\": \"2024-01-10\",\n  \"BPI\": null,\n  \"irr_percent\": null,\n  \"emi\": null,\n  \"aadhaar_xml_present\": false,\n  \"loan_agreement_present\": false,\n  \"loan_agreement_signed\": false\n}"
 }

@@ -170,7 +170,20 @@ def delete_case(case_id: str):
 
 
 @router.post("/{case_id}/run", summary="Trigger verification engine pipeline")
-def run_case_verification(case_id: str):
+def run_case_verification(case_id: str, async_mode: bool = Query(False, alias="async", description="Dispatch to Celery worker if True")):
+    if async_mode:
+        try:
+            from pipeline.celery_app import run_pipeline_task
+            task = run_pipeline_task.delay(case_id)
+            return {
+                "status": "queued",
+                "task_id": task.id,
+                "case_id": case_id,
+                "message": "Pipeline verification queued for background processing via Celery.",
+            }
+        except Exception as e:
+            logger.warning("Celery enqueue failed, falling back to synchronous run: %s", e)
+
     try:
         run_pipeline(case_id)
         updated_case = serialize_case(case_id)

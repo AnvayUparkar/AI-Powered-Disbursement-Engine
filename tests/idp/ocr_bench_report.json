@@ -1,0 +1,268 @@
+{
+  "benchmark_results": [
+    {
+      "document": "digital",
+      "summary": {
+        "doc_cer": 0.3877,
+        "doc_wer": 0.8082,
+        "avg_field_recall": 0.8968,
+        "avg_mean_containment": 0.1118,
+        "avg_containment_at_50": 0.0495,
+        "total_elements_extracted": 825,
+        "total_pages": 4
+      },
+      "pages": [
+        {
+          "page": 1,
+          "field_recall": 0.8529,
+          "fields_found": 29,
+          "fields_total": 34,
+          "mean_containment": 0.1091,
+          "containment_at_50": 0.0294,
+          "per_field_containment": {
+            "Application Date": 0.4542,
+            "LOS No.": 0.2885,
+            "Applicant Name": 0.0144,
+            "Father's Name": 0.0125,
+            "Spouse Name": 0.0277,
+            "Mother's Name": 0.0279,
+            "Date of Birth": 0.0335,
+            "Gender": 0.3575,
+            "Are you": 0.0,
+            "No. of dependents": 0.0,
+            "Education": 0.1891,
+            "Mobile": 0.1337,
+            "Religion": 0.1019,
+            "PAN": 0.0954,
+            "Aadhaar Card No": 0.335,
+            "Email": 0.0084,
+            "Present Residence": 0.0668,
+            "Present Address (Residence)": 0.0535,
+            "Landmark": 0.0685,
+            "City": 0.0603,
+            "State": 0.0244,
+            "Pincode": 0.0012,
+            "STD Tel.": 0.0,
+            "Years at current: Residence": 0.1276,
+            "Years at current: City": 0.0,
+            "Business / Employer's Name": 0.0625,
+            "Business Address": 0.1319,
+            "Business City": 0.055,
+            "Business State": 0.6499,
+            "Business Pin": 0.0,
+            "Business Phone": 0.3113,
+            "Total years in Service / Business": 0.0,
+            "No. of years in current job / Business": 0.0,
+            "Official Email ID": 0.0179
+          },
+          "missing_fields": [
+            "Applicant Name",
+            "Aadhaar Card No",
+            "Present Address (Residence)",
+            "Business / Employer's Name",
+            "Business Address"
+          ]
+        },
+        {
+          "page": 2,
+          "field_recall": 0.9565,
+          "fields_found": 22,
+          "fields_total": 23,
+          "mean_containment": 0.0556,
+          "containment_at_50": 0.0435,
+          "per_field_containment": {
+            "Annual Salary / Business Income Rs.": 0.4315,
+            "Other Annual Income Rs.": 0.1428,
+            "Others": 0.6032,
+            "1. Bank details - Name of the Bank": 0.0221,
+            "Branch": 0.0112,
+            "Account Number": 0.014,
+            "Type of Account": 0.0,
+            "Year opened": 0.0536,
+            "Existing Loan 1 Name of Institution": 0.0,
+            "Existing Loan 1 Loan Type": 0.0,
+            "Existing Loan 1 Loan Amount (Rs.)": 0.0,
+            "Existing Loan 1 Tenure of Loan (in months)": 0.0,
+            "Existing Loan 1 Status": 0.0,
+            "Existing Loan 2 Name of Institution": 0.0,
+            "Existing Loan 2 Loan Type": 0.0,
+            "Existing Loan 2 Loan Amount (Rs.)": 0.0,
+            "Existing Loan 2 Tenure of Loan (in months)": 0.0,
+            "Existing Loan 2 Status": 0.0,
+            "Existing Loan 3 Name of Institution": 0.0,
+            "Existing Loan 3 Loan Type": 0.0,
+            "Existing Loan 3 Loan Amount (Rs.)": 0.0,
+            "Existing Loan 3 Tenure of Loan (in months)": 0.0,
+            "Existing Loan 3 Status": 0.0
+          },
+          "missing_fields": [
+            "Branch"
+          ]
+        },
+        {
+          "page": 3,
+          "field_recall": 1.0,
+          "fields_found": 16,
+          "fields_total": 16,
+          "mean_containment": 0.1713,
+          "containment_at_50": 0.125,
+          "per_field_containment": {
+            "Loan Amount Rs.": 0.0819,
+            "Tenure": 0.0,
+            "End Use": 0.3254,
+            "Reference 1 Name": 0.0255,
+            "Reference 1 Relationship with applicant": 0.0537,
+            "Reference 1 Residential Address": 0.5249,
+            "Reference 1 City": 0.039,
+            "Reference 1 State": 0.0266,
+            "Reference 1 Pin": 0.0401,
+            "Reference 1 Mobile": 0.5137,
+            "Reference 2 Name": 0.3193,
+            "Reference 2 Relationship with applicant": 0.0,
+            "Reference 2 Residential Address": 0.2375,
+            "Reference 2 City": 0.039,
+            "Reference 2 State": 0.0266,
+            "Reference 2 Mobile": 0.488
+          },
+          "missing_fields": []
+        },
+        {
+          "page": 4,
+          "field_recall": 0.7778,
+          "fields_found": 7,
+          "fields_total": 9,
+          "mean_containment": 0.1112,
+          "containment_at_50": 0.0,
+          "per_field_containment": {
+            "SO Code": 0.0256,
+            "SM Code": 0.024,
+            "Branch": 0.2867,
+            "RM Code": 0.0299,
+            "Acknowledgment Name of the Applicant": 0.0633,
+            "Acknowledgment Date of Application": 0.0873,
+            "Date & Time of receipt": 0.2173,
+            "HDB Contact Person Name": 0.244,
+            "Contact No.": 0.0225
+          },
+          "missing_fields": [
+            "RM Code",
+            "Acknowledgment Name of the Applicant"
+          ]
+        }
+      ]
+    },
+    {
+      "document": "handwritten_scanned",
+      "summary": {
+        "doc_cer": 1.0,
+        "doc_wer": 1.0,
+        "avg_field_recall": 0.834,
+        "avg_mean_containment": 0.4115,
+        "avg_containment_at_50": 0.4314,
+        "total_elements_extracted": 258,
+        "total_pages": 3
+      },
+      "pages": [
+        {
+          "page": 1,
+          "field_recall": 0.6786,
+          "fields_found": 19,
+          "fields_total": 28,
+          "mean_containment": 0.5637,
+          "containment_at_50": 0.5714,
+          "per_field_containment": {
+            "Application Date": 0.9124,
+            "Appl No.": 0.8791,
+            "GSTIN No.": 0.9247,
+            "Relationship with Applicant": 0.5879,
+            "Applicant Name": 0.6126,
+            "Father's Name": 0.416,
+            "Spouse Name": 0.3803,
+            "Mother's Name": 0.911,
+            "Date of Birth": 0.6832,
+            "No. of dependents": 0.8813,
+            "Education": 0.6545,
+            "Mobile": 0.8807,
+            "Religion": 0.2212,
+            "PAN": 0.1998,
+            "Aadhaar Card No.": 0.4429,
+            "Email": 0.9598,
+            "Present Address (Residence)": 0.5373,
+            "Landmark": 0.5067,
+            "City": 0.5723,
+            "State": 0.4507,
+            "Pincode": 0.4211,
+            "STD": 0.3582,
+            "Business / Employer's Name": 1.0,
+            "Business Address": 0.5733,
+            "Business City": 0.0205,
+            "Business State": 0.3048,
+            "Business Pin": 0.3992,
+            "Business STD": 0.0912
+          },
+          "missing_fields": [
+            "Application Date",
+            "Appl No.",
+            "GSTIN No.",
+            "Mother's Name",
+            "PAN",
+            "Aadhaar Card No.",
+            "Present Address (Residence)",
+            "Business / Employer's Name",
+            "Business Address"
+          ]
+        },
+        {
+          "page": 2,
+          "field_recall": 1.0,
+          "fields_found": 7,
+          "fields_total": 7,
+          "mean_containment": 0.4141,
+          "containment_at_50": 0.4286,
+          "per_field_containment": {
+            "PAN": 0.0,
+            "1. Bank details - Name of the Bank": 0.9167,
+            "Branch": 1.0,
+            "Account Number": 0.4402,
+            "Type of Account": 0.0,
+            "Loan Amount Rs.": 0.5415,
+            "Tenure": 0.0
+          },
+          "missing_fields": []
+        },
+        {
+          "page": 3,
+          "field_recall": 0.8235,
+          "fields_found": 14,
+          "fields_total": 17,
+          "mean_containment": 0.2566,
+          "containment_at_50": 0.2941,
+          "per_field_containment": {
+            "Vehicle: Make / Model": 0.0,
+            "(1) Name": 0.758,
+            "Relationship with applicant": 0.6452,
+            "Residential Address": 0.2174,
+            "City": 0.155,
+            "State": 0.0,
+            "Pin": 0.2635,
+            "STD": 0.252,
+            "Mobile": 0.252,
+            "(2) Name": 0.7261,
+            "Relationship with applicant (2)": 0.511,
+            "Residential Address (2)": 0.5816,
+            "City (2)": 0.0,
+            "State (2)": 0.0,
+            "Pin (2)": 0.0,
+            "STD (2)": 0.0,
+            "Mobile (2)": 0.0
+          },
+          "missing_fields": [
+            "Residential Address",
+            "(2) Name",
+            "Residential Address (2)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "loan_id": "LOAN_005",
+  "application_id": "APP-LOAN_005",
+  "applicant_name": "Unknown Applicant",
+  "loan_type": "Unspecified",
+  "funding_amount": null,
+  "tenure_months": null,
+  "balance_transfer": 0,
+  "login_date": "2026-09-09",
+  "status": "DRAFT"
+}
