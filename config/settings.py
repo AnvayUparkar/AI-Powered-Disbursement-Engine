@@ -11,8 +11,8 @@ load_dotenv(dotenv_path=ENV_PATH)
 NAME_MATCH_ALGO = "jaro_winkler"
 ADDRESS_MATCH_ALGO = "tfidf_cosine"
 
-FUZZY_MATCH_BAND = float(os.getenv("FUZZY_MATCH_BAND", "0.92"))          # >= 0.92: auto MATCH
-FUZZY_PARTIAL_LOWER = float(os.getenv("FUZZY_PARTIAL_LOWER", "0.75"))   # 0.75 - 0.92: PARTIAL -> LLM, < 0.75: MISMATCH
+FUZZY_MATCH_BAND = float(os.getenv("FUZZY_MATCH_BAND", "0.5"))          # >= 0.92: auto MATCH
+FUZZY_PARTIAL_LOWER = float(os.getenv("FUZZY_PARTIAL_LOWER", "0.4"))   # 0.75 - 0.92: PARTIAL -> LLM, < 0.75: MISMATCH
 
 FACE_MATCH_BAND = float(os.getenv("FACE_MATCH_BAND", "0.90"))           # >= 0.90: auto MATCH
 FACE_REVIEW_LOWER = float(os.getenv("FACE_REVIEW_LOWER", "0.75"))       # 0.75 - 0.90: PARTIAL/REVIEW, < 0.75: MISMATCH
