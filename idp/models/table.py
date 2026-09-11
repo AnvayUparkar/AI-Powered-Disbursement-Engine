@@ -27,6 +27,7 @@ class TableStructure(BaseModel):
     headers: List[str] = Field(default_factory=list)
     rows_raw: List[List[str]] = Field(default_factory=list)
     markdown: Optional[str] = None  # Docling's own export_to_markdown() rendering of this table
+    confidence: float = 0.5
 
 
 class TableRegion(BaseModel):

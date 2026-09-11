@@ -1,6 +1,6 @@
 import re
 import math
-from typing import List, Set, Optional
+from typing import Any, List, Set, Optional
 from idp.models.ocr import OCRElement, OCRResult
 from idp.core.config import settings
 
@@ -38,9 +38,17 @@ class OCRConfidenceEvaluator:
 
     # Common financial, technical, and regulatory acronyms (whitelisted from consonant check)
     COMMON_ACRONYMS: Set[str] = {
-        "HTML", "HTTP", "HTTPS", "PDF", "JSON", "KYC", "PAN", "VKYC", "IFSC", 
-        "NEFT", "RTGS", "GST", "HDFC", "ICICI", "UTI", "UIDAI", "DPI", "OCR", 
-        "VLM", "API", "XML", "S3", "URL", "ID", "DOB", "S/O", "D/O", "W/O", "VTC"
+        "HTML", "HTTP", "HTTPS", "PDF", "JSON", "KYC", "PAN", "VKYC", "IFSC",
+        "NEFT", "RTGS", "GST", "HDFC", "ICICI", "UTI", "UIDAI", "DPI", "OCR",
+        "VLM", "API", "XML", "S3", "URL", "ID", "DOB", "S/O", "D/O", "W/O", "VTC",
+        # Loan-application / KYC form abbreviations. These are legitimate printed
+        # field labels and checkbox options (company type, communication mode,
+        # ID references) that the pure-consonant and vowel-ratio garble checks
+        # below would otherwise flag, causing whole form rows to be dropped by
+        # the serializer's is_garbled_text() gate.
+        "PVT", "LTD", "MNC", "PSU", "LLP", "HUF", "SMS", "STD", "VPA", "CKYC",
+        "UPI", "EMI", "CIN", "TAN", "MSME", "NRI", "NBFC", "NACH", "KFS", "HDB",
+        "LTV", "ROI", "PIO", "OCI", "TDS", "MICR", "CVL", "CDSL", "NSDL"
     }
 
     # Valid Unicode Script Character Ranges
@@ -99,21 +107,50 @@ class OCRConfidenceEvaluator:
         cleaned = re.sub(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\uff00-\uffef]", "", cleaned)
         
         # 6. Remove Devanagari-to-Latin garbled patterns: "3TET", "TT3T", "3TR3", "334"
-        # Matches: digits+letters+digits OR letters+digits+letters OR pure digits with letters mixed
-        cleaned = re.sub(r"\b\d+[A-Z]{2,}\d*\b", "", cleaned)  # e.g., "3TET", "334"
-        cleaned = re.sub(r"\b[A-Z]{2,}\d+\s?\d*\b", "", cleaned)  # e.g., "TT3T 3"
-        
-        # 7. Remove standalone short noise: single letters on their own
-        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", "", cleaned)  # Single uppercase letters: "R", "A" (preserve numbers)
-        
+        # Matches: digits+letters+digits OR letters+digits+letters OR pure digits with letters mixed.
+        # GUARD: structured identifiers (PAN/IFSC/GSTIN) and longer digit-bearing
+        # reference numbers (application no., account no., customer id, STD code)
+        # are legitimate letter+digit field VALUES, not label garble -- Devanagari
+        # misreads are short and letter-heavy ("3TET"=4 chars, "3RRTO"=5). Only a
+        # blob that is BOTH short (<=5) AND carries <=2 digits is stripped.
+        def _strip_garble_blob(m: "re.Match[str]") -> str:
+            blob = m.group(0).strip()
+            if cls.IDENTIFIER_PATTERNS.search(blob):
+                return m.group(0)
+            digit_count = sum(ch.isdigit() for ch in blob)
+            if len(blob) <= 5 and digit_count <= 2:
+                return ""
+            return m.group(0)
+
+        cleaned = re.sub(r"\b\d+[A-Z]{2,}\d*\b", _strip_garble_blob, cleaned)  # e.g., "3TET", "334"
+        cleaned = re.sub(r"\b[A-Z]{2,}\d+\s?\d*\b", _strip_garble_blob, cleaned)  # e.g., "TT3T 3"
+
+        # 7. Remove standalone short noise: single letters on their own.
+        # GUARD: keep a lone uppercase letter flanked by word characters on both
+        # sides -- it is a genuine middle initial ("RAJESH K SHARMA") or a split
+        # checkbox option ("P G"), not stray Devanagari-misread noise.
+        def _strip_lone_upper(m: "re.Match[str]") -> str:
+            src = m.string
+            before = src[:m.start()].rstrip()
+            after = src[m.end():].lstrip()
+            if before and after and before[-1].isalpha() and after[0].isalpha():
+                return m.group(0)
+            return ""
+
+        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", _strip_lone_upper, cleaned)  # Single uppercase letters: "R", "A" (preserve numbers)
+
         # 8. Remove random character sequences with mixed punctuation
         cleaned = re.sub(r"\b[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{5,}\b", "", cleaned)  # e.g., "ee , a fr ) s4 H4"
-        
+
         # 9. Remove leading digit+slash patterns from fields like "9/MALE" -> "MALE", "Paf4/DOB" -> "DOB" (preserve dates)
         cleaned = re.sub(r"^[A-Za-z]*\d+/(?=[A-Za-z])", "", cleaned)
-        
+
         # 10. Remove patterns like "RT 3HTET" or "3 34" (mixed letter-digit garbage)
-        cleaned = re.sub(r"\b[A-Z]{1,2}\s+\d[A-Z]+\b", "", cleaned)
+        cleaned = re.sub(
+            r"\b[A-Z]{1,2}\s+\d[A-Z]+\b",
+            lambda m: m.group(0) if cls.IDENTIFIER_PATTERNS.search(m.group(0)) else "",
+            cleaned,
+        )
 
         # Clean up double spaces or dangling leading slashes
         cleaned = re.sub(r"^\s*/\s*", "", cleaned)
@@ -161,11 +198,17 @@ class OCRConfidenceEvaluator:
         if re.search(garbage_tokens, cleaned, re.IGNORECASE):
             return True
         
-        # 7. Check for Devanagari misread patterns: "3TET", "TT3T", "334", "3 34"
-        if re.search(r"\b\d+[A-Z]{2,}\d*\b", cleaned):  # "3TET", "334"
-            return True
-        if re.search(r"\b[A-Z]{2,}\d+\s?\d*\b", cleaned):  # "TT3T 3"
-            return True
+        # 7. Check for Devanagari misread patterns: "3TET", "TT3T", "334", "3 34".
+        # A form row carrying a real letter+digit VALUE -- a structured identifier
+        # (PAN/IFSC/GSTIN) or a longer digit-bearing reference number (application
+        # no. "APPL00343265", account no., customer id) -- must NOT be classed as
+        # garble and dropped by the serializer. Genuine Devanagari misreads are
+        # short (<=5 chars) and letter-heavy (<=2 digits); real values are not.
+        if not self.IDENTIFIER_PATTERNS.search(cleaned):
+            for _m in re.finditer(r"\b\d+[A-Z]{2,}\d*\b|\b[A-Z]{2,}\d+\s?\d*\b", cleaned):
+                _blob = _m.group(0).strip()
+                if len(_blob) <= 5 and sum(ch.isdigit() for ch in _blob) <= 2:
+                    return True
         
         # 8. Check for random character sequences with excessive punctuation
         if re.search(r"[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{8,}", cleaned):
@@ -214,6 +257,249 @@ class OCRConfidenceEvaluator:
 
         return False
 
+    # Generic Docling layout-region labels that indicate no OCR token was
+    # actually attached — the bbox is a structural container, not a detection.
+    # Tuned based on production observation of loan application forms.
+    LAYOUT_PASSTHROUGH_LABELS: Set[str] = {
+        "Text Block", "Picture", "Container", "Form Field", 
+        "text", "Text", "IMAGE", "Image", "Figure"
+    }
+
+    def _is_bbox_unformed(self, bbox: Optional[List[float]]) -> bool:
+        """
+        Production-grade check for degenerate or invalid bounding boxes.
+        
+        Args:
+            bbox: List of [x0, y0, x1, y1] coordinates or None
+            
+        Returns:
+            True if bbox is None, malformed, or has zero/near-zero area
+        """
+        if not bbox:
+            return True
+        
+        # Handle both list and tuple inputs robustly
+        try:
+            if len(bbox) < 4:
+                return True
+            
+            # Extract coordinates with bounds checking
+            x0, y0, x1, y1 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+            
+            # Calculate dimensions
+            w = abs(x1 - x0)
+            h = abs(y1 - y0) 
+            
+            # Check for degenerate area (including exact zero case like [0,0,0,0])
+            return w <= 0.0001 or h <= 0.0001
+            
+        except (ValueError, TypeError, IndexError):
+            # Handle malformed bbox data gracefully
+            return True
+
+    def is_layout_passthrough(self, element: Any) -> bool:
+        """
+        Production-grade detection of layout-passthrough elements.
+        
+        Identifies elements whose bbox comes from Docling's layout detector
+        rather than actual OCR token detection. Uses three independent signals:
+        1. Empty/generic text content
+        2. Disproportionate box-to-text ratio 
+        3. Layout-only provenance metadata
+        
+        Args:
+            element: OCRElement or compatible object with text, bbox, metadata
+            
+        Returns:
+            True if element is detected as layout-passthrough
+        """
+        try:
+            # Safe attribute extraction with defaults
+            text = (getattr(element, "text", "") or "").strip()
+            bbox = getattr(element, "bbox", None)
+            meta = getattr(element, "metadata", {})
+            if meta is None:
+                meta = {}
+            
+            # Handle both direct label and metadata-based label
+            label = (getattr(element, "label", None) or 
+                    meta.get("layout_label", None) or 
+                    meta.get("label", "")).strip()
+
+            # Signal 1: bbox exists but text is empty/generic
+            # This is the strongest signal - layout regions with no actual OCR content
+            if not self._is_bbox_unformed(bbox):
+                # Check if text is empty
+                if not text:
+                    return True
+                
+                # Check if text exactly matches a passthrough label (case-insensitive)
+                text_upper = text.upper()
+                for passthrough_label in self.LAYOUT_PASSTHROUGH_LABELS:
+                    if text_upper == passthrough_label.upper():
+                        return True
+                
+                # Check if text equals the element's own label
+                if label and text == label:
+                    return True
+
+            # Signal 2: Geometric mismatch - box area wildly disproportionate to text
+            # Real OCR boxes scale with character count; layout containers don't
+            if bbox and len(bbox) >= 4 and text and len(text.strip()) > 0:
+                try:
+                    w = abs(float(bbox[2]) - float(bbox[0]))
+                    h = abs(float(bbox[3]) - float(bbox[1]))
+                    
+                    if h > 0.1:  # Avoid division issues with tiny heights
+                        # Estimate expected width: chars * (height * aspect_ratio)
+                        # 0.45 is more conservative glyph aspect ratio (tighter detection)
+                        # Adjusted from 0.55 to catch more layout containers
+                        expected_w = len(text.strip()) * (h * 0.45)
+                        
+                        # Flag if actual width is 3x+ larger than expected (reduced from 4x)
+                        # More aggressive to catch more layout passthroughs
+                        if expected_w > 0 and w > expected_w * 3.0:
+                            return True
+                    
+                    # Additional check: extreme aspect ratio suggests container
+                    # Real text boxes have reasonable width:height ratios
+                    # Very wide, thin boxes with little text are likely containers
+                    if h > 0:
+                        aspect_ratio = w / h
+                        chars_per_height = len(text.strip()) / h
+                        
+                        # If aspect ratio > 15 and very few chars per unit height, likely a container
+                        if aspect_ratio > 15 and chars_per_height < 0.5:
+                            return True
+                            
+                except (ValueError, TypeError, ZeroDivisionError):
+                    # Handle malformed bbox coordinates gracefully
+                    pass
+
+            # Signal 3: Provenance check - layout-only labels without OCR attribution
+            # Elements from pure layout detection (no OCR engine involved)
+            source = getattr(element, "source", "").lower()
+            ocr_engine = meta.get("ocr_engine", "").lower()
+            
+            # Check if element has a generic layout label
+            label_is_generic = False
+            if label:
+                label_upper = label.upper()
+                for passthrough_label in self.LAYOUT_PASSTHROUGH_LABELS:
+                    if passthrough_label.upper() in label_upper or label_upper in passthrough_label.upper():
+                        label_is_generic = True
+                        break
+            
+            # Flag if it has generic label and no clear OCR provenance
+            if label_is_generic and source != "rapidocr" and "ocr" not in ocr_engine:
+                return True
+
+            return False
+            
+        except Exception:
+            # Fail safe - don't flag elements due to unexpected errors
+            return False
+
+    def reconstruct_bbox_from_row_neighbors(
+        self,
+        element: Any,
+        all_elements: List[Any],
+        row_tolerance_ratio: float = 0.6,  # Increased from 0.4 for more inclusive matching
+    ) -> Optional[List[float]]:
+        """
+        Production-grade bbox reconstruction from neighboring OCR elements.
+        
+        Attempts to rebuild accurate bounding boxes for layout-passthrough elements
+        by finding valid OCR tokens within the same region and computing their union.
+        Falls back gracefully to original layout bbox if no valid neighbors exist.
+        
+        Args:
+            element: The layout-passthrough element to reconstruct
+            all_elements: Complete list of OCR elements from the same page
+            row_tolerance_ratio: Vertical tolerance for row matching (fraction of element height)
+            
+        Returns:
+            Reconstructed [x0,y0,x1,y1] bbox or None if reconstruction fails
+        """
+        try:
+            parent_bbox = getattr(element, "bbox", None)
+            if not parent_bbox or len(parent_bbox) < 4:
+                return None
+
+            # Extract parent boundaries with type safety
+            px0, py0, px1, py1 = (float(parent_bbox[0]), float(parent_bbox[1]), 
+                                 float(parent_bbox[2]), float(parent_bbox[3]))
+            row_h = abs(py1 - py0)
+            
+            if row_h <= 0:
+                return None
+
+            # Find valid OCR candidates within the parent region
+            candidates = []
+            for e in all_elements:
+                if e is element:
+                    continue
+                    
+                e_bbox = getattr(e, "bbox", None)
+                if self._is_bbox_unformed(e_bbox):
+                    continue
+                    
+                if self.is_layout_passthrough(e):
+                    continue
+                
+                try:
+                    ex0, ey0, ex1, ey1 = (float(e_bbox[0]), float(e_bbox[1]),
+                                         float(e_bbox[2]), float(e_bbox[3]))
+                    
+                    # Check if candidate falls within parent region with tolerance
+                    tolerance = row_h * row_tolerance_ratio
+                    
+                    if (ex0 >= px0 - tolerance and ex1 <= px1 + tolerance and
+                        ey0 >= py0 - tolerance and ey1 <= py1 + tolerance):
+                        candidates.append(e)
+                        
+                except (ValueError, TypeError, IndexError):
+                    continue
+
+            # Handle metadata updates safely
+            meta = getattr(element, "metadata", None)
+            if meta is None:
+                # Create metadata dict if element supports it
+                if hasattr(element, "metadata"):
+                    element.metadata = {}
+                    meta = element.metadata
+
+            if not candidates:
+                # No valid tokens found - genuine non-text region (logo, image)
+                if meta is not None and isinstance(meta, dict):
+                    meta["bbox_source"] = "layout_fallback_no_text"
+                    meta["bbox_reconstruction_token_count"] = 0
+                return parent_bbox
+
+            # Compute union of all candidate bboxes
+            try:
+                min_x = min(float(c.bbox[0]) for c in candidates)
+                min_y = min(float(c.bbox[1]) for c in candidates)
+                max_x = max(float(c.bbox[2]) for c in candidates)
+                max_y = max(float(c.bbox[3]) for c in candidates)
+                
+                # Update metadata with reconstruction info
+                if meta is not None and isinstance(meta, dict):
+                    meta["bbox_source"] = "reconstructed_from_neighbors"
+                    meta["bbox_reconstruction_token_count"] = len(candidates)
+                
+                return [min_x, min_y, max_x, max_y]
+                
+            except (ValueError, TypeError, AttributeError):
+                # Fallback to original bbox on computation error
+                if meta is not None and isinstance(meta, dict):
+                    meta["bbox_source"] = "layout_fallback_computation_error"
+                return parent_bbox
+
+        except Exception:
+            # Ultimate fallback - return original bbox, don't crash
+            return getattr(element, "bbox", None)
+
     def evaluate_element(self, element: OCRElement, expected_script: Optional[str] = None) -> OCRElement:
         """Evaluate a single OCR element and mark if VLM inspection is required."""
         text = element.text.strip()
@@ -221,6 +507,10 @@ class OCRConfidenceEvaluator:
         # Check threshold
         if element.confidence < self.threshold:
             element.needs_vlm = True
+
+        if self.is_layout_passthrough(element):
+            element.needs_vlm = True
+            element.metadata["layout_passthrough"] = True
 
         if len(text) > 0:
             if self.is_garbled_text(text):
@@ -309,12 +599,9 @@ class OCRConfidenceEvaluator:
         if len(cleaned) == 1 and cleaned not in "0123456789aAiI":
             penalties += 0.20
 
-        # Check 8: Small/Degenerate BBox anomaly (when bbox coordinates are actually present)
-        if bbox and len(bbox) >= 4 and any(c > 0 for c in bbox):
-            w = abs(bbox[2] - bbox[0])
-            h = abs(bbox[3] - bbox[1])
-            if w <= 0.001 or h <= 0.001:
-                penalties += 0.15
+        # Check 8: Small/Degenerate BBox anomaly (structural failure)
+        if bbox is not None and self._is_bbox_unformed(bbox):
+            penalties += 0.30
 
         # Clean bonus for standard titles / clean standard multi-word uppercase names
         if cleaned in {"Mr.", "Mrs.", "Ms.", "Dr.", "Shri", "Smt."} or (cleaned.isupper() and 2 <= len(words) <= 5 and penalties == 0.0):

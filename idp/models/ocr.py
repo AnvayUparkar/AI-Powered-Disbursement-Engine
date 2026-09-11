@@ -31,7 +31,7 @@ class OCRElement(BaseModel):
     confidence: float
     page_number: int
     line_number: Optional[int] = None
-    source: Literal["ocr", "vlm", "docling", "xml", "rapidocr", "vlm_corrected"] = "rapidocr"
+    source: Literal["ocr", "vlm", "docling", "docling_ocr", "xml", "vlm_corrected"] = "docling_ocr"
     ocr_original: Optional[str] = None  # Preserved if VLM modified the text
     verified: bool = True
     needs_vlm: bool = False

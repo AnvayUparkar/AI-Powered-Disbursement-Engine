@@ -1,1 +1,1 @@
-"""RapidOCR + PP-OCRv6 OCR engine and image preprocessing modules."""
+"""OCR confidence evaluation, script detection, and image preprocessing modules. Docling integrated OCR is the sole engine."""
