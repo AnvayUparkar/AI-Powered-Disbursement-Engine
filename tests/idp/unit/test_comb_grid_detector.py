@@ -171,3 +171,24 @@ def test_recover_cell_elements_blank_image_returns_empty():
         image_bytes=buf.getvalue(), elem=elem,
         page_px_w=400, page_px_h=160, pdf_w=200.0, pdf_h=80.0, doc_id="T",
     ) == []
+
+
+def test_document_processor_recover_comb_grids():
+    from idp.services.document_processor import DocumentProcessor
+    from idp.services.docling.parser import DoclingParseResult
+
+    dp = DocumentProcessor()
+    assert dp._recover_comb_grids(None, [], "T") == 0
+
+    docling_res = DoclingParseResult(
+        pages_dimensions=[{"width": 595.0, "height": 842.0}],
+        elements=[
+            LayoutElement(
+                id="e1", type=ElementType.TEXT, text="APPLICANT DETAILS HEADER",
+                bbox=[10.0, 10.0, 180.0, 25.0],
+                confidence=0.9, page_number=1, source="docling_ocr", structure_source="docling",
+            )
+        ]
+    )
+    assert dp._recover_comb_grids(docling_res, [(b"fake_bytes", 595.0, 842.0)], "T") == 0
+
