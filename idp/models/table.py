@@ -27,6 +27,8 @@ class TableStructure(BaseModel):
     headers: List[str] = Field(default_factory=list)
     rows_raw: List[List[str]] = Field(default_factory=list)
     markdown: Optional[str] = None  # Docling's own export_to_markdown() rendering of this table
+    # Confidence the layout model assigned to the region TableFormer built this grid from.
+    table_confidence: Optional[float] = None
 
 
 class TableRegion(BaseModel):

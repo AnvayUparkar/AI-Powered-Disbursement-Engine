@@ -162,6 +162,8 @@ class KeyValueExtractor:
                             "page_number": pno,
                             "bbox": item["element"].get("bbox", []),
                             "confidence": item["element"].get("confidence", 1.0),
+                            "ocr_confidence": item["element"].get("ocr_confidence"),
+                            "layout_confidence": item["element"].get("layout_confidence"),
                             "source": item["element"].get("source", "ocr"),
                             "classification": item["classification"].value
                         })

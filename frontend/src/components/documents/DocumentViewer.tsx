@@ -48,6 +48,25 @@ function getFieldColor(name: string, index: number) {
   return FIELD_PALETTE[idx];
 }
 
+/** Confidence bands used across every debug overlay. */
+const CONF_BANDS = [
+  { min: 0.9, label: 'high', box: 'border-emerald-500 bg-emerald-500/10', chip: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
+  { min: 0.7, label: 'medium', box: 'border-amber-500 bg-amber-500/10', chip: 'bg-amber-100 text-amber-900 border-amber-300' },
+  { min: 0.0, label: 'low', box: 'border-rose-500 bg-rose-500/15', chip: 'bg-rose-100 text-rose-800 border-rose-300' },
+];
+
+/** Null score = the model reported nothing; shown as neutral, never as a fabricated number. */
+function bandFor(score?: number | null) {
+  if (score === null || score === undefined || Number.isNaN(score)) {
+    return { label: 'unknown', box: 'border-ink-400 bg-ink-400/10', chip: 'bg-ink-100 text-ink-600 border-ink-300' };
+  }
+  return CONF_BANDS.find((b) => score >= b.min) ?? CONF_BANDS[CONF_BANDS.length - 1];
+}
+
+function pct(score?: number | null) {
+  return score === null || score === undefined || Number.isNaN(score) ? 'n/a' : `${Math.round(score * 100)}%`;
+}
+
 function getNormalizedStyle(bbox?: number[]) {
   if (!bbox || bbox.length < 4) return null;
   let [x1, y1, x2, y2] = bbox;
@@ -117,6 +136,9 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [showTableCells, setShowTableCells] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [showConfidence, setShowConfidence] = useState(true);
+  // Which model's score drives the overlay colouring. Kept explicit rather than blended so
+  // a low layout score on a confidently-read token (or vice versa) is visible at a glance.
+  const [confSource, setConfSource] = useState<'ocr' | 'layout'>('ocr');
 
   // Per-table view mode: 'grid' (parsed rows/cols) vs 'markdown' (Docling's own export_to_markdown())
   const [tableViewModeById, setTableViewModeById] = useState<Record<string, 'grid' | 'markdown'>>({});
@@ -273,6 +295,14 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const pageTables = document.extractedFields.filter(
     (f) => f.type === 'table' && (f.page || 1) === page && f.cells && f.cells.length > 0
   );
+  // TableFormer cells straight from the IDP debug payload. These are the cells whose text
+  // reaches rawText via the [TABLE] block but which never appear in ocr_tokens, because
+  // TableRegionMask strips elements that sit inside a detected table.
+  const debugTableCells = (document.debug?.table_cells || []).filter(
+    (c) => (c.page_number || 1) === page && c.bbox && c.bbox.length >= 4
+  );
+  const stageScores = document.debug?.stage_scores;
+
   const pageTableCells: { tableId: string; cell: TableCellRecord }[] = pageTables.flatMap((t) =>
     (t.cells || []).map((cell) => ({ tableId: t.id, cell }))
   );
@@ -424,8 +454,66 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
               title="Toggle TableFormer Per-Cell Bounding Boxes"
             >
               <Box className="h-3 w-3" />
-              TableFormer Cells ({pageTableCells.length})
+              TableFormer Cells ({pageTableCells.length + debugTableCells.length})
             </button>
+
+            {/* Which model's score drives the overlay colouring. RapidOCR can be confident on
+                text the layout model was unsure about (and vice versa), so the two are kept
+                switchable rather than averaged into a single meaningless number. */}
+            <span className="mx-1 h-4 w-px bg-ink-200" aria-hidden />
+            <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">
+              Colour by:
+            </span>
+            {(['ocr', 'layout'] as const).map((src) => (
+              <button
+                key={src}
+                onClick={() => {
+                  setConfSource(src);
+                  // The colouring only shows through the token/cell overlays, so selecting a
+                  // source with every overlay hidden looked like a no-op. Turn tokens on.
+                  if (!showOcrTokens && !showTableCells) setShowOcrTokens(true);
+                }}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                  confSource === src
+                    ? 'bg-ink-800 text-white border border-ink-800'
+                    : 'text-ink-500 hover:bg-ink-100'
+                }`}
+                title={
+                  src === 'ocr'
+                    ? "RapidOCR's per-text-cell recognition score"
+                    : "The Docling layout model's per-region score"
+                }
+              >
+                {src === 'ocr' ? 'RapidOCR' : 'Layout'}
+              </button>
+            ))}
+
+            {/* Docling's own per-stage quality report. "n/a" means the stage did not run
+                (no tables detected, or an image input with no PDF text layer to parse). */}
+            {stageScores && (
+              <>
+                <span className="mx-1 h-4 w-px bg-ink-200" aria-hidden />
+                {([
+                  ['OCR', stageScores.ocr_score],
+                  ['Layout', stageScores.layout_score],
+                  ['Table', stageScores.table_score],
+                  ['Parse', stageScores.parse_score],
+                ] as const).map(([label, score]) => (
+                  <span
+                    key={label}
+                    className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${bandFor(score).chip}`}
+                    title={`Docling document-level ${label.toLowerCase()} score`}
+                  >
+                    {label} {pct(score)}
+                  </span>
+                ))}
+                {stageScores.quality_grade && (
+                  <span className="px-1.5 py-0.5 rounded border text-[10px] font-medium bg-ink-100 text-ink-700 border-ink-300">
+                    {stageScores.quality_grade}
+                  </span>
+                )}
+              </>
+            )}
 
             <button
               onClick={() => setShowLabels(!showLabels)}
@@ -581,16 +669,40 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                     const style = getNormalizedStyle(tok.normalized_bbox || tok.bbox);
                     if (!style) return null;
                     const isHovered = hoveredToken?.id === tok.id;
+                    const active = confSource === 'layout' ? tok.layout_confidence : tok.ocr_confidence;
+                    const band = bandFor(active ?? null);
                     return (
                       <div
                         key={tok.id}
-                        className={`absolute border border-dashed border-amber-500/70 bg-amber-500/10 pointer-events-auto cursor-crosshair transition-all ${
-                          isHovered ? 'ring-2 ring-amber-600 bg-amber-500/30 z-30' : 'z-10'
+                        className={`absolute border border-dashed pointer-events-auto cursor-crosshair transition-all ${band.box} ${
+                          isHovered ? 'ring-2 ring-ink-700 z-30' : 'z-10'
                         }`}
                         style={style}
                         onMouseEnter={() => setHoveredToken(tok)}
                         onMouseLeave={() => setHoveredToken(null)}
-                        title={`[Token] "${tok.text}" (Conf: ${Math.round(tok.confidence * 100)}%)`}
+                        title={`"${tok.text}"\nRapidOCR: ${pct(tok.ocr_confidence)}  |  Layout: ${pct(tok.layout_confidence)}\ncolouring by: ${confSource}`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* OVERLAY LAYER 1.4: TableFormer cells straight from the IDP debug payload.
+                  These are the boxes that were previously impossible to see: elements inside
+                  a detected table are stripped from ocr_tokens by TableRegionMask, so their
+                  text showed up in rawText with no bbox anywhere on the page. */}
+              {showTableCells && debugTableCells.length > 0 && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {debugTableCells.map((cell, idx) => {
+                    const style = getNormalizedStyle(cell.bbox);
+                    if (!style) return null;
+                    const band = bandFor(cell.confidence ?? null);
+                    return (
+                      <div
+                        key={`dbg-cell-${idx}`}
+                        className={`absolute border border-dotted ${band.box} pointer-events-auto cursor-crosshair z-10`}
+                        style={style}
+                        title={`[TableFormer cell] "${cell.text}"\nconfidence: ${pct(cell.confidence)}`}
                       />
                     );
                   })}
@@ -831,6 +943,32 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                           {f.matchConfidence !== undefined && (
                             <span className="text-[10px] text-ink-500 font-mono">
                               Match: {Math.round(f.matchConfidence * 100)}%
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Per-field model scores. Shown side by side and never averaged:
+                            RapidOCR is regularly confident on text the layout model was
+                            unsure about, and that disagreement is the useful signal. */}
+                        <div className="mt-1 flex items-center gap-1 flex-wrap">
+                          <span
+                            className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${bandFor(f.ocrConfidence).chip}`}
+                            title="RapidOCR per-text-cell recognition score for the matched token"
+                          >
+                            OCR {pct(f.ocrConfidence)}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${bandFor(f.layoutConfidence).chip}`}
+                            title="Docling layout model score for the region this token sits in"
+                          >
+                            Layout {pct(f.layoutConfidence)}
+                          </span>
+                          {f.matchStrategy && (
+                            <span
+                              className="px-1.5 py-0.5 rounded border border-ink-200 bg-ink-50 text-ink-600 text-[10px] font-mono"
+                              title="How the resolver matched this value back to the page"
+                            >
+                              {f.matchStrategy}
                             </span>
                           )}
                         </div>

@@ -15,6 +15,8 @@ class ExtractedFieldRecord(TypedDict, total=False):
     locationStatus: Optional[str]
     matchedText: Optional[str]
     matchConfidence: Optional[float]
+    ocrConfidence: Optional[float]
+    layoutConfidence: Optional[float]
     reason: Optional[str]
     matchStrategy: Optional[str]
     candidates: Optional[List[Dict[str, Any]]]

@@ -31,7 +31,7 @@ class DoclingOptions(BaseModel):
     # "min_cols" knobs -- these are enforced as a POST-FILTER in parser.py after
     # TableFormer returns its grid (tables that don't pass are dropped before
     # reaching the output, never silently ignored).
-    table_confidence_threshold: float = 0.3  # Min non-empty-cell fill ratio to accept table (0.0-1.0)
+    table_confidence_threshold: float = 0.1  # Min non-empty-cell fill ratio to accept table (0.0-1.0)
     table_min_rows: int = 1  # Minimum rows to qualify as table
     table_min_cols: int = 1  # Minimum columns to qualify as table
 
@@ -77,8 +77,8 @@ class DoclingOptions(BaseModel):
     # OCR Quality & Performance
     det_limit_side_len: int = 1536  # Detection input size (higher = slower, better)
     det_db_thresh: float = 0.1  # Detection threshold (lower = more boxes)
-    det_db_box_thresh: float = 0.35  # Box confidence threshold (lower = detect low-contrast/faint text)
-    rec_batch_num: int = 6  # Batch size for recognition
+    det_db_box_thresh: float = 0.1  # Box confidence threshold (lower = detect low-contrast/faint text)
+    rec_batch_num: int = 6  #  size for recognition
     
     # ═══════════════════════════════════════════════════════════════════════
     # IMAGE PREPROCESSING

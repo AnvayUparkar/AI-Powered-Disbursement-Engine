@@ -154,6 +154,10 @@ class DocumentSerializer:
                                 text=final_text,
                                 bbox=norm_box,
                                 confidence=round(conf, 4),
+                                # Carry the real per-model scores through the rebuild; without
+                                # these the debug overlay falls back to "unknown" for every box.
+                                ocr_confidence=elem.ocr_confidence,
+                                layout_confidence=elem.layout_confidence,
                                 page_number=pno,
                                 reading_order=elem.reading_order,
                                 level=elem.level,
@@ -369,6 +373,12 @@ class DocumentSerializer:
                 tables=all_tables,
                 elements=all_elements,
                 text=full_text,
+                # Carry Docling's per-stage scores through untouched for the debug view.
+                layout_score=getattr(docling_result, "layout_score", None),
+                ocr_score=getattr(docling_result, "ocr_score", None),
+                table_score=getattr(docling_result, "table_score", None),
+                parse_score=getattr(docling_result, "parse_score", None),
+                quality_grade=getattr(docling_result, "quality_grade", None),
                 processing=proc_meta
             )
 

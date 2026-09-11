@@ -24,7 +24,9 @@ class FieldLocation(BaseModel):
     bbox: Optional[List[float]] = None  # [x1, y1, x2, y2] normalized (0.0 to 1.0)
     bbox_pixels: Optional[List[float]] = None  # [x1, y1, x2, y2] in original image/page pixels
     matched_text: Optional[str] = None
-    confidence: float = 1.0  # OCR confidence
+    confidence: float = 1.0  # OCR confidence (mirrors ocr_confidence, kept for compatibility)
+    ocr_confidence: Optional[float] = None  # RapidOCR recognition score of the matched token
+    layout_confidence: Optional[float] = None  # Layout model score of the region it sits in
     match_confidence: float = 1.0  # Matching score
     location_status: Literal["resolved", "unresolved"] = "resolved"
     reason: Optional[str] = None
@@ -41,5 +43,9 @@ class OCRTokenDebug(BaseModel):
     bbox: List[float]  # [x1, y1, x2, y2] normalized
     bbox_pixels: Optional[List[float]] = None
     confidence: float = 1.0
+    # Real model-reported scores, carried separately so the debug overlay can show which
+    # stage is actually uncertain (RapidOCR recognition vs the layout model's region call).
+    ocr_confidence: Optional[float] = None
+    layout_confidence: Optional[float] = None
     source: str = "rapidocr"
     line_number: Optional[int] = None

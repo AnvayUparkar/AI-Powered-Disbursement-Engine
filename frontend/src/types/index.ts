@@ -75,14 +75,40 @@ export interface OCRToken {
   normalized_bbox: number[];
   page: number;
   confidence: number;
+  /** RapidOCR's own per-text-cell recognition score. Null when Docling reported none. */
+  ocr_confidence?: number | null;
+  /** The Docling layout model's per-cluster score for the region this token sits in. */
+  layout_confidence?: number | null;
   block_id?: number;
   line_id?: number;
+}
+
+/** Docling's per-stage quality report. Null means that stage did not run for this document. */
+export interface StageScores {
+  layout_score?: number | null;
+  ocr_score?: number | null;
+  table_score?: number | null;
+  parse_score?: number | null;
+  quality_grade?: string | null;
+}
+
+/** A TableFormer grid cell. These never appear in ocr_tokens: elements inside a detected
+ *  table are removed by TableRegionMask, so their text reaches rawText only via the
+ *  [TABLE] block. Drawn from this list instead. */
+export interface DebugTableCell {
+  id?: string | null;
+  text: string;
+  bbox: number[];
+  page_number: number;
+  confidence?: number | null;
 }
 
 export interface DocumentDebugInfo {
   field_locations?: Record<string, any>;
   ocr_tokens?: OCRToken[];
   ocr_tokens_by_page?: Record<number, OCRToken[]>;
+  table_cells?: DebugTableCell[];
+  stage_scores?: StageScores;
 }
 
 export interface TableCellRecord {
@@ -115,6 +141,10 @@ export interface ExtractedField {
   locationStatus?: 'resolved' | 'unresolved';
   matchedText?: string;
   matchConfidence?: number;
+  /** RapidOCR recognition score of the token this field matched. */
+  ocrConfidence?: number | null;
+  /** Layout model score for the region that token sits in. */
+  layoutConfidence?: number | null;
   reason?: string;
   matchStrategy?: string;
   candidates?: CandidateMatch[];

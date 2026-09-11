@@ -151,6 +151,7 @@ class FieldLocationResolver:
                 "bbox_pixels": pix_bbox,
                 "page": pno,
                 "confidence": float(elem.get("confidence", 1.0)),
+                "layout_confidence": elem.get("layout_confidence"),
                 "source": elem.get("source") or "docling_ocr",
             }
             tokens_by_page.setdefault(pno, []).append(token_item)
@@ -529,6 +530,15 @@ class FieldLocationResolver:
         candidates.sort(key=_rank_candidate, reverse=True)
         best = candidates[0]
 
+        # Recover the layout model's score for the winning candidate by locating the element
+        # it came from. Done once here rather than threaded through all fourteen candidate
+        # construction sites, which build from several different aggregate shapes.
+        layout_conf: Optional[float] = None
+        for tok in tokens_by_page.get(best.page, []):
+            if tok.get("bbox") == best.bbox:
+                layout_conf = tok.get("layout_confidence")
+                break
+
         return FieldLocation(
             field_name=field_name,
             value=value,
@@ -536,6 +546,8 @@ class FieldLocationResolver:
             bbox=best.bbox,
             matched_text=best.text,
             confidence=round(best.ocr_confidence, 3),
+            ocr_confidence=round(best.ocr_confidence, 3),
+            layout_confidence=layout_conf,
             match_confidence=round(best.score, 3),
             location_status="resolved",
             source=getattr(best, "source", "docling_ocr") or "docling_ocr",
@@ -571,6 +583,8 @@ class FieldLocationResolver:
                 bbox=norm_bbox,
                 bbox_pixels=pix_bbox,
                 confidence=round(float(elem.get("confidence", 1.0)), 3),
+                ocr_confidence=elem.get("ocr_confidence"),
+                layout_confidence=elem.get("layout_confidence"),
                 source=elem.get("source", "ocr"),
                 line_number=elem.get("line_number")
             ))

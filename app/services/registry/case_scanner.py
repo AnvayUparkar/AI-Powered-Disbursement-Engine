@@ -243,6 +243,8 @@ def _build_case_document_record(
             "locationStatus": fl_status,
             "matchedText": fl.get("matched_text"),
             "matchConfidence": fl.get("match_confidence", 1.0),
+            "ocrConfidence": fl.get("ocr_confidence"),
+            "layoutConfidence": fl.get("layout_confidence"),
             "reason": fl.get("reason"),
             "matchStrategy": fl.get("match_strategy"),
             "candidates": fl.get("candidates", []),
@@ -266,6 +268,8 @@ def _build_case_document_record(
                 "page": p.get("page_number", 1),
                 "type": "text",
                 "bbox": p.get("bbox"),
+                "ocrConfidence": p.get("ocr_confidence"),
+                "layoutConfidence": p.get("layout_confidence"),
                 "source": "OCR",
             })
 
@@ -279,7 +283,10 @@ def _build_case_document_record(
             "id": tbl.get("id") or f"table-{doc_id}-{t_idx + 1}",
             "name": f"Table (Page {tbl.get('page_number', 1)})",
             "value": f"{len(rows)} rows x {len(headers) if headers else (len(rows[0]) if rows else 0)} cols",
-            "confidence": 95,
+            # Real TableFormer/layout score when available; the old hardcoded 95 was a
+            # fabricated number indistinguishable from a genuine measurement.
+            "confidence": round((tbl.get("table_confidence") or 0.0) * 100, 1) if tbl.get("table_confidence") is not None else 95,
+            "layoutConfidence": tbl.get("table_confidence"),
             "sourceDocumentId": doc_id,
             "page": tbl.get("page_number", 1),
             "type": "table",

@@ -25,6 +25,11 @@ class LayoutElement(BaseModel):
     text: str
     bbox: List[float] = Field(default_factory=list)  # [l, t, r, b]
     confidence: float = 1.0
+    # Real model-reported scores, kept separate so each stage can be debugged on its own.
+    # `confidence` mirrors ocr_confidence for backward compatibility with existing consumers
+    # (VLM router threshold, comb-box detector, serializer).
+    ocr_confidence: Optional[float] = None  # RapidOCR per-text-cell recognition score
+    layout_confidence: Optional[float] = None  # Docling layout model per-cluster score
     page_number: int
     reading_order: Optional[int] = None
     level: Optional[int] = None  # Heading level if applicable

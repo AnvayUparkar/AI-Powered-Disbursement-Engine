@@ -1,0 +1,953 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" pages="4">
+  <diagram name="DGCL Disbursement Pipeline - System Architecture" id="vO6X3TgDeWhUynD5SY49">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="psprbTqAg1B4yqcM43mS-326" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="INGRESS - Node 1 (Fetch)" vertex="1">
+          <mxGeometry height="400" width="280" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-327" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="EXTRACTION AGENT - Node 2 / IDP Engine (:8001)" vertex="1">
+          <mxGeometry height="1010" width="600" x="360" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-328" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="COMPARISON ENGINE - Node 3A / 3B / 3C (parallel, thread pool)" vertex="1">
+          <mxGeometry height="740" width="680" x="1000" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-329" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="CHECKER + SCORECARD" vertex="1">
+          <mxGeometry height="400" width="280" x="1720" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-330" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="EGRESS - Node 6 (Push)" vertex="1">
+          <mxGeometry height="400" width="300" x="2040" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-331" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry height="170" width="2300" x="40" y="1395" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-332" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="3A - Loan and KYC" vertex="1">
+          <mxGeometry height="345" width="200" x="1020" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-333" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="3B - KFS and Sanction" vertex="1">
+          <mxGeometry height="345" width="200" x="1240" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-334" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="3C - Top-up and BT" vertex="1">
+          <mxGeometry height="345" width="200" x="1460" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="DGCL SCORECARD - THE 12 CHECKPOINTS A REVIEWER SEES" vertex="1">
+          <mxGeometry height="566" width="620" x="1720" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="BYPASSED - legacy, not on the live graph" vertex="1">
+          <mxGeometry height="390" width="280" x="40" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="docling-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="Docling StandardPdfPipeline - one cached ONNX converter per profile fingerprint. Stage order is fixed by the queue wiring: preprocess &gt; layout &gt; ocr &gt; layout_postprocess &gt; table &gt; assemble." vertex="1">
+          <mxGeometry height="495" width="288" x="366" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-335" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="DMS Documents (PDF / Image / XML)" vertex="1">
+          <mxGeometry height="70" width="115" x="60" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-336" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="LOS / NEO JSON (los_data)" vertex="1">
+          <mxGeometry height="70" width="115" x="185" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-337" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Node 1 - Fetch: copies DMS files to S3 raw, loads LOS JSON" vertex="1">
+          <mxGeometry height="60" width="240" x="60" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-338" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;boundedLbl=1;" value="S3 Raw Store: poc_data/s3_raw/{LOAN_ID}/" vertex="1">
+          <mxGeometry height="60" width="240" x="60" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-339" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-335" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.24;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-337">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-340" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-336" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.76;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-337">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-341" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-337" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-338">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-342" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="File Type Router: PDF/Image vs XML" vertex="1">
+          <mxGeometry height="55" width="260" x="380" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-343" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="PyMuPDF Page Rasterization (outside Docling): page images retained only for VLM region crops and signature detection" vertex="1">
+          <mxGeometry height="80" width="260" x="670" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-344" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;arcSize=8;" value="Docling Layout Model: page segmentation into heading / paragraph / caption / list / table regions. Runs FIRST - it decides what a region is before any text is read." vertex="1">
+          <mxGeometry height="58" width="260" x="380" y="373" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-345" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="TableFormer (ACCURATE, forced repo-wide): predicts table STRUCTURE only - it never reads text. do_cell_matching = False, so each cell's text comes from backend.get_text_in_rect(), a pure geometry lookup over that same text-cell list - so OCR text DOES reach table cells on PDFs. Raw image files are the exception: image_backend.get_text_in_rect() always returns empty." vertex="1">
+          <mxGeometry height="96" width="260" x="380" y="611" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-346" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="XML Fast Path: direct Aadhaar XML field parser" vertex="1">
+          <mxGeometry height="55" width="260" x="670" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-347" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="Script-Aware OCR Router + ScriptDetector: superseded by per-doc-type DoclingOptions profiles (ocr_router = None in DocumentProcessor)" vertex="1">
+          <mxGeometry height="64" width="240" x="60" y="524" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-348" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="RapidOCR PP-OCRv6: Docling's OCR engine (RapidOcrOptions, ONNX Runtime). DB detection + recognition, English + Hindi. Runs AFTER layout, BEFORE TableFormer, and writes its text cells into page.parsed_page - the SAME SegmentedPdfPage object the page backend hands out." vertex="1">
+          <mxGeometry height="68" width="260" x="380" y="451" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-349" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="Standalone RapidOCR PP-OCRv5 track: Devanagari is now handled inside Docling via ocr_lang = [english, hindi]" vertex="1">
+          <mxGeometry height="58" width="240" x="60" y="602" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-350" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Layout Element Confidence Evaluator: char-level scoring, garbled-text and handwriting detection" vertex="1">
+          <mxGeometry height="62" width="260" x="670" y="542" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-351" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;fontStyle=2;" value="Gemini VLM Fallback: re-reads cropped low-confidence Docling layout elements; corrected text replaces the element in place (external API)" vertex="1">
+          <mxGeometry height="76" width="260" x="670" y="634" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-352" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="Regex Field Rules + Spatial Key-Value / Checkbox Extractor: imported by idp_scan but never invoked" vertex="1">
+          <mxGeometry height="46" width="240" x="60" y="674" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-353" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Document Serializer + TableRegionMask: unifies Docling elements, tables and VLM corrections into one ParsedDocument, de-duplicating elements that fall inside table regions" vertex="1">
+          <mxGeometry height="62" width="550" x="380" y="765" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-354" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;boundedLbl=1;" value="S3 Extracted Store (cache): poc_data/s3_extracted/{LOAN_ID}/{doc_type}.json" vertex="1">
+          <mxGeometry height="48" width="550" x="380" y="969" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-355" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-338" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-342">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-372" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="extracted_data - in-memory pipeline state (feeds every check below)" vertex="1">
+          <mxGeometry height="45" width="300" x="1020" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-373" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="los_data - loaded by Node 1 (feeds Name, KFS/Sanction Amount, Disbursal Memo checks)" vertex="1">
+          <mxGeometry height="45" width="300" x="1020" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-374" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Loan Amount: exact numeric, 6-way cross-document compare" vertex="1">
+          <mxGeometry height="48" width="180" x="1030" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-375" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Tenure: exact normalized-months compare" vertex="1">
+          <mxGeometry height="42" width="180" x="1030" y="298" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-376" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Applicant Name: Jaro-Winkler vs LOS; 0.75-0.92 to LLM" vertex="1">
+          <mxGeometry height="52" width="180" x="1030" y="348" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-377" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="PAN Number: exact string equality" vertex="1">
+          <mxGeometry height="42" width="180" x="1030" y="408" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-378" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Address: TF-IDF cosine similarity; 0.75-0.92 to LLM" vertex="1">
+          <mxGeometry height="52" width="180" x="1030" y="458" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-379" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Selfie vs Application Photo: cosine similarity on face embeddings" vertex="1">
+          <mxGeometry height="48" width="180" x="1250" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-380" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Loan Agreement Signature: pyHanko cryptographic verification" vertex="1">
+          <mxGeometry height="48" width="180" x="1250" y="298" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-381" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="OTP Consent: audit-trail presence check" vertex="1">
+          <mxGeometry height="42" width="180" x="1250" y="356" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-382" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="KFS / Sanction vs LOS Funding: exact numeric compare (x2)" vertex="1">
+          <mxGeometry height="48" width="180" x="1250" y="408" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-383" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Aadhaar XML: mandatory presence hard gate" vertex="1">
+          <mxGeometry height="44" width="180" x="1250" y="466" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-384" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Broken Period Interest: threshold-tolerance compare (KFS vs Sanction)" vertex="1">
+          <mxGeometry height="55" width="180" x="1470" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-385" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Disbursal Memo: exact ID match + percentage-threshold amount compare" vertex="1">
+          <mxGeometry height="55" width="180" x="1470" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-386" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10.5;fontStyle=2;" value="Gemini LLM Adjudicator: entity-resolution for borderline PARTIAL name / address matches. Adjudicated MATCH/MISMATCH is written back to the record. (external API)" vertex="1">
+          <mxGeometry height="60" width="640" x="1020" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-387" edge="1" parent="1" source="s3struct-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-372">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="975" y="1282" />
+              <mxPoint x="975" y="112" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-388" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-376" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0.07;entryY=0.4;entryDx=0;entryDy=0;entryPerimeter=0;" target="psprbTqAg1B4yqcM43mS-386" value="PARTIAL 0.75-0.92">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1210" y="374" />
+              <mxPoint x="1230" y="374" />
+              <mxPoint x="1230" y="600" />
+              <mxPoint x="1060" y="600" />
+              <mxPoint x="1060" y="595" />
+              <mxPoint x="1064.82" y="595" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-389" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-378" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.6;exitDx=0;exitDy=0;" target="psprbTqAg1B4yqcM43mS-386" value="PARTIAL 0.75-0.92">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1210" y="484" />
+              <mxPoint x="1225" y="484" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-390" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-332" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-393">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="570" />
+              <mxPoint x="1700" y="570" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-391" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-333" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-395">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1340" y="578" />
+              <mxPoint x="1700" y="578" />
+              <mxPoint x="1700" y="305" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-392" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-334" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-394">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1560" y="586" />
+              <mxPoint x="1700" y="586" />
+              <mxPoint x="1700" y="210" />
+            </Array>
+            <mxPoint x="1740" y="134" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-393" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Node 4 - Compile: aggregate all rollups and stats" vertex="1">
+          <mxGeometry height="55" width="240" x="1740" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-394" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Checker: data completeness + confidence-score gate (retry up to 2x)" vertex="1">
+          <mxGeometry height="70" width="240" x="1740" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-395" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Node 5 - DGCL Scorecard: rollups to final decision" vertex="1">
+          <mxGeometry height="60" width="240" x="1740" y="275" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-396" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-393" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-394">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-397" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-394" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-395" value="confidence &gt;= 0.70">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-398" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-394" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;fontSize=9;strokeColor=#b85450;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-337" value="retry: confidence below threshold">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1860" y="15" />
+              <mxPoint x="180" y="15" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-399" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=10;" value="scorecard.json" vertex="1">
+          <mxGeometry height="70" width="80" x="2060" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-400" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=10;" value="compiled_report.json" vertex="1">
+          <mxGeometry height="70" width="80" x="2150" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-402" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="S3 Result Store: poc_data/s3_result/{LOAN_ID}/ (audit_log appended throughout by LLM Adjudicator, Signature Verification, Checker)" vertex="1">
+          <mxGeometry height="55" width="260" x="2060" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-403" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="LOS Received Queue: poc_data/los/scorecards_received/" vertex="1">
+          <mxGeometry height="50" width="260" x="2060" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-404" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="FastAPI /api/* to React UI (cases, reviews, dashboard)" vertex="1">
+          <mxGeometry height="55" width="260" x="2060" y="325" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-405" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-395" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-399">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-406" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-393" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-400">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1860" y="65" />
+              <mxPoint x="2190" y="65" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-407" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-399" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.15;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-402">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-408" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-400" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-402">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-410" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-402" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-403" value="copy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-411" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-402" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-404" value="read">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2330" y="217" />
+              <mxPoint x="2330" y="352" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-412" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="24" x="60" y="1445" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-413" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="GPU-accelerable local model inference: Docling layout model + TableFormer, RapidOCR PP-OCRv6 (Docling's own OCR engine), Signature Detection Model" vertex="1">
+          <mxGeometry height="44" width="520" x="90" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-414" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="" vertex="1">
+          <mxGeometry height="24" width="30" x="630" y="1442" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-415" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="External API call (Gemini VLM / LLM Field Extraction / LLM Sanitiser and Classifier / LLM Adjudicator) - runs on provider infrastructure, not locally GPU-accelerable" vertex="1">
+          <mxGeometry height="44" width="500" x="670" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-416" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="" vertex="1">
+          <mxGeometry height="28" width="26" x="1200" y="1440" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-417" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="Persistent file / object store" vertex="1">
+          <mxGeometry height="44" width="420" x="1240" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-418" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="24" x="1690" y="1442" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-419" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="CPU-bound pipeline process or comparison algorithm" vertex="1">
+          <mxGeometry height="44" width="420" x="1720" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="sigdet-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;arcSize=8;" value="Signature Detection Model: locates signature regions on page images (bbox + confidence)" vertex="1">
+          <mxGeometry height="78" width="260" x="670" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="struct-lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="STRUCTURING AGENT - LLM Structure Node (post-OCR)" vertex="1">
+          <mxGeometry height="265" width="600" x="360" y="1090" as="geometry" />
+        </mxCell>
+        <mxCell id="llmsan-node" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10.5;fontStyle=2;" value="LLM Sanitiser + Document Type Classifier: validates and normalises the raw OCR JSON, classifies the document, and resolves it to a canonical doc_type key - reconciled against the filename-derived key - before emitting the canonical field template. (external API)" vertex="1">
+          <mxGeometry height="90" width="550" x="380" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="s3struct-node" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;boundedLbl=1;" value="S3 Extracted Structured Store: poc_data/s3_extracted_structured/{LOAN_ID}/{doc_type}.json" vertex="1">
+          <mxGeometry height="45" width="550" x="380" y="1260" as="geometry" />
+        </mxCell>
+        <mxCell id="llmsan-in" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-354" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="llmsan-node" value="raw OCR json">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="llmsan-out" edge="1" parent="1" source="llmsan-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="s3struct-node" value="sanitised json + doc_type">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sigver-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10.5;arcSize=8;" value="Signature Verifier Agent: consumes the detected signature regions for the Application Form, gates on detector confidence, and writes the chk_app_form_signature verdict back to the record." vertex="1">
+          <mxGeometry height="65" width="640" x="1020" y="665" as="geometry" />
+        </mxCell>
+        <mxCell id="sigver-in" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-372" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="sigver-node">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1010" y="124" />
+              <mxPoint x="1010" y="697" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="profile-sel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="DoclingOptions Profile Selector: picks a per-document-type profile (character-box forms / scanned / digital PDF / mixed / high-performance) setting images_scale, force_full_page_ocr, ocr_lang and layout threshold" vertex="1">
+          <mxGeometry height="80" width="260" x="380" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="dl-raster" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Page preprocessing: PDF parse + rasterization at images_scale (1.5x - 3.0x)" vertex="1">
+          <mxGeometry height="45" width="260" x="380" y="308" as="geometry" />
+        </mxCell>
+        <mxCell id="postfilter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="DoclingParser Post-Filter: drops tables below table_confidence_threshold / min rows / min cols" vertex="1">
+          <mxGeometry height="62" width="260" x="670" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-fields" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" value="LLM Field Extraction + Field Location Resolver (Node 2, step 7): OpenRouter LLM pulls canonical fields from the OCR text; the resolver anchors every field back to an OCR / table-cell bbox for UI evidence. (external API)" vertex="1">
+          <mxGeometry height="82" width="550" x="380" y="857" as="geometry" />
+        </mxCell>
+        <mxCell id="x-router-profile" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-342" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="profile-sel" value="pdf / image">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-router-xml" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-342" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-346" value="xml">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-profile-dl" edge="1" parent="1" source="profile-sel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="docling-box" value="profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-raster-ocr" edge="1" parent="1" source="dl-raster" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-344" value="page images">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-ocr-layout" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-344" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-348" value="regions to OCR (whole page if force_full_page_ocr)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-layout-table" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-348" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="dl-postproc" value="text cells">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-dl-postfilter" edge="1" parent="1" source="docling-box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.487;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="postfilter" value="elements + tables">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-post-conf" edge="1" parent="1" source="postfilter" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-350">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-conf-vlm" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-350" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-351" value="below 0.80, garbled, or handwriting">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-vlm-ser" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-351" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.764;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="corrected text">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-conf-ser" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-350" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.87;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="high confidence">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="946" y="573" />
+              <mxPoint x="946" y="753" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x-xml-ser" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-346" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="parsed xml fields">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="956" y="117" />
+              <mxPoint x="956" y="796" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x-img-sig" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-343" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="sigdet-node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-sig-ser" edge="1" parent="1" source="sigdet-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.4;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="signature regions">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="936" y="324" />
+              <mxPoint x="936" y="743" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x-ser-llm" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-353" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="llm-fields">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-llm-s3" edge="1" parent="1" source="llm-fields" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-354" value="canonical fields + bboxes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="Node 5 emits one verdict per checkpoint: VERIFIED / DISCREPANCY / INDETERMINATE / NOT_APPLICABLE, each with a confidence score, the compared field values, and page-anchored document evidence. DISCREPANCY and INDETERMINATE are what land in the reviewer's queue." vertex="1">
+          <mxGeometry height="56" width="580" x="1740" y="508" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 1  -  Loan Amount  [Financial]:  Loan amount must be consistent across all agreement and sanction records." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="576" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 2  -  Loan Validity  [Financial]:  Sanction tenure must match the requested application tenure." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="614" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;" value="CP 3  -  Application Form  [Identity and KYC]  &lt;-- signature verifier agent:  Form must be complete, SIGNED, and applicant details must match LOS." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="652" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 4  -  KYC  [Identity and KYC]:  PAN and address proof are mandatory and must match the application form." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 5  -  Selfie / Live Photo  [Identity and KYC]:  Live selfie face embedding must match the form photo (threshold &gt;= 0.90)." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="728" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;" value="CP 6  -  Loan Agreement  [Legal and Compliance]  &lt;-- signature verifier agent:  Agreement presence and execution signature verification (pyHanko + OTP)." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="766" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 7  -  KFS  [Financial]:  KFS funding amount, IRR, EMI and customer consent must match LOS." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="804" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 8  -  Sanction Letter  [Financial]:  Sanction terms (amount, tenure, IRR, EMI) must match approved LOS terms." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="842" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-9" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 9  -  Aadhaar XML  [Identity and KYC]:  Aadhaar XML is a mandatory hard gate for every case." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-10" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 10  -  BPI  [Financial]:  Broken period interest split must be consistent across documents and LOS." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="918" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-11" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 11  -  Disbursal Memo  [Financial]:  Memo amount must be &gt;= 90% of the approved loan amount; loan ID must match." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="956" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-12" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 12  -  BT Details  [Legal and Compliance]:  BT details required for Balance Transfer loans, otherwise NOT_APPLICABLE." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="994" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-from-scorecard" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-395" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.226;entryY=0;entryDx=0;entryDy=0;" target="cp-box" value="12 checkpoint verdicts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-sig-link" edge="1" parent="1" source="sigver-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#d79b00;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="cp-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1700" y="697" />
+              <mxPoint x="1700" y="694" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend-dead-swatch" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="24" x="60" y="1507" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-dead-text" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="Bypassed legacy component - still present in the source tree but not reachable from the compiled LangGraph pipeline" vertex="1">
+          <mxGeometry height="44" width="620" x="90" y="1498" as="geometry" />
+        </mxCell>
+        <mxCell id="dl-postproc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Layout Post-Processing: merges and cleans the layout clusters using the OCR text cells" vertex="1">
+          <mxGeometry height="52" width="260" x="380" y="539" as="geometry" />
+        </mxCell>
+        <mxCell id="x-postproc-table" edge="1" parent="1" source="dl-postproc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-345" value="table clusters">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass-fusion" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="SpatialCellFusion: geometrically projects OCR elements into Docling table cells - a safety net for image-file inputs, where the backend returns no text. Never called outside tests." vertex="1">
+          <mxGeometry height="58" width="240" x="60" y="734" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass-ocrtable" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="OCRTableDetector: rebuilds tables from raw OCR elements when Docling detects none - never called outside tests" vertex="1">
+          <mxGeometry height="58" width="240" x="60" y="806" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="REIN8U3znZlk3gtWlCaZ" name="Page-2">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="DGCL Disbursement Pipeline - System Architecture" id="fblIQ2vKbnziHIsNeoxT">
+    <mxGraphModel dx="1476" dy="727" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="psprbTqAg1B4yqcM43mS-326" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="INGRESS - Node 1 (Fetch)" vertex="1">
+          <mxGeometry height="400" width="280" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-327" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="EXTRACTION AGENT - Node 2 / IDP Engine (:8001)" vertex="1">
+          <mxGeometry height="1010" width="600" x="360" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-328" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="COMPARISON ENGINE - Node 3A / 3B / 3C (parallel, thread pool)" vertex="1">
+          <mxGeometry height="740" width="680" x="1000" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-329" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="CHECKER + SCORECARD" vertex="1">
+          <mxGeometry height="400" width="280" x="1720" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-330" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="EGRESS - Node 6 (Push)" vertex="1">
+          <mxGeometry height="400" width="300" x="2040" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-331" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry height="170" width="2300" x="40" y="1395" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-332" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="3A - Loan and KYC" vertex="1">
+          <mxGeometry height="345" width="200" x="1020" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-333" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="3B - KFS and Sanction" vertex="1">
+          <mxGeometry height="345" width="200" x="1240" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-334" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="3C - Top-up and BT" vertex="1">
+          <mxGeometry height="345" width="200" x="1460" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="DGCL SCORECARD - THE 12 CHECKPOINTS A REVIEWER SEES" vertex="1">
+          <mxGeometry height="566" width="620" x="1720" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="BYPASSED - legacy, not on the live graph" vertex="1">
+          <mxGeometry height="390" width="280" x="40" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="docling-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="Docling StandardPdfPipeline - one cached ONNX converter per profile fingerprint. Stage order is fixed by the queue wiring: preprocess &gt; layout &gt; ocr &gt; layout_postprocess &gt; table &gt; assemble." vertex="1">
+          <mxGeometry height="495" width="288" x="366" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-335" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="DMS Documents (PDF / Image / XML)" vertex="1">
+          <mxGeometry height="70" width="115" x="60" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-336" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="LOS / NEO JSON (los_data)" vertex="1">
+          <mxGeometry height="70" width="115" x="185" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-337" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Node 1 - Fetch: copies DMS files to S3 raw, loads LOS JSON" vertex="1">
+          <mxGeometry height="60" width="240" x="60" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-338" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;boundedLbl=1;" value="S3 Raw Store: poc_data/s3_raw/{LOAN_ID}/" vertex="1">
+          <mxGeometry height="60" width="240" x="60" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-339" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-335" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.24;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-337">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-340" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-336" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.76;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-337">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-341" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-337" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-338">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-342" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="File Type Router: PDF/Image vs XML" vertex="1">
+          <mxGeometry height="55" width="260" x="380" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-343" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="PyMuPDF Page Rasterization (outside Docling): page images retained only for VLM region crops and signature detection" vertex="1">
+          <mxGeometry height="80" width="260" x="670" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-344" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;arcSize=8;" value="Docling Layout Model: page segmentation into heading / paragraph / caption / list / table regions. Runs FIRST - it decides what a region is before any text is read." vertex="1">
+          <mxGeometry height="58" width="260" x="380" y="373" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-345" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;arcSize=8;" value="TableFormer (ACCURATE, forced repo-wide): predicts table STRUCTURE only - it never reads text. do_cell_matching = False, so each cell's text comes from backend.get_text_in_rect() - the native PDF text layer, which is EMPTY on scanned/image pages." vertex="1">
+          <mxGeometry height="96" width="260" x="380" y="611" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-346" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="XML Fast Path: direct Aadhaar XML field parser" vertex="1">
+          <mxGeometry height="55" width="260" x="670" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-347" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="Script-Aware OCR Router + ScriptDetector: superseded by per-doc-type DoclingOptions profiles (ocr_router = None in DocumentProcessor)" vertex="1">
+          <mxGeometry height="64" width="240" x="60" y="524" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-348" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;arcSize=8;" value="RapidOCR PP-OCRv6: Docling's OCR engine (RapidOcrOptions, ONNX Runtime). DB text detection + recognition, English + Hindi. Runs AFTER layout, BEFORE TableFormer." vertex="1">
+          <mxGeometry height="68" width="260" x="380" y="451" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-349" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="Standalone RapidOCR PP-OCRv5 track: Devanagari is now handled inside Docling via ocr_lang = [english, hindi]" vertex="1">
+          <mxGeometry height="58" width="240" x="60" y="602" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-350" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Layout Element Confidence Evaluator: char-level scoring, garbled-text and handwriting detection" vertex="1">
+          <mxGeometry height="62" width="260" x="670" y="542" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-351" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;fontStyle=2;" value="Gemini VLM Fallback: re-reads cropped low-confidence Docling layout elements; corrected text replaces the element in place (external API)" vertex="1">
+          <mxGeometry height="76" width="260" x="670" y="634" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-352" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="Regex Field Rules + Spatial Key-Value / Checkbox Extractor: imported by idp_scan but never invoked" vertex="1">
+          <mxGeometry height="46" width="240" x="60" y="674" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-353" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Document Serializer + TableRegionMask: unifies Docling elements, tables and VLM corrections into one ParsedDocument, de-duplicating elements that fall inside table regions" vertex="1">
+          <mxGeometry height="62" width="550" x="380" y="765" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-354" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;boundedLbl=1;" value="S3 Extracted Store (cache): poc_data/s3_extracted/{LOAN_ID}/{doc_type}.json" vertex="1">
+          <mxGeometry height="48" width="550" x="380" y="969" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-355" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-338" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-342">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-372" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="extracted_data - in-memory pipeline state (feeds every check below)" vertex="1">
+          <mxGeometry height="45" width="300" x="1020" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-373" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="los_data - loaded by Node 1 (feeds Name, KFS/Sanction Amount, Disbursal Memo checks)" vertex="1">
+          <mxGeometry height="45" width="300" x="1020" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-374" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Loan Amount: exact numeric, 6-way cross-document compare" vertex="1">
+          <mxGeometry height="48" width="180" x="1030" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-375" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Tenure: exact normalized-months compare" vertex="1">
+          <mxGeometry height="42" width="180" x="1030" y="298" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-376" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Applicant Name: Jaro-Winkler vs LOS; 0.75-0.92 to LLM" vertex="1">
+          <mxGeometry height="52" width="180" x="1030" y="348" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-377" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="PAN Number: exact string equality" vertex="1">
+          <mxGeometry height="42" width="180" x="1030" y="408" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-378" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Address: TF-IDF cosine similarity; 0.75-0.92 to LLM" vertex="1">
+          <mxGeometry height="52" width="180" x="1030" y="458" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-379" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Selfie vs Application Photo: cosine similarity on face embeddings" vertex="1">
+          <mxGeometry height="48" width="180" x="1250" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-380" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Loan Agreement Signature: pyHanko cryptographic verification" vertex="1">
+          <mxGeometry height="48" width="180" x="1250" y="298" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-381" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="OTP Consent: audit-trail presence check" vertex="1">
+          <mxGeometry height="42" width="180" x="1250" y="356" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-382" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="KFS / Sanction vs LOS Funding: exact numeric compare (x2)" vertex="1">
+          <mxGeometry height="48" width="180" x="1250" y="408" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-383" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Aadhaar XML: mandatory presence hard gate" vertex="1">
+          <mxGeometry height="44" width="180" x="1250" y="466" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-384" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Broken Period Interest: threshold-tolerance compare (KFS vs Sanction)" vertex="1">
+          <mxGeometry height="55" width="180" x="1470" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-385" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Disbursal Memo: exact ID match + percentage-threshold amount compare" vertex="1">
+          <mxGeometry height="55" width="180" x="1470" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-386" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10.5;fontStyle=2;" value="Gemini LLM Adjudicator: entity-resolution for borderline PARTIAL name / address matches. Adjudicated MATCH/MISMATCH is written back to the record. (external API)" vertex="1">
+          <mxGeometry height="60" width="640" x="1020" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-387" edge="1" parent="1" source="s3struct-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-372">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="975" y="1282" />
+              <mxPoint x="975" y="112" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-388" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-376" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0.08;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-386" value="PARTIAL 0.75-0.92">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1230" y="374" />
+              <mxPoint x="1230" y="600" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-389" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-378" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0.14;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-386" value="PARTIAL 0.75-0.92">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1225" y="484" />
+              <mxPoint x="1225" y="600" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-390" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-332" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-393">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="570" />
+              <mxPoint x="1700" y="570" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-391" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-333" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-395">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1340" y="578" />
+              <mxPoint x="1700" y="578" />
+              <mxPoint x="1700" y="305" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-392" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-334" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-394">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1560" y="586" />
+              <mxPoint x="1700" y="586" />
+              <mxPoint x="1700" y="210" />
+            </Array>
+            <mxPoint x="1740" y="134" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-393" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Node 4 - Compile: aggregate all rollups and stats" vertex="1">
+          <mxGeometry height="55" width="240" x="1740" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-394" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Checker: data completeness + confidence-score gate (retry up to 2x)" vertex="1">
+          <mxGeometry height="70" width="240" x="1740" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-395" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=8;" value="Node 5 - DGCL Scorecard: rollups to final decision" vertex="1">
+          <mxGeometry height="60" width="240" x="1740" y="275" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-396" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-393" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-394">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-397" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-394" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-395" value="confidence &gt;= 0.70">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-398" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-394" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;fontSize=9;strokeColor=#b85450;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-337" value="retry: confidence below threshold">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1860" y="15" />
+              <mxPoint x="180" y="15" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-399" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=10;" value="scorecard.json" vertex="1">
+          <mxGeometry height="70" width="80" x="2060" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-400" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=10;" value="compiled_report.json" vertex="1">
+          <mxGeometry height="70" width="80" x="2150" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-402" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="S3 Result Store: poc_data/s3_result/{LOAN_ID}/ (audit_log appended throughout by LLM Adjudicator, Signature Verification, Checker)" vertex="1">
+          <mxGeometry height="55" width="260" x="2060" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-403" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="LOS Received Queue: poc_data/los/scorecards_received/" vertex="1">
+          <mxGeometry height="50" width="260" x="2060" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-404" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="FastAPI /api/* to React UI (cases, reviews, dashboard)" vertex="1">
+          <mxGeometry height="55" width="260" x="2060" y="325" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-405" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-395" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-399">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-406" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-393" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-400">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1860" y="65" />
+              <mxPoint x="2190" y="65" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-407" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-399" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.15;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-402">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-408" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-400" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-402">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-410" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-402" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-403" value="copy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-411" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-402" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-404" value="read">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2330" y="217" />
+              <mxPoint x="2330" y="352" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-412" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="24" x="60" y="1445" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-413" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="GPU-accelerable local model inference: Docling layout model + TableFormer, RapidOCR PP-OCRv6 (Docling's own OCR engine), Signature Detection Model" vertex="1">
+          <mxGeometry height="44" width="520" x="90" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-414" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="" vertex="1">
+          <mxGeometry height="24" width="30" x="630" y="1442" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-415" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="External API call (Gemini VLM / LLM Field Extraction / LLM Sanitiser and Classifier / LLM Adjudicator) - runs on provider infrastructure, not locally GPU-accelerable" vertex="1">
+          <mxGeometry height="44" width="500" x="670" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-416" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="" vertex="1">
+          <mxGeometry height="28" width="26" x="1200" y="1440" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-417" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="Persistent file / object store" vertex="1">
+          <mxGeometry height="44" width="420" x="1240" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-418" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="24" x="1690" y="1442" as="geometry" />
+        </mxCell>
+        <mxCell id="psprbTqAg1B4yqcM43mS-419" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="CPU-bound pipeline process or comparison algorithm" vertex="1">
+          <mxGeometry height="44" width="420" x="1720" y="1435" as="geometry" />
+        </mxCell>
+        <mxCell id="sigdet-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;arcSize=8;" value="Signature Detection Model: locates signature regions on page images (bbox + confidence)" vertex="1">
+          <mxGeometry height="78" width="260" x="670" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="struct-lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=14;fontStyle=1;dashPattern=8 4;" value="STRUCTURING AGENT - LLM Structure Node (post-OCR)" vertex="1">
+          <mxGeometry height="265" width="600" x="360" y="1090" as="geometry" />
+        </mxCell>
+        <mxCell id="llmsan-node" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10.5;fontStyle=2;" value="LLM Sanitiser + Document Type Classifier: validates and normalises the raw OCR JSON, classifies the document, and resolves it to a canonical doc_type key - reconciled against the filename-derived key - before emitting the canonical field template. (external API)" vertex="1">
+          <mxGeometry height="90" width="550" x="380" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="s3struct-node" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;boundedLbl=1;" value="S3 Extracted Structured Store: poc_data/s3_extracted_structured/{LOAN_ID}/{doc_type}.json" vertex="1">
+          <mxGeometry height="45" width="550" x="380" y="1260" as="geometry" />
+        </mxCell>
+        <mxCell id="llmsan-in" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-354" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="llmsan-node" value="raw OCR json">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="llmsan-out" edge="1" parent="1" source="llmsan-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="s3struct-node" value="sanitised json + doc_type">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sigver-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10.5;arcSize=8;" value="Signature Verifier Agent: consumes the detected signature regions for the Application Form, gates on detector confidence, and writes the chk_app_form_signature verdict back to the record." vertex="1">
+          <mxGeometry height="65" width="640" x="1020" y="665" as="geometry" />
+        </mxCell>
+        <mxCell id="sigver-in" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-372" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="sigver-node">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1010" y="124" />
+              <mxPoint x="1010" y="697" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="profile-sel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="DoclingOptions Profile Selector: picks a per-document-type profile (character-box forms / scanned / digital PDF / mixed / high-performance) setting images_scale, force_full_page_ocr, ocr_lang and layout threshold" vertex="1">
+          <mxGeometry height="80" width="260" x="380" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="dl-raster" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Page preprocessing: PDF parse + rasterization at images_scale (1.5x - 3.0x)" vertex="1">
+          <mxGeometry height="45" width="260" x="380" y="308" as="geometry" />
+        </mxCell>
+        <mxCell id="postfilter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="DoclingParser Post-Filter: drops tables below table_confidence_threshold / min rows / min cols" vertex="1">
+          <mxGeometry height="62" width="260" x="670" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-fields" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" value="LLM Field Extraction + Field Location Resolver (Node 2, step 7): OpenRouter LLM pulls canonical fields from the OCR text; the resolver anchors every field back to an OCR / table-cell bbox for UI evidence. (external API)" vertex="1">
+          <mxGeometry height="82" width="550" x="380" y="857" as="geometry" />
+        </mxCell>
+        <mxCell id="x-router-profile" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-342" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="profile-sel" value="pdf / image">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-router-xml" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-342" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-346" value="xml">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-profile-dl" edge="1" parent="1" source="profile-sel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="docling-box" value="profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-raster-ocr" edge="1" parent="1" source="dl-raster" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-344" value="page images">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-ocr-layout" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-344" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-348" value="regions to OCR (whole page if force_full_page_ocr)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-layout-table" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-348" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="dl-postproc" value="text cells">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-dl-postfilter" edge="1" parent="1" source="docling-box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.487;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="postfilter" value="elements + tables">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-post-conf" edge="1" parent="1" source="postfilter" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-350">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-conf-vlm" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-350" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-351" value="below 0.80, garbled, or handwriting">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-vlm-ser" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-351" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.764;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="corrected text">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-conf-ser" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-350" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.87;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="high confidence">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="946" y="573" />
+              <mxPoint x="946" y="753" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x-xml-ser" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-346" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="parsed xml fields">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="956" y="117" />
+              <mxPoint x="956" y="796" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x-img-sig" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-343" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="sigdet-node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-sig-ser" edge="1" parent="1" source="sigdet-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.4;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-353" value="signature regions">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="936" y="324" />
+              <mxPoint x="936" y="743" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x-ser-llm" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-353" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="llm-fields">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x-llm-s3" edge="1" parent="1" source="llm-fields" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-354" value="canonical fields + bboxes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="Node 5 emits one verdict per checkpoint: VERIFIED / DISCREPANCY / INDETERMINATE / NOT_APPLICABLE, each with a confidence score, the compared field values, and page-anchored document evidence. DISCREPANCY and INDETERMINATE are what land in the reviewer's queue." vertex="1">
+          <mxGeometry height="56" width="580" x="1740" y="508" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 1  -  Loan Amount  [Financial]:  Loan amount must be consistent across all agreement and sanction records." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="576" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 2  -  Loan Validity  [Financial]:  Sanction tenure must match the requested application tenure." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="614" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;" value="CP 3  -  Application Form  [Identity and KYC]  &lt;-- signature verifier agent:  Form must be complete, SIGNED, and applicant details must match LOS." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="652" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 4  -  KYC  [Identity and KYC]:  PAN and address proof are mandatory and must match the application form." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 5  -  Selfie / Live Photo  [Identity and KYC]:  Live selfie face embedding must match the form photo (threshold &gt;= 0.90)." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="728" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;" value="CP 6  -  Loan Agreement  [Legal and Compliance]  &lt;-- signature verifier agent:  Agreement presence and execution signature verification (pyHanko + OTP)." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="766" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 7  -  KFS  [Financial]:  KFS funding amount, IRR, EMI and customer consent must match LOS." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="804" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 8  -  Sanction Letter  [Financial]:  Sanction terms (amount, tenure, IRR, EMI) must match approved LOS terms." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="842" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-9" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 9  -  Aadhaar XML  [Identity and KYC]:  Aadhaar XML is a mandatory hard gate for every case." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-10" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 10  -  BPI  [Financial]:  Broken period interest split must be consistent across documents and LOS." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="918" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-11" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 11  -  Disbursal Memo  [Financial]:  Memo amount must be &gt;= 90% of the approved loan amount; loan ID must match." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="956" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-12" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=6;" value="CP 12  -  BT Details  [Legal and Compliance]:  BT details required for Balance Transfer loans, otherwise NOT_APPLICABLE." vertex="1">
+          <mxGeometry height="36" width="580" x="1740" y="994" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-from-scorecard" edge="1" parent="1" source="psprbTqAg1B4yqcM43mS-395" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.226;entryY=0;entryDx=0;entryDy=0;" target="cp-box" value="12 checkpoint verdicts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-sig-link" edge="1" parent="1" source="sigver-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#d79b00;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="cp-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1700" y="697" />
+              <mxPoint x="1700" y="694" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend-dead-swatch" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="24" x="60" y="1507" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-dead-text" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="Bypassed legacy component - still present in the source tree but not reachable from the compiled LangGraph pipeline" vertex="1">
+          <mxGeometry height="44" width="620" x="90" y="1498" as="geometry" />
+        </mxCell>
+        <mxCell id="dl-postproc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Layout Post-Processing: merges and cleans the layout clusters using the OCR text cells" vertex="1">
+          <mxGeometry height="52" width="260" x="380" y="539" as="geometry" />
+        </mxCell>
+        <mxCell id="x-postproc-table" edge="1" parent="1" source="dl-postproc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="psprbTqAg1B4yqcM43mS-345" value="table clusters">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass-fusion" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="SpatialCellFusion: geometrically projects OCR elements into Docling table cells - the exact fix for empty TableFormer cells, but never called outside tests" vertex="1">
+          <mxGeometry height="58" width="240" x="60" y="734" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass-ocrtable" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b3b3b3;dashed=1;fontColor=#909090;fontSize=10;arcSize=8;" value="OCRTableDetector: rebuilds tables from raw OCR elements when Docling detects none - never called outside tests" vertex="1">
+          <mxGeometry height="58" width="240" x="60" y="806" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Page-2" id="TzLcn6xfmRCqlfs6lYQM">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -262,6 +262,7 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
             "headers": tbl.headers,
             "rows": tbl.rows_raw,
             "bbox": tbl.bbox,
+            "table_confidence": getattr(tbl, "table_confidence", None),
             "markdown": getattr(tbl, "markdown", None),
             "cells": [cell.model_dump() for cell in (tbl.cells or [])],
         })
@@ -288,6 +289,14 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
                 "confidence": getattr(cell, "confidence", 1.0)
             })
 
+    stage_scores = {
+        "layout_score": getattr(parsed, "layout_score", None),
+        "ocr_score": getattr(parsed, "ocr_score", None),
+        "table_score": getattr(parsed, "table_score", None),
+        "parse_score": getattr(parsed, "parse_score", None),
+        "quality_grade": getattr(parsed, "quality_grade", None),
+    }
+
     resolver = FieldLocationResolver()
     field_locs = resolver.resolve_field_locations(
         extracted_fields=template_fields,
@@ -307,6 +316,11 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         "paragraphs": spatial_results.get("paragraphs", []),
         "field_locations": field_locs_dict,
         "ocr_tokens": ocr_tokens_debug,
+        # Table cell boxes are NOT present in ocr_tokens: TableRegionMask removes elements
+        # that fall inside a detected table, so their text reaches rawText only via the
+        # [TABLE] block. Exposing the cells separately lets the debug overlay draw them.
+        "table_cells": table_cells_dicts,
+        "stage_scores": stage_scores,
         "page_dimensions": page_dims
     }
 

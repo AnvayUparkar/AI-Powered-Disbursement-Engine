@@ -61,8 +61,8 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
         )
 
         try:
-            from docling.document_converter import DocumentConverter, PdfFormatOption
-            from docling.datamodel.pipeline_options import PdfPipelineOptions
+            from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
+            from docling.datamodel.pipeline_options import OcrMode, PdfPipelineOptions
 
             pipeline_options = PdfPipelineOptions()
             pipeline_options.do_ocr = options.do_ocr
@@ -160,8 +160,32 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                     f"images_scale={options.images_scale}"
                 )
 
-            format_options = {"pdf": PdfFormatOption(pipeline_options=pipeline_options)}
+            # Raw images (PNG/JPG/TIFF) resolve to InputFormat.IMAGE, which is a
+            # separate key from "pdf": registering only the PDF entry silently left
+            # image uploads on Docling's stock defaults, so none of the options above
+            # (images_scale, layout threshold, TableFormer ACCURATE, RapidOCR) applied
+            # to them at all.
+            #
+            # Images also get their own OCR mode. An image carries no programmatic
+            # text layer, so OcrMode.DEFAULT's cluster-based region selection has
+            # nothing to skip and merely risks dropping regions the layout model
+            # missed. FULL_PAGE is always the correct choice here. The PDF options are
+            # deep-copied first so the PDF path keeps its own (profile-driven) mode.
+            image_pipeline_options = pipeline_options.model_copy(deep=True)
+            if image_pipeline_options.ocr_options is not None:
+                image_pipeline_options.ocr_options.mode = OcrMode.FULL_PAGE
+
+            format_options = {
+                "pdf": PdfFormatOption(pipeline_options=pipeline_options),
+                "image": ImageFormatOption(pipeline_options=image_pipeline_options),
+            }
             converter = DocumentConverter(format_options=format_options)
+            logger.info(
+                "[DoclingCache] Registered format options: pdf (ocr_mode=%s), "
+                "image (ocr_mode=%s)",
+                getattr(pipeline_options.ocr_options, "mode", None),
+                getattr(image_pipeline_options.ocr_options, "mode", None),
+            )
             logger.info(
                 "[DoclingCache] DocumentConverter built and cached. "
                 "ONNX models are now hot and will be reused for all future documents."

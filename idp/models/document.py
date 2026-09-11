@@ -33,5 +33,12 @@ class ParsedDocument(BaseModel):
     raw_text: Optional[str] = None
     formatted_text: Optional[str] = None
     processing: ProcessingMetadata
+    # Docling's own per-stage quality scores, carried through verbatim so each model can be
+    # inspected independently in the debug view. None means that stage did not run.
+    layout_score: Optional[float] = None
+    ocr_score: Optional[float] = None
+    table_score: Optional[float] = None
+    parse_score: Optional[float] = None
+    quality_grade: Optional[str] = None
     custom_metadata: Dict[str, Any] = Field(default_factory=dict)
 
