@@ -388,6 +388,11 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         if sanction_doc.get("emi") is not None:
             emi_conf = resolve_field_confidence(doc=sanction_doc, field_name="emi", record=r8_emi)
             fields.append(build_field("Sanction EMI", inr_format(sanction_doc["emi"]), emi_conf, f"doc-{ctx.loan_id}-sanction"))
+        if "customer_consent" in sanction_doc and sanction_doc["customer_consent"] is not None:
+            r8_consent = ctx.get_check_record("chk_check_financial_sanction_letter_customer_consent_vs_los")
+            consent_val = "Verified (Consented)" if bool(sanction_doc["customer_consent"]) else "Missing / Not Consented"
+            consent_conf = resolve_field_confidence(doc=sanction_doc, field_name="customer_consent", record=r8_consent) if bool(sanction_doc["customer_consent"]) else 0.0
+            fields.append(build_field("Customer Consent", consent_val, consent_conf, f"doc-{ctx.loan_id}-sanction"))
 
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Terms", 1))
 

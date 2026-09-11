@@ -67,8 +67,8 @@ class DoclingOptions(BaseModel):
     
     # OCR Quality & Performance
     det_limit_side_len: int = 1536  # Detection input size (higher = slower, better)
-    det_db_thresh: float = 0.1  # Detection threshold (lower = more boxes)
-    det_db_box_thresh: float = 0.35  # Box confidence threshold (lower = detect low-contrast/faint text)
+    det_db_thresh: float = 0.05  # Detection threshold (lower = more boxes)
+    det_db_box_thresh: float = 0.2  # Box confidence threshold (lower = detect low-contrast/faint text)
     rec_batch_num: int = 6  # Batch size for recognition
     
     # ═══════════════════════════════════════════════════════════════════════

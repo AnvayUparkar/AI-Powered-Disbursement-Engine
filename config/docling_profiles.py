@@ -110,7 +110,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     
     # OCR Settings (aggressive for scanned images)
     do_ocr=True,
-    force_full_page_ocr=True,  # Always run OCR on scanned docs
+    force_full_page_ocr=False,  # Always run OCR on scanned docs
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (high quality for low-res scans)
