@@ -16,6 +16,7 @@ from config import (
 )
 from idp.services.document_processor import DocumentProcessor
 from pipeline.engines.key_value_extractor import KeyValueExtractor
+from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures, is_loan_agreement
 from pipeline.state import PipelineState
 from pipeline.storage import (
     get_all_s3_extracted_structured,
@@ -265,10 +266,82 @@ def idp_scan(state: PipelineState) -> PipelineState:
                         raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""
                         if (raw_txt.strip() or cached_data.get("_components") or len(cached_data) > 0) and cached_path.stat().st_mtime >= fpath.stat().st_mtime:
                             logger.info("IDP scan cache hit for %s (%s) in loan %s. Skipping duplicate OCR.", doc_key, fname, loan_id)
+                            # Ensure Loan Agreement digital signature verification is populated even on cache hit
+                            if (is_loan_agreement(fname) or is_loan_agreement(doc_key)) and fpath.suffix.lower() == ".pdf":
+                                if "pyhanko_inspection" not in cached_data:
+                                    try:
+                                        sig_res = inspect_pdf_signatures(fpath, filename=fname)
+                                        cached_data["pyhanko_inspection"] = sig_res
+                                        cached_data["loan_agreement_present"] = True
+                                        cached_data["loan_agreement_signed"] = bool(sig_res.get("is_acceptable", False))
+                                    except Exception as sig_err:
+                                        logger.warning("pyHanko signature inspection failed on cache hit for %s: %s", fname, sig_err)
                             return fname, fpath, doc_key, cached_data
                     except Exception as cache_read_err:
                         logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
 
+                # For Loan Agreements: bypass heavy OCR/Docling on multi-page agreements
+                # and directly execute fast pyHanko digital signature inspection.
+                if (is_loan_agreement(fname) or is_loan_agreement(doc_key)) and fpath.suffix.lower() == ".pdf":
+                    logger.info("Bypassing OCR for Loan Agreement %s (%s); running pyHanko directly.", fname, loan_id)
+                    try:
+                        sig_res = inspect_pdf_signatures(fpath, filename=fname)
+                    except Exception as sig_err:
+                        logger.warning("pyHanko signature inspection failed for %s: %s", fname, sig_err)
+                        sig_res = {"error": str(sig_err), "is_signed": False, "is_acceptable": False, "signatures": []}
+
+                    is_signed = bool(sig_res.get("is_signed", False))
+                    is_acceptable = bool(sig_res.get("is_acceptable", False))
+                    sig_count = int(sig_res.get("signature_count", 0))
+                    signatures = sig_res.get("signatures", [])
+                    page_count = sig_res.get("page_count", 0)
+                    signer_cn = signatures[0]["signer"]["common_name"] if signatures else "N/A"
+
+                    status_label = (
+                        "DIGITALLY SIGNED (VALID)"
+                        if is_acceptable
+                        else "UNSIGNED"
+                        if not is_signed
+                        else "SIGNATURE INVALID/TAMPERED"
+                    )
+                    diag_text = (
+                        f"Document: {fname}\n"
+                        f"Document Type: Loan Agreement\n"
+                        f"Pages: {page_count}\n"
+                        f"Digital Signature Status: {status_label}\n"
+                        f"Signatures Detected: {sig_count}\n"
+                    )
+                    if is_signed and signatures:
+                        sig0 = signatures[0]
+                        diag_text += (
+                            f"Signer CN: {signer_cn}\n"
+                            f"Issuer: {sig0['signer'].get('issuer_dn')}\n"
+                            f"Validity Window: {sig0['signer'].get('valid_from')} to {sig0['signer'].get('valid_until')}\n"
+                            f"Trust Anchor: {sig0.get('trust_anchor_label')}\n"
+                            f"Cryptographic Integrity: {'INTACT' if sig0.get('intact') else 'TAMPERED'}\n"
+                        )
+
+                    scan_res = {
+                        "_raw_text": diag_text,
+                        "rawText": diag_text,
+                        "loan_agreement_present": True,
+                        "loan_agreement_signed": is_acceptable,
+                        "pyhanko_inspection": sig_res,
+                        "_components": {
+                            "raw_elements": [
+                                {
+                                    "type": "paragraph",
+                                    "text": diag_text,
+                                    "bbox": [0, 0, 100, 100],
+                                    "page": 1,
+                                }
+                            ]
+                        },
+                        "_field_locations": {},
+                    }
+                    return fname, fpath, doc_key, scan_res
+
+                # Standard IDP OCR processing for non-agreement documents (KYC, Statements, KFS, etc.)
                 scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
                 return fname, fpath, doc_key, scan_res
             except Exception as scan_err:

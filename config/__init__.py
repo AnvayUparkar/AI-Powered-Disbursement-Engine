@@ -12,6 +12,7 @@ from config.paths import (
     S3_LOS_DIR,
     S3_RAW_DIR,
     S3_RESULT_DIR,
+    TRUSTED_ROOTS_DIR,
 )
 from config.settings import (
     ADDRESS_MATCH_ALGO,
@@ -31,6 +32,7 @@ from config.settings import (
     LOAN_AMOUNT_THRESHOLD_PCT,
     MAX_DOC_WORKERS,
     NAME_MATCH_ALGO,
+    REQUIRE_TRUSTED_DIGITAL_SIGNATURE,
     SKIP_IDP,
     USE_EQUAL_FIELD_WEIGHTS,
 )
@@ -65,6 +67,8 @@ __all__ = [
     "S3_EXTRACTED_DIR",
     "S3_EXTRACTED_STRUCTURED_DIR",
     "S3_RESULT_DIR",
+    "TRUSTED_ROOTS_DIR",
+    "REQUIRE_TRUSTED_DIGITAL_SIGNATURE",
     "IST",
     "NAME_MATCH_ALGO",
     "ADDRESS_MATCH_ALGO",

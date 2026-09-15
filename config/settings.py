@@ -49,3 +49,7 @@ DISABLE_IDP_EXTRACTION_CACHE = os.getenv("DISABLE_IDP_EXTRACTION_CACHE", "false"
 # When False (default), the tiered criticality weights (3.0, 2.0, 1.0) are applied.
 USE_EQUAL_FIELD_WEIGHTS = os.getenv("USE_EQUAL_FIELD_WEIGHTS", "false").lower() in ("true", "1", "yes")
 
+# Digital Signature Policy: When True, requires pyHanko to verify a trusted PKI root chain (e.g., CCA India or Mozilla bundle).
+# When False (default), intact and cryptographically valid digital signatures pass without requiring a production root CA.
+REQUIRE_TRUSTED_DIGITAL_SIGNATURE = os.getenv("REQUIRE_TRUSTED_DIGITAL_SIGNATURE", "false").lower() in ("true", "1", "yes")
+
