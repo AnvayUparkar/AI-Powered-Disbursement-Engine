@@ -13,7 +13,7 @@
   "permanent_address": "30/105, Sindhi Colony, Jhulelal Mandir Ke Pass, Sanganer, Jaipur, Rajasthan, 302029",
   "aadhaar_no": "XXXXXXXX 5552",
   "application_date": "22/08/2026",
-  "bank_account_type": "Current",
+  "bank_account_type": null,
   "applicant_gender": "Male",
   "login_date": null,
   "disbursement_date": null,
