@@ -32,9 +32,12 @@ def _get_options_key(options: DoclingOptions) -> str:
         f"|{options.do_cell_matching}|{options.images_scale}|{options.layout_detection_threshold}"
         f"|{options.ocr_model_name}|{options.det_model_path}|{options.rec_model_path}"
         f"|{'_'.join(options.ocr_lang)}"
-        f"|{options.images_scale}|{options.det_db_thresh}|{options.det_db_box_thresh}"
-        f"|{options.det_limit_side_len}|{options.enhance_contrast}|{options.deskew}"
+        f"|{options.enhance_contrast}|{options.deskew}"
         f"|{options.denoise}|{options.force_full_page_ocr}"
+        # Device and thread count change the converter that gets built, so profiles that
+        # differ only by these must not share a cached instance.
+        f"|{options.use_gpu}|{options.num_threads}|{options.ocr_text_score}"
+        f"|{sorted((options.rapidocr_params or {}).items())}"
     )
 
 
@@ -68,8 +71,28 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
         try:
             from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
             from docling.datamodel.pipeline_options import OcrMode, PdfPipelineOptions
+            from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 
             pipeline_options = PdfPipelineOptions()
+
+            # Device selection. Previously use_gpu and num_threads were set on every profile
+            # but read nowhere, so they had no effect at all: Docling fell back to its own
+            # default of device="auto". AUTO resolves to the best available accelerator
+            # (CUDA > MPS > XPU > CPU); CPU pins it explicitly.
+            #
+            # NOTE: this governs the torch-based models -- the layout model and TableFormer.
+            # RapidOCR runs on ONNX Runtime and only special-cases CUDA and DirectML, so OCR
+            # stays on CPU on macOS regardless of what is set here.
+            pipeline_options.accelerator_options = AcceleratorOptions(
+                device=AcceleratorDevice.AUTO if options.use_gpu else AcceleratorDevice.CPU,
+                num_threads=options.num_threads,
+            )
+            logger.info(
+                "[DoclingCache] Accelerator: device=%s num_threads=%s (use_gpu=%s)",
+                pipeline_options.accelerator_options.device,
+                options.num_threads,
+                options.use_gpu,
+            )
             pipeline_options.do_ocr = options.do_ocr
             pipeline_options.do_table_structure = options.do_table_structure
 
@@ -114,15 +137,17 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                     if options.cls_model_path:
                         ocr_opts.cls_model_path = options.cls_model_path
                     
-                    # OCR quality/performance settings
-                    if hasattr(ocr_opts, "det_limit_side_len"):
-                        ocr_opts.det_limit_side_len = options.det_limit_side_len
-                    if hasattr(ocr_opts, "det_db_thresh"):
-                        ocr_opts.det_db_thresh = options.det_db_thresh
-                    if hasattr(ocr_opts, "det_db_box_thresh"):
-                        ocr_opts.det_db_box_thresh = options.det_db_box_thresh
-                    if hasattr(ocr_opts, "rec_batch_num"):
-                        ocr_opts.rec_batch_num = options.rec_batch_num
+                    # OCR detection sensitivity.
+                    #
+                    # det_limit_side_len / det_db_thresh / det_db_box_thresh / rec_batch_num
+                    # do NOT exist on RapidOcrOptions, so the hasattr guards that used to sit
+                    # here never fired and every value configured for them was discarded.
+                    # text_score is the real equivalent of det_db_box_thresh -- the minimum
+                    # confidence a detected text box needs to survive -- and rapidocr_params
+                    # is the passthrough for anything else the engine accepts.
+                    ocr_opts.text_score = options.ocr_text_score
+                    if options.rapidocr_params:
+                        ocr_opts.rapidocr_params = dict(options.rapidocr_params)
                     
                     pipeline_options.ocr_options = ocr_opts
                     logger.info(

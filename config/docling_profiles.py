@@ -19,6 +19,11 @@ from idp.services.docling.options import DoclingOptions
 # Bypasses TableFormer completely to eliminate unnecessary CPU transformer passes.
 # ═══════════════════════════════════════════════════════════════════════════
 
+# NOTE: use_gpu is now wired to pipeline_options.accelerator_options (it previously had no
+# effect at all). Every profile is set True so behaviour is unchanged: Docling's own default
+# was device="auto", which already resolved to the best available accelerator. Setting False
+# here now genuinely pins AcceleratorDevice.CPU and will slow layout/TableFormer down.
+
 IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
     do_table_structure=False,
     table_mode="FAST",
@@ -84,7 +89,7 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     
     # Performance
     max_num_pages=50,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=4,
 )
 
@@ -132,7 +137,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     
     # Performance
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=4,
 )
 
@@ -182,7 +187,7 @@ DIGITAL_PDF_PROFILE = DoclingOptions(
     
     # Performance (fast)
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=6,
 )
 
@@ -230,7 +235,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     
     # Performance
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=4,
 )
 
@@ -277,7 +282,7 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     
     # Performance (maximum speed)
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=8,
 )
 

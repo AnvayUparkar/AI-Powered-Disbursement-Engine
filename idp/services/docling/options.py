@@ -1,5 +1,5 @@
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
 
 class DoclingOptions(BaseModel):
@@ -75,11 +75,19 @@ class DoclingOptions(BaseModel):
     # OCR Quality & Performance
     det_limit_side_len: int = 1536  # Detection input size (higher = slower, better)
     det_db_thresh: float = 0.05  # Detection threshold (lower = more boxes)
-    # [INERT] det_limit_side_len / det_db_thresh / det_db_box_thresh / rec_batch_num do not
-    # exist on RapidOcrOptions in docling 2.126.0, so the hasattr guards in pipeline.py that
-    # assign them never fire. Use RapidOcrOptions.text_score or rapidocr_params instead.
-    det_db_box_thresh: float = 0.1  # Box confidence threshold (lower = detect low-contrast/faint text)
-    rec_batch_num: int = 6  # Batch size for recognition
+    det_db_box_thresh: float = 0.1  # [INERT] see ocr_text_score below
+    rec_batch_num: int = 6  # [INERT] no equivalent on RapidOcrOptions
+
+    # REAL OCR detection knobs. det_limit_side_len / det_db_thresh / det_db_box_thresh /
+    # rec_batch_num above do NOT exist on RapidOcrOptions in docling 2.126.0 and are
+    # silently discarded; these two are what actually reach the engine.
+    #
+    # ocr_text_score is the true equivalent of det_db_box_thresh: the minimum confidence a
+    # detected text box needs to survive. Lower it to recover faint or low-contrast text at
+    # the cost of more false positives. Docling's own default is 0.5.
+    ocr_text_score: float = 0.5
+    # Passthrough for engine-specific RapidOCR parameters Docling does not model directly.
+    rapidocr_params: Dict[str, Any] = Field(default_factory=dict)
     
     # ═══════════════════════════════════════════════════════════════════════
     # IMAGE PREPROCESSING
@@ -125,6 +133,10 @@ class DoclingOptions(BaseModel):
     # ═══════════════════════════════════════════════════════════════════════
     # PERFORMANCE & DEBUGGING
     # ═══════════════════════════════════════════════════════════════════════
+    # Wired -> pipeline_options.accelerator_options. True selects AcceleratorDevice.AUTO
+    # (best available: CUDA > MPS > XPU > CPU); False pins AcceleratorDevice.CPU.
+    # Governs the torch-based layout model and TableFormer. RapidOCR runs on ONNX Runtime
+    # and only special-cases CUDA/DirectML, so OCR stays on CPU on macOS either way.
     use_gpu: bool = True  # Use GPU acceleration (if available)
     num_threads: int = 4  # CPU threads for processing
     debug_mode: bool = True  # Save debug visualizations
