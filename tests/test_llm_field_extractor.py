@@ -13,6 +13,7 @@ from pipeline.engines.llm_field_extractor import (
     _CANONICAL_KEYS,
     _build_user_content,
     _clean_json_response,
+    format_template_json,
     llm_extract_fields,
 )
 
@@ -143,6 +144,7 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
         "aadhaar_xml_present": True,
         "loan_agreement_present": True,
         "loan_agreement_signed": True,
+        "customer_consent": True,
     }
 
     mock_client_instance = MagicMock()
@@ -162,9 +164,10 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
     assert result["irr_percent"] == 14.5
     assert result["emi"] == 24500.0
     assert result["aadhaar_xml_present"] is True
+    assert result["customer_consent"] is True
     # All canonical keys should be in result
     assert all(k in result for k in _CANONICAL_KEYS)
-    assert len(result) == 22
+    assert len(result) == 23
 
 
 def test_llm_extract_fields_partial_null_fields(monkeypatch):
@@ -213,11 +216,12 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
     assert result["bank_account_no"] is None
     assert result["BPI"] is None
     assert result["aadhaar_xml_present"] is False
-    assert len(result) == 22
+    assert result["customer_consent"] is False
+    assert len(result) == 23
 
 
 def test_llm_extract_fields_user_new_format(monkeypatch):
-    """Verifies that the exact user-specified JSON format is completely extracted with all 22 keys."""
+    """Verifies that the exact user-specified JSON format is completely extracted with all 23 keys."""
     monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
     monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
 
@@ -244,6 +248,7 @@ def test_llm_extract_fields_user_new_format(monkeypatch):
         "aadhaar_xml_present": False,
         "loan_agreement_present": False,
         "loan_agreement_signed": False,
+        "customer_consent": False,
     }
 
     mock_client_instance = MagicMock()
@@ -255,7 +260,7 @@ def test_llm_extract_fields_user_new_format(monkeypatch):
         result = llm_extract_fields("aadhaar", "raw ocr text", "LOAN_USER_FORMAT")
 
     assert result == user_payload
-    assert len(result) == 22
+    assert len(result) == 23
 
 
 def test_llm_extract_fields_discards_extra_keys(monkeypatch):
@@ -385,3 +390,56 @@ def test_large_doc_types_are_classified_correctly(doc_type):
 def test_small_doc_types_are_classified_correctly(doc_type):
     assert doc_type in SMALL_DOC_TYPES
     assert doc_type not in LARGE_DOC_TYPES
+
+
+# ── customer_consent field tests ──────────────────────────────────────────
+
+def test_format_template_json_customer_consent_normalization():
+    """Verifies that format_template_json normalizes customer_consent and its aliases."""
+    # Direct boolean True
+    res1 = format_template_json({"customer_consent": True})
+    assert res1["customer_consent"] is True
+
+    # Alias: consent
+    res2 = format_template_json({"consent": True})
+    assert res2["customer_consent"] is True
+
+    # Alias: otp_consent
+    res3 = format_template_json({"otp_consent": "Customer consent provided on KFS via OTP on 30 August 2026 16:33:16"})
+    assert res3["customer_consent"] is True
+
+    # Missing / None defaults to False
+    res4 = format_template_json({})
+    assert res4["customer_consent"] is False
+
+
+def test_llm_extract_fields_customer_consent_kfs_otp(monkeypatch):
+    """Verifies that KFS extraction correctly captures customer_consent when OTP acceptance is present."""
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_API_KEY", "sk-test")
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.LLM_MODEL", "test-model")
+
+    llm_payload = {
+        "loan_amount": "1000000",
+        "loan_validity": "36 Months",
+        "irr_percent": 17.0,
+        "emi": 35652.0,
+        "customer_consent": True,
+    }
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.post.return_value = _make_mock_response(llm_payload)
+    mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+    mock_client_instance.__exit__ = MagicMock(return_value=False)
+
+    with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
+        result = llm_extract_fields(
+            "kfs",
+            "Customer consent provided on KFS via OTP on 30 August 2026 16:33:16 Key Fact Sheet",
+            "APPL00343265_kfs",
+        )
+
+    assert result["customer_consent"] is True
+    assert result["irr_percent"] == 17.0
+    assert result["loan_amount"] == "1000000"
+    assert result["emi"] == 35652.0
+    assert len(result) == 23
