@@ -37,8 +37,11 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     amount_records = [
         r for r in ctx.records
-        if r.get("field") in ("loan_amount", "funding_amount")
-        or (r.get("check_id") and "loan_amount" in r.get("check_id", "").lower())
+        if (
+            r.get("field") in ("loan_amount", "funding_amount")
+            or (r.get("check_id") and "loan_amount" in r.get("check_id", "").lower())
+        )
+        and not any(s in ("application_form", "appform") for s in (r.get("sources") or []))
     ]
 
     fields: list[dict[str, Any]] = []

@@ -343,6 +343,10 @@ def idp_scan(state: PipelineState) -> PipelineState:
 
                 # Standard IDP OCR processing for non-agreement documents (KYC, Statements, KFS, etc.)
                 scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
+                # Aadhaar XML presence is proven by the file being classified as aadhaar_xml —
+                # the LLM cannot infer this from raw UIDAI XML tag content, so force it here.
+                if scan_res and doc_key == "aadhaar_xml":
+                    scan_res["aadhaar_xml_present"] = True
                 return fname, fpath, doc_key, scan_res
             except Exception as scan_err:
                 logger.warning("Error processing %s: %s", fname, scan_err)

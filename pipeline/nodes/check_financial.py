@@ -9,6 +9,7 @@ from pipeline.engines.comparison import (
     run_field_checks,
 )
 from pipeline.state import PipelineState, compute_rollup
+from pipeline.storage import get_s3_los
 
 logger = logging.getLogger("disbursement_pipeline.check_financial")
 
@@ -17,7 +18,7 @@ def check_financial(state: PipelineState) -> dict[str, Any]:
     """Runs financial verification checks comparing Account Statement & Disbursal Memo against LOS data."""
     loan_id = state.get("loan_id", "")
     extracted = state.get("extracted_structured_data") or state.get("extracted_data") or {}
-    los = state.get("los_data") or {}
+    los = state.get("los_data") or get_s3_los(loan_id)
     records: List[Dict[str, Any]] = []
 
     logger.info("Executing check_financial for loan: %s", loan_id)

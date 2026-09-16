@@ -220,14 +220,14 @@ export function UploadModal({
               multiple
               className="hidden"
               onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }}
-              accept=".pdf,.jpg,.jpeg,.png,.zip,.tiff,.bmp"
+              accept=".pdf,.jpg,.jpeg,.png,.zip,.tiff,.tif,.bmp,.xml,image/tiff,image/png,image/jpeg,application/pdf"
             />
             <UploadCloud className="h-10 w-10 mx-auto text-ink-400 mb-2" />
             <p className="text-sm font-medium text-ink-700">
               {dragging ? 'Drop files here' : 'Drag & drop files or click to browse'}
             </p>
             <p className="text-xs text-ink-500 mt-1">
-              PDF, JPG, PNG, TIFF, ZIP · Multiple files supported
+              PDF, JPG, PNG, TIFF (.tif, .tiff), ZIP, XML · Multiple files supported
             </p>
           </div>
 

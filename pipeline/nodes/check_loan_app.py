@@ -7,6 +7,7 @@ from config import LOAN_APP_FIELD_CHECKS
 from pipeline.engines.comparison import resolve_doc_data, run_field_checks
 from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures, is_loan_agreement
 from pipeline.state import PipelineState, compute_rollup
+from pipeline.storage import get_s3_los
 
 logger = logging.getLogger("disbursement_pipeline.check_loan_app")
 
@@ -94,7 +95,7 @@ def check_loan_app(state: PipelineState) -> dict[str, Any]:
     """Runs loan application checks comparing Application Form, KFS, and Sanction Letter against LOS data."""
     loan_id = state.get("loan_id", "")
     extracted = state.get("extracted_structured_data") or state.get("extracted_data") or {}
-    los = state.get("los_data") or {}
+    los = state.get("los_data") or get_s3_los(loan_id)
     records: List[Dict[str, Any]] = []
 
     logger.info("Executing check_loan_app for loan: %s", loan_id)
