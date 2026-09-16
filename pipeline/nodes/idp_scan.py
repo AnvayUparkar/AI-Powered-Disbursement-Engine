@@ -256,7 +256,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
                 errors.append(f"Failed reading JSON document {fname}: {e}")
             continue
 
-        if fpath.suffix.lower() in [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".xml"]:
+        if fpath.suffix.lower() in [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".xml"]:
             doc_key = get_canonical_doc_type(fname)
             doc_id = f"{loan_id}_{doc_key}"
             binary_tasks.append((fname, fpath, doc_key, doc_id))

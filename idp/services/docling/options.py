@@ -115,7 +115,7 @@ class DoclingOptions(BaseModel):
     # ═══════════════════════════════════════════════════════════════════════
     # PERFORMANCE & DEBUGGING
     # ═══════════════════════════════════════════════════════════════════════
-    use_gpu: bool = False  # Use GPU acceleration (if available)
-    num_threads: int = 4  # CPU threads for processing
+    use_gpu: bool = True  # Use GPU acceleration (if available)
+    num_threads: int = 6  # CPU threads for processing
     debug_mode: bool = False  # Save debug visualizations
     log_level: str = "INFO"  # Logging verbosity

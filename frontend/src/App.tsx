@@ -25,7 +25,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<Navigate to="/cases" replace />} />
           <Route path="/dashboard" element={<Suspense fallback={<PageFallback />}><DashboardPage /></Suspense>} />
           <Route path="/cases" element={<Suspense fallback={<PageFallback />}><CasesPage /></Suspense>} />
           <Route path="/cases/:caseId" element={<Suspense fallback={<PageFallback />}><CaseDetailPage /></Suspense>} />
@@ -38,7 +38,7 @@ export default function App() {
           <Route path="/reports" element={<Suspense fallback={<PageFallback />}><ReportsPage /></Suspense>} />
           <Route path="/audit" element={<Suspense fallback={<PageFallback />}><AuditPage /></Suspense>} />
           <Route path="/settings" element={<Suspense fallback={<PageFallback />}><SettingsPage /></Suspense>} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/cases" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>
