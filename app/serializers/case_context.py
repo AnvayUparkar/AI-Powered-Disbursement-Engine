@@ -152,7 +152,7 @@ def build_evidence(
 def build_field(
     name: str,
     value: Any,
-    confidence: float,
+    confidence: float | None,
     doc_id: str,
     page: int = 1,
 ) -> dict[str, Any]:
@@ -161,10 +161,85 @@ def build_field(
         "id": f"fld-{name.lower().replace(' ', '_')}",
         "name": name,
         "value": value,
-        "confidence": round(confidence, 1),
+        "confidence": round(confidence, 1) if confidence is not None else None,
+        "hasTelemetry": confidence is not None,
         "sourceDocumentId": doc_id,
         "page": page,
     }
+
+
+def resolve_field_confidence(
+    doc: dict[str, Any] | None = None,
+    field_name: str | None = None,
+    record: dict[str, Any] | None = None,
+) -> float | None:
+    """Resolves dynamic field confidence strictly from pipeline check records or document OCR telemetry.
+    Returns percentage float if telemetry exists, or None if not available.
+    """
+    # 1. Pipeline check record confidence
+    if record and isinstance(record, dict):
+        rc = record.get("confidence")
+        if rc is not None:
+            try:
+                c_val = float(rc)
+                if c_val <= 1.0:
+                    c_val *= 100.0
+                return round(c_val, 1)
+            except (ValueError, TypeError):
+                pass
+
+    # 2. Document OCR metadata telemetry (_field_locations, _components, or ocr_confidence)
+    if doc and isinstance(doc, dict):
+        if field_name:
+            field_locs = doc.get("_field_locations") or {}
+            comp = doc.get("_components") or {}
+            comp_locs = comp.get("field_locations") or {}
+            comp_kvs = comp.get("key_values") or {}
+
+            aliases = [field_name]
+            if field_name == "dob":
+                aliases.append("date_of_birth")
+            elif field_name == "mobile_no":
+                aliases.extend(["contact_no", "mobile"])
+            elif field_name == "applicant_name":
+                aliases.append("name")
+            elif field_name in ("bpi", "broken_period_interest", "bpi_charge"):
+                aliases.extend(["BPI", "bpi", "bpi_charges", "bpi_charge", "broken_period_interest"])
+
+            # Check _field_locations & component field_locations
+            for a in aliases:
+                loc = field_locs.get(a) or comp_locs.get(a)
+                if isinstance(loc, dict) and "confidence" in loc:
+                    try:
+                        c_val = float(loc["confidence"])
+                        if c_val <= 1.0:
+                            c_val *= 100.0
+                        return round(c_val, 1)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Check _components -> key_values
+            for a in aliases:
+                kv = comp_kvs.get(a)
+                if isinstance(kv, dict) and "confidence" in kv:
+                    try:
+                        c_val = float(kv["confidence"])
+                        if c_val <= 1.0:
+                            c_val *= 100.0
+                        return round(c_val, 1)
+                    except (ValueError, TypeError):
+                        pass
+
+        if "ocr_confidence" in doc:
+            try:
+                c_val = float(doc["ocr_confidence"])
+                if c_val <= 1.0:
+                    c_val *= 100.0
+                return round(c_val, 1)
+            except (ValueError, TypeError):
+                pass
+
+    return None
 
 
 def resolve_checkpoint_validation(
@@ -271,9 +346,11 @@ def build_checkpoint(
 def compute_checkpoint_confidence(
     fields: list[dict[str, Any]],
     records: list[dict[str, Any]] | None = None,
-    default_conf: float = 95.0,
+    default_conf: float = 0.0,
 ) -> float:
-    """Calculates weighted confidence dynamically from extracted fields and comparison records."""
+    """Calculates weighted confidence dynamically from extracted fields and comparison records.
+    Returns 0.0 if no telemetry is recorded.
+    """
     confidences: list[float] = []
     weights: list[float] = []
 
@@ -310,12 +387,12 @@ def compute_checkpoint_confidence(
                         pass
 
     if not confidences:
-        return default_conf
+        return round(default_conf, 1)
 
     total_w = sum(weights)
     if total_w > 0:
-        return sum(c * w for c, w in zip(confidences, weights)) / total_w
-    return sum(confidences) / len(confidences)
+        return round(sum(c * w for c, w in zip(confidences, weights)) / total_w, 1)
+    return round(sum(confidences) / len(confidences), 1)
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from config import KYC_FIELD_CHECKS
 from pipeline.engines.comparison import resolve_doc_data, run_field_checks
 from pipeline.state import PipelineState, compute_rollup
+from pipeline.storage import get_s3_los
 
 logger = logging.getLogger("disbursement_pipeline.check_kyc")
 
@@ -13,7 +14,7 @@ def check_kyc(state: PipelineState) -> dict[str, Any]:
     """Runs KYC verification checks comparing Aadhaar and PAN against LOS data."""
     loan_id = state.get("loan_id", "")
     extracted = state.get("extracted_structured_data") or state.get("extracted_data") or {}
-    los = state.get("los_data") or {}
+    los = state.get("los_data") or get_s3_los(loan_id)
     records: List[Dict[str, Any]] = []
 
     logger.info("Executing check_kyc for loan: %s", loan_id)

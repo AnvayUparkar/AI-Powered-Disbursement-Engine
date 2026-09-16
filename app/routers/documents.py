@@ -108,14 +108,26 @@ def preview_document(
                         target_path = matches[0].resolve()
                         break
 
+    IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif")
     name_lower = doc_name.lower()
-    is_image_req = format == "image" or name_lower.endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff"))
+    is_image_req = format == "image" or name_lower.endswith(IMAGE_EXTS)
 
     if target_path is not None:
         if is_image_req:
-            if name_lower.endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):
+            if name_lower.endswith(IMAGE_EXTS):
                 try:
                     content = target_path.read_bytes()
+                    if name_lower.endswith((".tiff", ".tif")):
+                        try:
+                            import io
+                            from PIL import Image
+                            with Image.open(io.BytesIO(content)) as img:
+                                png_buf = io.BytesIO()
+                                img.save(png_buf, format="PNG")
+                                return Response(content=png_buf.getvalue(), media_type="image/png")
+                        except Exception as tif_err:
+                            logger.warning("TIFF to PNG conversion fallback: %s", tif_err)
+                            return Response(content=content, media_type="image/tiff")
                     mtype = "image/png" if name_lower.endswith(".png") else "image/jpeg"
                     return Response(content=content, media_type=mtype)
                 except OSError as e:

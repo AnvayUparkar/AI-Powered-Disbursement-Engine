@@ -33,6 +33,19 @@ DOC_TYPE_DISPLAY_NAMES: dict[str, str] = {
     "bt_details": "BT Foreclosure Details",
 }
 
+# Canonical supported document file extensions across ingestion, IDP, and UI
+SUPPORTED_DOCUMENT_EXTENSIONS: set[str] = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tiff",
+    ".tif",
+    ".bmp",
+    ".xml",
+    ".zip",
+}
+
 # Reverse mapping: alias -> canonical key
 _ALIAS_TO_CANONICAL: dict[str, str] = {}
 for canonical, aliases in DOC_TYPE_ALIASES.items():
@@ -56,12 +69,16 @@ def get_canonical_doc_type(name_or_key: str) -> str:
     if unprefixed in _ALIAS_TO_CANONICAL:
         return _ALIAS_TO_CANONICAL[unprefixed]
 
+    # Also try space-normalised stem (e.g. "key fact statement" -> "key_fact_statement")
+    stem_underscored = stem.replace(" ", "_")
+    if stem_underscored in _ALIAS_TO_CANONICAL:
+        return _ALIAS_TO_CANONICAL[stem_underscored]
     # Substring heuristics — prioritize distinctive keywords over short prefixes
     if "xml" in stem and ("aadhaar" in stem or "aadhar" in stem):
         return "aadhaar_xml"
     if "aadhaar" in stem or "aadhar" in stem:
         return "aadhaar"
-    if "kfs" in stem:
+    if "kfs" in stem or ("key" in stem and "fact" in stem):
         return "kfs"
     if "sanction" in stem:
         return "sanction_letter"

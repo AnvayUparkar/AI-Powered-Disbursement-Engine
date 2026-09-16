@@ -66,19 +66,20 @@ TEMPLATE_FIELDS: tuple[str, ...] = (
     "aadhaar_xml_present",
     "loan_agreement_present",
     "loan_agreement_signed",
+    "customer_consent",
 )
 
 _CANONICAL_KEYS: frozenset[str] = frozenset(TEMPLATE_FIELDS)
 
 
 def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
-    """Formats an arbitrary extracted dictionary into the exact 22-field canonical template.
+    """Formats an arbitrary extracted dictionary into the exact 23-field canonical template.
 
     Keys are returned in the exact canonical order with non-present fields as None,
-    and boolean flags (aadhaar_xml_present, loan_agreement_present, loan_agreement_signed)
+    and boolean flags (aadhaar_xml_present, loan_agreement_present, loan_agreement_signed, customer_consent)
     as False by default.
     """
-    boolean_keys = {"aadhaar_xml_present", "loan_agreement_present", "loan_agreement_signed"}
+    boolean_keys = {"aadhaar_xml_present", "loan_agreement_present", "loan_agreement_signed", "customer_consent"}
     norm = dict(extracted or {})
 
     if norm.get("applicant_name") is None:
@@ -122,6 +123,11 @@ def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
             if norm.get(alias) is not None:
                 norm["irr_percent"] = norm[alias]
                 break
+    if norm.get("customer_consent") is None:
+        for alias in ("consent", "is_consented", "otp_consent", "borrower_consent", "customer_acceptance"):
+            if norm.get(alias) is not None:
+                norm["customer_consent"] = norm[alias]
+                break
     if norm.get("address") is None and norm.get("address_text") is not None:
         norm["address"] = norm["address_text"]
 
@@ -161,11 +167,12 @@ _SYSTEM_PROMPT: str = (
     "- application_no          : Application number / application ID\n"
     "- application_date        : Date of application (preserve original format)\n"
     "- BPI                     : Broken Period Interest (BPI) amount if stated (digits/float or null)\n"
-    "- irr_percent             : Internal Rate of Return (IRR) or Annual Percentage Rate (APR) % if stated\n"
+    "- irr_percent             : Contractual Interest Rate (ROI) or Internal Rate of Return (IRR) % (e.g. 17.0). Must be the base/nominal rate (labeled 'Interest Rate', 'Rate of Interest', or 'ROI'). NEVER extract APR (Annual Percentage Rate) into this field. If both Interest Rate and APR are present, always extract the Interest Rate / IRR.\n"
     "- emi                     : Equated Monthly Installment (EMI / EPI) amount\n"
     "- aadhaar_xml_present     : Is an Aadhaar XML or e-Aadhaar QR/XML verification block present? (boolean: true / false)\n"
     "- loan_agreement_present  : Is a loan agreement present? (boolean: true / false)\n"
     "- loan_agreement_signed   : Is the loan agreement signed or e-signed? (boolean: true / false)\n"
+    "- customer_consent        : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
 )
 
 _OPENROUTER_URL: str = "https://openrouter.ai/api/v1/chat/completions"

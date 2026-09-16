@@ -179,6 +179,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
     'aadhaar_xml_present',
     'loan_agreement_present',
     'loan_agreement_signed',
+    'customer_consent',
   ];
 
   const getCanonicalJsonString = () => {
@@ -190,7 +191,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
         return document.formattedText;
       }
     }
-    // Reconstruct canonical 22-field JSON from extracted fields
+    // Reconstruct canonical 23-field JSON from extracted fields
     const map: Record<string, any> = {};
     for (const f of document.extractedFields) {
       const normalizedKey = f.name.toLowerCase().replace(/\s+/g, '_');
@@ -198,7 +199,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
     }
     const result: Record<string, any> = {};
     for (const key of CANONICAL_TEMPLATE_FIELDS) {
-      if (key === 'aadhaar_xml_present' || key === 'loan_agreement_present' || key === 'loan_agreement_signed') {
+      if (key === 'aadhaar_xml_present' || key === 'loan_agreement_present' || key === 'loan_agreement_signed' || key === 'customer_consent') {
         result[key] = Boolean(map[key]);
       } else {
         result[key] = map[key] ?? null;
@@ -348,33 +349,30 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
         <div className="flex rounded-md bg-ink-200/60 p-0.5 text-xs">
           <button
             onClick={() => setViewMode('fields')}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              viewMode === 'fields'
+            className={`px-2.5 py-1 rounded font-medium transition-colors ${viewMode === 'fields'
                 ? 'bg-white text-ink-900 shadow-sm'
                 : 'text-ink-600 hover:text-ink-900'
-            }`}
+              }`}
           >
             <Layers className="h-3.5 w-3.5 inline-block mr-1" />
             Field BBoxes
           </button>
           <button
             onClick={() => setViewMode('rawText')}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              viewMode === 'rawText'
+            className={`px-2.5 py-1 rounded font-medium transition-colors ${viewMode === 'rawText'
                 ? 'bg-white text-ink-900 shadow-sm'
                 : 'text-ink-600 hover:text-ink-900'
-            }`}
+              }`}
           >
             <Code className="h-3.5 w-3.5 inline-block mr-1" />
             Raw OCR Text
           </button>
           <button
             onClick={() => setViewMode('formattedText')}
-            className={`px-2.5 py-1 rounded font-medium transition-colors ${
-              viewMode === 'formattedText'
+            className={`px-2.5 py-1 rounded font-medium transition-colors ${viewMode === 'formattedText'
                 ? 'bg-white text-ink-900 shadow-sm'
                 : 'text-ink-600 hover:text-ink-900'
-            }`}
+              }`}
           >
             <Sparkles className="h-3.5 w-3.5 inline-block mr-1 text-brand-600" />
             LLM Canonical JSON
@@ -390,11 +388,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
             <button
               onClick={() => setShowFieldBoxes(!showFieldBoxes)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
-                showFieldBoxes
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${showFieldBoxes
                   ? 'bg-blue-100 text-blue-800 border border-blue-300'
                   : 'text-ink-500 hover:bg-ink-100'
-              }`}
+                }`}
               title="Toggle Field Bounding Boxes"
             >
               <Box className="h-3 w-3" />
@@ -403,11 +400,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
             <button
               onClick={() => setShowOcrTokens(!showOcrTokens)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
-                showOcrTokens
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${showOcrTokens
                   ? 'bg-amber-100 text-amber-900 border border-amber-300'
                   : 'text-ink-500 hover:bg-ink-100'
-              }`}
+                }`}
               title="Toggle Raw OCR Token Bounding Boxes"
             >
               <Crosshair className="h-3 w-3" />
@@ -416,11 +412,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
             <button
               onClick={() => setShowTableCells(!showTableCells)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
-                showTableCells
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${showTableCells
                   ? 'bg-violet-100 text-violet-900 border border-violet-300'
                   : 'text-ink-500 hover:bg-ink-100'
-              }`}
+                }`}
               title="Toggle TableFormer Per-Cell Bounding Boxes"
             >
               <Box className="h-3 w-3" />
@@ -429,11 +424,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
             <button
               onClick={() => setShowLabels(!showLabels)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
-                showLabels
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${showLabels
                   ? 'bg-ink-200 text-ink-800'
                   : 'text-ink-400 hover:bg-ink-100'
-              }`}
+                }`}
               title="Toggle Field Labels on Bounding Boxes"
             >
               <Tag className="h-3 w-3" />
@@ -442,11 +436,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
             <button
               onClick={() => setShowConfidence(!showConfidence)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
-                showConfidence
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${showConfidence
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                   : 'text-ink-400 hover:bg-ink-100'
-              }`}
+                }`}
               title="Toggle Confidence Badges"
             >
               <CheckCircle2 className="h-3 w-3" />
@@ -584,9 +577,8 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                     return (
                       <div
                         key={tok.id}
-                        className={`absolute border border-dashed border-amber-500/70 bg-amber-500/10 pointer-events-auto cursor-crosshair transition-all ${
-                          isHovered ? 'ring-2 ring-amber-600 bg-amber-500/30 z-30' : 'z-10'
-                        }`}
+                        className={`absolute border border-dashed border-amber-500/70 bg-amber-500/10 pointer-events-auto cursor-crosshair transition-all ${isHovered ? 'ring-2 ring-amber-600 bg-amber-500/30 z-30' : 'z-10'
+                          }`}
                         style={style}
                         onMouseEnter={() => setHoveredToken(tok)}
                         onMouseLeave={() => setHoveredToken(null)}
@@ -610,11 +602,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                     return (
                       <div
                         key={`${tableId}-${cell.row_index}-${cell.col_index}-${idx}`}
-                        className={`absolute border border-dashed pointer-events-auto cursor-crosshair transition-all ${
-                          cell.is_header
+                        className={`absolute border border-dashed pointer-events-auto cursor-crosshair transition-all ${cell.is_header
                             ? 'border-violet-600 bg-violet-500/15'
                             : 'border-violet-400/80 bg-violet-400/5'
-                        } ${isHovered ? 'ring-2 ring-violet-600 bg-violet-500/30 z-30' : 'z-10'}`}
+                          } ${isHovered ? 'ring-2 ring-violet-600 bg-violet-500/30 z-30' : 'z-10'}`}
                         style={style}
                         onMouseEnter={() => setHoveredCell({ tableId, cell })}
                         onMouseLeave={() => setHoveredCell(null)}
@@ -642,23 +633,21 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                         onClick={(e) => handleBoxClick(f, e)}
                         onMouseEnter={() => setHoveredFieldId(f.id)}
                         onMouseLeave={() => setHoveredFieldId(null)}
-                        className={`absolute border-2 ${color.border} ${color.bg} ${color.hoverBg} pointer-events-auto cursor-pointer transition-all duration-150 ${
-                          isSelected
+                        className={`absolute border-2 ${color.border} ${color.bg} ${color.hoverBg} pointer-events-auto cursor-pointer transition-all duration-150 ${isSelected
                             ? 'ring-4 ring-brand-500 ring-offset-1 z-40 shadow-lg scale-[1.01]'
                             : isHovered
-                            ? 'ring-2 ring-brand-400 z-30 shadow-md'
-                            : 'z-20'
-                        }`}
+                              ? 'ring-2 ring-brand-400 z-30 shadow-md'
+                              : 'z-20'
+                          }`}
                         style={style}
                       >
                         {/* Field Label / Confidence Pill */}
                         {(showLabels || isHovered || isSelected) && (
                           <div
-                            className={`absolute -top-5 left-0 whitespace-nowrap text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm border flex items-center gap-1 pointer-events-none transition-transform ${
-                              isSelected
+                            className={`absolute -top-5 left-0 whitespace-nowrap text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm border flex items-center gap-1 pointer-events-none transition-transform ${isSelected
                                 ? 'bg-brand-600 text-white border-brand-700 -top-6 scale-105 z-50'
                                 : `${color.badge} z-30`
-                            }`}
+                              }`}
                           >
                             <span>{f.name}</span>
                             {showConfidence && f.matchConfidence !== undefined && (
@@ -737,13 +726,12 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                     key={f.id}
                     onMouseEnter={() => setHoveredFieldId(f.id)}
                     onMouseLeave={() => setHoveredFieldId(null)}
-                    className={`transition-all ${
-                      isSelected
+                    className={`transition-all ${isSelected
                         ? 'bg-brand-50/60 border-l-4 border-l-brand-600'
                         : isHovered
-                        ? 'bg-ink-50/70'
-                        : 'hover:bg-ink-50/40'
-                    }`}
+                          ? 'bg-ink-50/70'
+                          : 'hover:bg-ink-50/40'
+                      }`}
                   >
                     {/* Header Row */}
                     <div className="w-full text-left px-4 py-2.5 flex items-start gap-2">
@@ -796,21 +784,20 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
                             {f.source && (
                               <span
-                                className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase font-semibold ${
-                                  f.source === 'vlm' || f.source === 'vlm_corrected'
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase font-semibold ${f.source === 'vlm' || f.source === 'vlm_corrected'
                                     ? 'bg-review-50 text-review-700 border border-review-200'
                                     : f.source === 'docling' || f.source === 'docling_ocr' || f.source === 'DOCLING' || f.source === 'OCR' || f.source === 'ocr'
-                                    ? 'bg-info-50 text-info-700 border border-info-200'
-                                    : f.source === 'OPENROUTER_LLM' || f.source === 'llm'
-                                    ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                    : 'bg-ink-100 text-ink-600'
-                                }`}
+                                      ? 'bg-info-50 text-info-700 border border-info-200'
+                                      : f.source === 'OPENROUTER_LLM' || f.source === 'llm'
+                                        ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                        : 'bg-ink-100 text-ink-600'
+                                  }`}
                               >
                                 {f.source === 'OPENROUTER_LLM'
                                   ? 'LLM'
                                   : f.source === 'docling' || f.source === 'docling_ocr' || f.source === 'DOCLING'
-                                  ? 'DOCLING_OCR'
-                                  : f.source}
+                                    ? 'DOCLING_OCR'
+                                    : f.source}
                               </span>
                             )}
                           </div>
@@ -921,11 +908,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                                       e.stopPropagation();
                                       setTableViewModeById((prev) => ({ ...prev, [f.id]: 'grid' }));
                                     }}
-                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
-                                      (tableViewModeById[f.id] || 'grid') === 'grid'
+                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${(tableViewModeById[f.id] || 'grid') === 'grid'
                                         ? 'bg-white text-ink-900 shadow-sm'
                                         : 'text-ink-600 hover:text-ink-900'
-                                    }`}
+                                      }`}
                                   >
                                     Grid
                                   </button>
@@ -934,11 +920,10 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                                       e.stopPropagation();
                                       setTableViewModeById((prev) => ({ ...prev, [f.id]: 'markdown' }));
                                     }}
-                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
-                                      tableViewModeById[f.id] === 'markdown'
+                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${tableViewModeById[f.id] === 'markdown'
                                         ? 'bg-white text-ink-900 shadow-sm'
                                         : 'text-ink-600 hover:text-ink-900'
-                                    }`}
+                                      }`}
                                     title="Docling's own export_to_markdown() rendering"
                                   >
                                     Markdown

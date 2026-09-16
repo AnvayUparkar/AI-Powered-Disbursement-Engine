@@ -84,7 +84,11 @@ export function CheckpointDrawer({
                         {f.sourceDocumentId} {f.page ? `· p.${f.page}` : ''}
                       </span>
                       <div className="flex-1 max-w-[120px]">
-                        <ConfidenceBar value={f.confidence} size="sm" />
+                        {f.confidence !== null && f.confidence !== undefined ? (
+                          <ConfidenceBar value={f.confidence} size="sm" />
+                        ) : (
+                          <span className="text-[11px] text-ink-400 italic">No telemetry</span>
+                        )}
                       </div>
                     </div>
                   </div>
