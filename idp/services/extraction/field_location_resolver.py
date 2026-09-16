@@ -571,7 +571,7 @@ class FieldLocationResolver:
                 bbox=norm_bbox,
                 bbox_pixels=pix_bbox,
                 confidence=round(float(elem.get("confidence", 1.0)), 3),
-                source=elem.get("source", "ocr"),
+                source=elem.get("source", "docling_ocr"),
                 line_number=elem.get("line_number")
             ))
         return tokens

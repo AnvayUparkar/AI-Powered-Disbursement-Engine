@@ -23,14 +23,10 @@ from idp.services.docling.options import DoclingOptions
 
 IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
     do_table_structure=False,
-<<<<<<< HEAD
     table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide (see pipeline.py).
                             # Moot here since do_table_structure=False skips TableFormer entirely,
                             # but "FAST" previously triggered a misleading forced-override warning
                             # on every identity-document parse for a value that was never honored.
-=======
-    table_mode="ACCURATE",
->>>>>>> d138c8929794877f7c21651c7ff2603aeb6d4fa4
     do_ocr=True,
     force_full_page_ocr=False,
     ocr_lang=["english", "hindi"],

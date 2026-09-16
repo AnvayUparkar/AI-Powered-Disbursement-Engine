@@ -484,3 +484,63 @@ def test_comb_box_merged_tokens_stay_near_their_field_label():
         "merged 'PRAKASH' token landed after the unrelated 'Father:' label -- "
         "comb-box merged tokens are not staying near their own field label"
     )
+
+
+def test_table_cell_single_letter_survives_label_noise_cleanup():
+    """
+    Regression: a comb-box row that _classify_table_shape() judges AMBIGUOUS
+    or KEEP_AS_TABLE (common for handwriting, where touching/overlapping
+    strokes make some OCR'd cells too long to count as comb-box candidates,
+    pulling the candidate ratio below the reclassify threshold) is never
+    routed into CombBoxDetector's candidate pool -- it stays a genuine
+    TableStructure and its cells are ingested on the table-cell path. That
+    path used to run every cell's text through clean_bilingual_label_noise()
+    unconditionally, whose lone-uppercase-letter rule wipes an isolated
+    single character to "" (it only preserves one when the SAME string has
+    word characters flanking it, which a single-character cell never does).
+    A multi-row table is KEEP_AS_TABLE unconditionally regardless of content
+    (see _classify_table_shape), so this deterministically exercises that
+    path without depending on candidate-ratio math.
+    """
+    from idp.services.docling.parser import DoclingParseResult
+    from idp.models.table import TableStructure, TableCell
+    from idp.models.processing import ProcessingMetrics
+
+    serializer = DocumentSerializer()
+
+    table = TableStructure(
+        id="table-mother-name",
+        page_number=1,
+        num_rows=2,
+        num_cols=2,
+        cells=[
+            TableCell(row_index=0, col_index=0, text="V", bbox=[100.0, 100.0, 110.0, 114.0]),
+            TableCell(row_index=0, col_index=1, text="A", bbox=[115.0, 100.0, 125.0, 114.0]),
+            TableCell(row_index=1, col_index=0, text="N", bbox=[100.0, 120.0, 110.0, 134.0]),
+            TableCell(row_index=1, col_index=1, text="J", bbox=[115.0, 120.0, 125.0, 134.0]),
+        ],
+        bbox=[100.0, 100.0, 125.0, 134.0],
+    )
+
+    docling_res = DoclingParseResult(
+        elements=[],
+        tables=[table],
+        page_count=1,
+        pages_dimensions=[{"width": 595.0, "height": 842.0}],
+    )
+
+    parsed_doc = serializer.build_unified_document(
+        doc_id="TEST-TABLE-CELL-NOISE",
+        filename="kyc_form.pdf",
+        mime_type="application/pdf",
+        file_size_bytes=1024,
+        page_count=1,
+        docling_result=docling_res,
+        ocr_results=[],
+        vlm_corrections={},
+        metrics=ProcessingMetrics(),
+    )
+
+    assert len(parsed_doc.tables) == 1
+    cell_texts = [c.text for c in parsed_doc.tables[0].cells]
+    assert cell_texts == ["V", "A", "N", "J"], f"single-letter table cells were wiped: {cell_texts!r}"

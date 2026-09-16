@@ -22,7 +22,7 @@ class ProcessingMetadata(BaseModel):
     file_size_bytes: int
     page_count: int
     docling_used: bool = True
-    ocr_engine: str = "rapidocr"
+    ocr_engine: str = "docling_ocr"
     ocr_model: str = "PP-OCRv6_medium"
     vlm_used: bool = False
     vlm_provider: Optional[str] = None
