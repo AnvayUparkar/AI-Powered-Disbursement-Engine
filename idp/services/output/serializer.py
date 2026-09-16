@@ -884,6 +884,14 @@ class DocumentSerializer:
 
             _traverse(root)
 
+            # Extract masked UID from UIDAI UidData element (uid attribute, e.g. "xxxxxxxx1407").
+            # _traverse only captures element text; XML attributes are never emitted into text_lines.
+            aadhaar_uid: Optional[str] = None
+            for elem in root.iter():
+                if elem.tag.split("}")[-1] == "UidData" and elem.get("uid"):
+                    aadhaar_uid = elem.get("uid")
+                    break
+
             full_text = "\n".join(text_lines)
             file_size = os.path.getsize(file_path)
 
@@ -921,7 +929,8 @@ class DocumentSerializer:
                 tables=[],
                 elements=elements,
                 text=full_text,
-                processing=proc_meta
+                processing=proc_meta,
+                custom_metadata={"aadhaar_uid": aadhaar_uid} if aadhaar_uid else {},
             )
 
         except Exception as e:

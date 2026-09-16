@@ -63,9 +63,6 @@ TEMPLATE_FIELDS: tuple[str, ...] = (
     "BPI",
     "irr_percent",
     "emi",
-    "aadhaar_xml_present",
-    "loan_agreement_present",
-    "loan_agreement_signed",
     "customer_consent",
 )
 
@@ -73,13 +70,12 @@ _CANONICAL_KEYS: frozenset[str] = frozenset(TEMPLATE_FIELDS)
 
 
 def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
-    """Formats an arbitrary extracted dictionary into the exact 23-field canonical template.
+    """Formats an arbitrary extracted dictionary into the exact 20-field canonical template.
 
     Keys are returned in the exact canonical order with non-present fields as None,
-    and boolean flags (aadhaar_xml_present, loan_agreement_present, loan_agreement_signed, customer_consent)
-    as False by default.
+    and boolean flag (customer_consent) as False by default.
     """
-    boolean_keys = {"aadhaar_xml_present", "loan_agreement_present", "loan_agreement_signed", "customer_consent"}
+    boolean_keys = {"customer_consent"}
     norm = dict(extracted or {})
 
     if norm.get("applicant_name") is None:
@@ -169,9 +165,6 @@ _SYSTEM_PROMPT: str = (
     "- BPI                     : Broken Period Interest (BPI) amount if stated (digits/float or null)\n"
     "- irr_percent             : Contractual Interest Rate (ROI) or Internal Rate of Return (IRR) % (e.g. 17.0). Must be the base/nominal rate (labeled 'Interest Rate', 'Rate of Interest', or 'ROI'). NEVER extract APR (Annual Percentage Rate) into this field. If both Interest Rate and APR are present, always extract the Interest Rate / IRR.\n"
     "- emi                     : Equated Monthly Installment (EMI / EPI) amount\n"
-    "- aadhaar_xml_present     : Is an Aadhaar XML or e-Aadhaar QR/XML verification block present? (boolean: true / false)\n"
-    "- loan_agreement_present  : Is a loan agreement present? (boolean: true / false)\n"
-    "- loan_agreement_signed   : Is the loan agreement signed or e-signed? (boolean: true / false)\n"
     "- customer_consent        : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
 )
 

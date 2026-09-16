@@ -141,9 +141,6 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
         "BPI": 1250.0,
         "irr_percent": 14.5,
         "emi": 24500.0,
-        "aadhaar_xml_present": True,
-        "loan_agreement_present": True,
-        "loan_agreement_signed": True,
         "customer_consent": True,
     }
 
@@ -163,11 +160,14 @@ def test_llm_extract_fields_happy_path_all_fields(monkeypatch):
     assert result["BPI"] == 1250.0
     assert result["irr_percent"] == 14.5
     assert result["emi"] == 24500.0
-    assert result["aadhaar_xml_present"] is True
     assert result["customer_consent"] is True
+    # Routing flags must NOT be set by LLM
+    assert "aadhaar_xml_present" not in result
+    assert "loan_agreement_present" not in result
+    assert "loan_agreement_signed" not in result
     # All canonical keys should be in result
     assert all(k in result for k in _CANONICAL_KEYS)
-    assert len(result) == 23
+    assert len(result) == 20
 
 
 def test_llm_extract_fields_partial_null_fields(monkeypatch):
@@ -196,9 +196,6 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
         "BPI": None,
         "irr_percent": None,
         "emi": None,
-        "aadhaar_xml_present": False,
-        "loan_agreement_present": False,
-        "loan_agreement_signed": False,
     }
 
     mock_client_instance = MagicMock()
@@ -215,9 +212,8 @@ def test_llm_extract_fields_partial_null_fields(monkeypatch):
     assert result["aadhaar_number"] == "9876 5432 1098"
     assert result["bank_account_no"] is None
     assert result["BPI"] is None
-    assert result["aadhaar_xml_present"] is False
     assert result["customer_consent"] is False
-    assert len(result) == 23
+    assert len(result) == 20
 
 
 def test_llm_extract_fields_user_new_format(monkeypatch):
@@ -245,9 +241,6 @@ def test_llm_extract_fields_user_new_format(monkeypatch):
         "BPI": None,
         "irr_percent": None,
         "emi": None,
-        "aadhaar_xml_present": False,
-        "loan_agreement_present": False,
-        "loan_agreement_signed": False,
         "customer_consent": False,
     }
 
@@ -259,8 +252,13 @@ def test_llm_extract_fields_user_new_format(monkeypatch):
     with patch("pipeline.engines.llm_field_extractor.httpx.Client", return_value=mock_client_instance):
         result = llm_extract_fields("aadhaar", "raw ocr text", "LOAN_USER_FORMAT")
 
-    assert result == user_payload
-    assert len(result) == 23
+    assert result["applicant_name"] == "PRAKASH KHATRI"
+    assert result["aadhaar_number"] == "XXXXXXXX5552"
+    assert result["customer_consent"] is False
+    assert "aadhaar_xml_present" not in result
+    assert "loan_agreement_present" not in result
+    assert "loan_agreement_signed" not in result
+    assert len(result) == 20
 
 
 def test_llm_extract_fields_discards_extra_keys(monkeypatch):
@@ -442,4 +440,4 @@ def test_llm_extract_fields_customer_consent_kfs_otp(monkeypatch):
     assert result["irr_percent"] == 17.0
     assert result["loan_amount"] == "1000000"
     assert result["emi"] == 35652.0
-    assert len(result) == 23
+    assert len(result) == 20

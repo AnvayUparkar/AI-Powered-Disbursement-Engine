@@ -26,7 +26,7 @@ CP_TO_CHECK_IDS: dict[int, list[str]] = {
     6: ["chk_loan_agreement_digital_signature", "chk_loan_agreement_otp_consent"],
     7: ["chk_kfs_vs_los_funding"],
     8: ["chk_sanction_vs_los_funding"],
-    9: ["chk_aadhaar_xml_mandatory_presence"],
+    9: ["chk_aadhaar_xml_mandatory_presence", "chk_aadhaar_xml_aadhaar_no_vs_los"],
     10: ["chk_broken_period_interest_split"],
     11: ["chk_disbursal_memo_application_id", "chk_disbursal_memo_amount_threshold"],
     12: ["chk_bt_closure_vs_final_fc"],

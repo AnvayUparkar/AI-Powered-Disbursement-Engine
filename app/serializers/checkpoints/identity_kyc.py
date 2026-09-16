@@ -482,8 +482,12 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
 
 def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
-    """CP 9: Aadhaar XML mandatory presence hard gate."""
+    """CP 9: Aadhaar XML mandatory presence hard gate and UID verification."""
     r9 = ctx.records_by_id.get("chk_aadhaar_xml_mandatory_presence")
+    r9_uid = (
+        ctx.records_by_id.get("chk_aadhaar_xml_aadhaar_no_vs_los")
+        or ctx.records_by_id.get("chk_check_kyc_aadhaar_xml_aadhaar_number_vs_los")
+    )
     xml_doc = ctx.get_doc("aadhaar_xml")
 
     doc_xml_present = xml_doc.get("aadhaar_xml_present")
@@ -503,12 +507,29 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     if r9 and r9.get("match_status") == "MISMATCH":
         status = "DISCREPANCY"
 
-    xml_conf = resolve_field_confidence(doc=xml_doc, record=r9) if has_xml else 0.0
+    # Presence is a binary hard gate — confidence is 100% when the file is confirmed present
+    # by idp_scan (aadhaar_xml_present=True), or 0% when missing. resolve_field_confidence
+    # always returns None for XML docs (no OCR telemetry), so we set it directly.
+    xml_conf = 100.0 if has_xml else 0.0
     fields = [build_field("Aadhaar XML Presence", "Present" if has_xml else "Missing", xml_conf, f"doc-{ctx.loan_id}-aadhaarxml")]
+
+    # Surface Aadhaar Number extracted from XML UID attribute if present
+    xml_uid = xml_doc.get("aadhaar_number")
+    if not xml_uid:
+        for d in ctx.docs.values():
+            if isinstance(d, dict) and d.get("aadhaar_number") is not None and d.get("aadhaar_xml_present"):
+                xml_uid = d.get("aadhaar_number")
+                break
+
+    if xml_uid:
+        uid_conf = resolve_field_confidence(doc=xml_doc, record=r9_uid, field_name="aadhaar_number") or 100.0
+        fields.append(build_field("Aadhaar Number", xml_uid, uid_conf, f"doc-{ctx.loan_id}-aadhaarxml"))
 
     notes = (r9.get("notes") if r9 else "") or (
         "Aadhaar XML present in repository and verified." if has_xml else "Aadhaar XML missing from repository."
     )
+
+    comparisons = [r for r in [r9, r9_uid] if r]
 
     val_block = resolve_checkpoint_validation(
         status,
@@ -524,11 +545,11 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         9,
         "Aadhaar XML",
         status,
-        xml_conf or 0.0 if status == "VERIFIED" else 0.0,
+        xml_conf,
         notes,
         "Aadhaar XML is a mandatory hard gate for all cases.",
         fields,
         [build_evidence(f"doc-{ctx.loan_id}-aadhaarxml", "Aadhaar_XML.zip", "Aadhaar XML Archive", 1)] if has_xml else [],
         val_block,
-        comparisons=[r9] if r9 else [],
+        comparisons=comparisons,
     )
