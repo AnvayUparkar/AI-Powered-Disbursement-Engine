@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net">
+  <diagram name="DGCL Kubernetes Deployment Architecture" id="dgcl-k8s-v1">
+    <mxGraphModel dx="2400" dy="1700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2050" pageHeight="1680" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="B_net" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="INTERNET" vertex="1">
+          <mxGeometry x="40" y="40" width="1960" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="B_ing" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="INGRESS" vertex="1">
+          <mxGeometry x="40" y="175" width="1960" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="B_ns" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9ff;strokeColor=#6c8ebf;dashed=0;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;opacity=40;" value="KUBERNETES NAMESPACE:  dgcl-prod" vertex="1">
+          <mxGeometry x="40" y="345" width="1960" height="555" as="geometry" />
+        </mxCell>
+        <mxCell id="P_cpu" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="NODE POOL: cpu-general   (no taint, spot-eligible)" vertex="1">
+          <mxGeometry x="60" y="390" width="950" height="490" as="geometry" />
+        </mxCell>
+        <mxCell id="P_gpu" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="NODE POOL: gpu   taint nvidia.com/gpu=true:NoSchedule" vertex="1">
+          <mxGeometry x="1030" y="390" width="470" height="490" as="geometry" />
+        </mxCell>
+        <mxCell id="P_cfg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="CONFIG &amp; IDENTITY   (mounted by all four Deployments)" vertex="1">
+          <mxGeometry x="1520" y="390" width="460" height="490" as="geometry" />
+        </mxCell>
+        <mxCell id="B_data" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="MANAGED DATA SERVICES   (outside the cluster — do not self-host these)" vertex="1">
+          <mxGeometry x="40" y="920" width="1960" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="B_eg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="EGRESS   (all outbound TLS :443 via NAT gateway)" vertex="1">
+          <mxGeometry x="40" y="1090" width="1960" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="B_helm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="HELM CHART   —  one chart, four Deployments, values-driven" vertex="1">
+          <mxGeometry x="40" y="1275" width="1960" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="B_leg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry x="40" y="1535" width="1960" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="users" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="Reviewers — browser&#10;React review UI" vertex="1">
+          <mxGeometry x="80" y="80" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="dns" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="DNS  dgcl.example.com → ALB&#10;TLS cert: ACM or cert-manager (Let's Encrypt)&#10;WAF / rate limit in front of the ALB" vertex="1">
+          <mxGeometry x="320" y="78" width="420" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ops" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="Ops — Grafana, Alertmanager&#10;(separate ingress, SSO-gated)" vertex="1">
+          <mxGeometry x="780" y="80" width="250" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n_net" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Only the API is publicly reachable. Ingestion, IDP, reasoning and assembly&#10;have NO inbound route — they are queue consumers with egress only." vertex="1">
+          <mxGeometry x="1080" y="78" width="890" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ictrl" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Ingress Controller  (ingress-nginx or AWS ALB)&#10;listens :443 TLS  →  forwards :80 http&#10;ipressClassName: nginx&#10;helm: bitnami/ingress-nginx (separate release)" vertex="1">
+          <mxGeometry x="80" y="218" width="380" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="irules" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Ingress  dgcl&#10;host: dgcl.example.com&#10;  /        → svc/dgcl-api  :8000&#10;  /api/*   → svc/dgcl-api  :8000&#10;  /metrics → NOT exposed (ClusterIP only)" vertex="1">
+          <mxGeometry x="490" y="218" width="390" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="npol_in" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="NetworkPolicy  dgcl-default-deny&#10;ingress: deny all, then allow&#10;  from: ingress-nginx namespace&#10;  to:   app=dgcl-api  port 8000" vertex="1">
+          <mxGeometry x="910" y="218" width="360" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="n_ing" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Ports in one place:&#10;443 public TLS · 8000 API http · 9100 metrics (all pods)&#10;5432 Postgres · 6379 Redis · 443 egress" vertex="1">
+          <mxGeometry x="1300" y="218" width="670" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Service  dgcl-api&#10;type ClusterIP · port 8000 → targetPort 8000&#10;selector app=dgcl-api" vertex="1">
+          <mxGeometry x="80" y="430" width="290" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d_api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-api            replicas: 2&#10;cmd: uvicorn app.main:app --port 8000&#10;ports: 8000 http · 9100 metrics&#10;liveness/readiness: GET /healthz :8000&#10;resources: req 250m/512Mi  lim 1/1Gi&#10;HPA on CPU is fine HERE (request-bound)" vertex="1">
+          <mxGeometry x="80" y="520" width="290" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="d_ingest" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-ingestion      replicas: 1&#10;strategy: Recreate  +  Lease leader election&#10;  (replicas:1 is NOT a singleton on rollout)&#10;cmd: python -m pipeline.ingestion&#10;NO containerPort — egress + metrics :9100 only&#10;NOT a CronJob: k8s min granularity is 1 min,&#10;the poll is 30s&#10;resources: req 100m/256Mi  lim 500m/512Mi" vertex="1">
+          <mxGeometry x="390" y="430" width="300" height="225" as="geometry" />
+        </mxCell>
+        <mxCell id="d_reason" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-reasoning      KEDA 2→40&#10;cmd: celery -A pipeline.celery_app worker&#10;     -Q q.reason -c 100 --pool=gevent&#10;IO-bound: high concurrency, tiny footprint&#10;NO containerPort · metrics :9100&#10;resources: req 200m/256Mi  lim 1/768Mi&#10;nodeAffinity: NOT on the gpu pool" vertex="1">
+          <mxGeometry x="710" y="430" width="280" height="225" as="geometry" />
+        </mxCell>
+        <mxCell id="d_asm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-assembly       replicas: 2&#10;celery worker -Q q.assemble -c 8&#10;chord barrier → checkers → scorecard → S3&#10;resources: req 250m/512Mi  lim 1/1Gi" vertex="1">
+          <mxGeometry x="80" y="675" width="290" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="so_reason" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ScaledObject  dgcl-reasoning&#10;trigger: redis  listName=q.reason  listLength=20&#10;min 2 · max 40 · cooldown 120s" vertex="1">
+          <mxGeometry x="390" y="675" width="300" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cpu" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Scale on QUEUE, never CPU%: a worker blocked on a&#10;45s LLM call shows low CPU and HPA would scale it&#10;down exactly as the backlog grows." vertex="1">
+          <mxGeometry x="710" y="675" width="280" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="d_idp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;fontStyle=0;" value="Deployment  dgcl-idp                    KEDA 2→20&#10;cmd: celery -A pipeline.celery_app worker&#10;     -Q q.idp -c 2 --prefetch-multiplier 1&#10;resources: limits nvidia.com/gpu: 1&#10;           req 2000m/4Gi   lim 4000m/8Gi&#10;tolerations: nvidia.com/gpu=true:NoSchedule&#10;nodeSelector: workload=gpu&#10;terminationGracePeriodSeconds: 300  (&gt; longest task)&#10;preStop: celery control shutdown  (warm drain)&#10;readiness: prewarm-done marker + celery ping&#10;liveness: generous — must NOT kill an 180s task&#10;metrics :9100" vertex="1">
+          <mxGeometry x="1050" y="430" width="430" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="so_idp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ScaledObject  dgcl-idp&#10;redis listName=q.idp&#10;listLength=5&#10;min 2 (never 0 — 4s model&#10;load + GB image pull)&#10;max 20 · cooldown 300s" vertex="1">
+          <mxGeometry x="1050" y="690" width="205" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="pdb" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="PodDisruptionBudget&#10;minAvailable: 50%&#10;stops a node drain from&#10;evicting every&#10;model-loaded pod at once" vertex="1">
+          <mxGeometry x="1275" y="690" width="205" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="n_gpu" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Models baked into the image — no runtime download." vertex="1">
+          <mxGeometry x="1050" y="832" width="430" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="cm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ConfigMap  dgcl-config&#10;POLL_INTERVAL_SECONDS=30 · MAX_DOC_WORKERS&#10;LLM_MODEL · S3_BUCKET · OCR_TEXT_SCORE&#10;docling profile table · LOG_LEVEL" vertex="1">
+          <mxGeometry x="1540" y="430" width="420" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="sec" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ExternalSecret → Secret  dgcl-secrets&#10;LLM_API_KEY · GEMINI_API_KEY&#10;DMS_API_TOKEN · LOS_API_TOKEN&#10;DATABASE_URL · REDIS_URL&#10;(External Secrets Operator ← AWS Secrets Manager)" vertex="1">
+          <mxGeometry x="1540" y="540" width="420" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="sa" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ServiceAccount  dgcl&#10;IRSA / Workload Identity → S3&#10;No static AWS keys anywhere" vertex="1">
+          <mxGeometry x="1540" y="660" width="420" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="sm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ServiceMonitor  dgcl&#10;scrapes :9100/metrics on all four Deployments&#10;Prometheus Operator picks it up by label" vertex="1">
+          <mxGeometry x="1540" y="750" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cfg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Roll pods on config change: checksum/config annotation." vertex="1">
+          <mxGeometry x="1540" y="845" width="420" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rds" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="Amazon RDS PostgreSQL   :5432&#10;case_state · leases · fingerprints · audit trail&#10;private subnet · SG allows the node CIDR only" vertex="1">
+          <mxGeometry x="80" y="962" width="440" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ec" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="ElastiCache Redis   :6379&#10;Celery broker + result backend&#10;q.idp · q.reason · q.assemble · q.idp.slow" vertex="1">
+          <mxGeometry x="550" y="962" width="440" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="S3   :443 via VPC gateway endpoint&#10;raw / extracted / structured / results&#10;bucket policy scoped to the IRSA role" vertex="1">
+          <mxGeometry x="1020" y="962" width="440" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ecr" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="ECR   :443&#10;ONE image, FOUR entrypoints:  dgcl:&lt;git-sha&gt;&#10;models baked in (~3-4 GB) · imagePullPolicy IfNotPresent" vertex="1">
+          <mxGeometry x="1490" y="962" width="470" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="nat" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="NAT Gateway&#10;static EIP so upstreams&#10;can allow-list you" vertex="1">
+          <mxGeometry x="80" y="1132" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="dms" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="DMS API  :443&#10;called by: ingestion ONLY&#10;delta poll 30s ± jitter&#10;circuit breaker + backoff" vertex="1">
+          <mxGeometry x="330" y="1132" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="los" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="LOS API  :443&#10;called by: ingestion (poll)&#10;and assembly (push results)" vertex="1">
+          <mxGeometry x="660" y="1132" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="orouter" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="OpenRouter  :443&#10;called by: reasoning ONLY&#10;LLM sanitise + classify" vertex="1">
+          <mxGeometry x="990" y="1132" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="gem" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="Gemini VLM  :443&#10;called by: reasoning ONLY&#10;low-confidence regions" vertex="1">
+          <mxGeometry x="1320" y="1132" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="npol_eg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="NetworkPolicy egress&#10;ingestion → DMS, LOS&#10;reasoning → OpenRouter, Gemini&#10;all → RDS 5432, Redis 6379, S3 443&#10;everything else: DENY" vertex="1">
+          <mxGeometry x="1650" y="1132" width="310" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="tree" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="charts/dgcl/&#10;  Chart.yaml&#10;  values.yaml           # defaults&#10;  values-prod.yaml      # overrides&#10;  templates/&#10;    _helpers.tpl&#10;    configmap.yaml&#10;    externalsecret.yaml&#10;    serviceaccount.yaml&#10;    servicemonitor.yaml&#10;    networkpolicy.yaml&#10;    api-deployment.yaml   api-service.yaml   ingress.yaml&#10;    ingestion-deployment.yaml&#10;    idp-deployment.yaml   idp-scaledobject.yaml   idp-pdb.yaml&#10;    reasoning-deployment.yaml   reasoning-scaledobject.yaml&#10;    assembly-deployment.yaml" vertex="1">
+          <mxGeometry x="80" y="1318" width="560" height="185" as="geometry" />
+        </mxCell>
+        <mxCell id="vals" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="values.yaml&#10;&#10;image:&#10;  repository: &lt;acct&gt;.dkr.ecr.../dgcl&#10;  tag: &quot;&quot;                 # set to git sha at deploy&#10;&#10;services:&#10;  api:        {replicas: 2,  port: 8000}&#10;  ingestion:  {replicas: 1}&#10;  idp:        {keda: {min: 2, max: 20, queue: q.idp}}&#10;  reasoning:  {keda: {min: 2, max: 40, queue: q.reason}}&#10;  assembly:   {replicas: 2}&#10;&#10;gpu: {enabled: true, nodeSelector: {workload: gpu}}&#10;external: {postgresHost, redisHost, s3Bucket}" vertex="1">
+          <mxGeometry x="670" y="1318" width="610" height="185" as="geometry" />
+        </mxCell>
+        <mxCell id="helmnotes" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Dependencies (subcharts or separate releases)&#10;  keda           — queue autoscaling        (required)&#10;  prometheus-operator — ServiceMonitor CRD   (required)&#10;  external-secrets — ExternalSecret CRD      (required)&#10;  ingress-nginx  — install once per cluster  (separate release)&#10;&#10;Deploy:&#10;  helm upgrade --install dgcl charts/dgcl \&#10;    -n dgcl-prod --create-namespace \&#10;    -f values-prod.yaml --set image.tag=$GIT_SHA&#10;&#10;All four Deployments share one template helper — they differ&#10;only in command, queue, resources and scaling trigger." vertex="1">
+          <mxGeometry x="1310" y="1318" width="650" height="185" as="geometry" />
+        </mxCell>
+        <mxCell id="g1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry x="80" y="1572" width="24" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g1t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Deployment (workload)" vertex="1">
+          <mxGeometry x="110" y="1562" width="230" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="g2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;fontStyle=0;" value="" vertex="1">
+          <mxGeometry x="350" y="1572" width="24" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g2t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="GPU-scheduled Deployment" vertex="1">
+          <mxGeometry x="380" y="1562" width="250" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="g3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry x="640" y="1572" width="24" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g3t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Service / Ingress object" vertex="1">
+          <mxGeometry x="670" y="1562" width="240" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="g4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry x="920" y="1572" width="24" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g4t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Config, identity, autoscaling" vertex="1">
+          <mxGeometry x="950" y="1562" width="260" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="g5" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="" vertex="1">
+          <mxGeometry x="1230" y="1572" width="24" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g5t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Managed data service" vertex="1">
+          <mxGeometry x="1260" y="1562" width="230" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="g6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry x="1500" y="1572" width="24" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g6t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Network policy / disruption budget" vertex="1">
+          <mxGeometry x="1530" y="1562" width="300" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="x1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" source="users" target="ictrl" value=":443">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x2" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ictrl" target="irules">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x3" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" edge="1" source="irules" target="svc_api" value=":8000">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="480" y="290" />
+              <mxPoint x="480" y="410" />
+              <mxPoint x="298" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x4" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="svc_api" target="d_api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x5" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.93;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="d_ingest" target="rds" value="lease + state :5432">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="640" />
+              <mxPoint x="700" y="910" />
+              <mxPoint x="300" y="910" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x6" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.95;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="d_reason" target="ec" value=":6379">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1002" y="644" />
+              <mxPoint x="1002" y="910" />
+              <mxPoint x="770" y="910" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x7" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.9;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" edge="1" source="d_idp" target="ec" value=":6379">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1020" y="650" />
+              <mxPoint x="1020" y="930" />
+              <mxPoint x="994" y="930" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x8" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="d_asm" target="s3" value="results :443">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="225" y="875" />
+              <mxPoint x="1240" y="875" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x9" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="nat" target="dms">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x10" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.1;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="d_ingest" target="nat" value="poll :443">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="370" />
+              <mxPoint x="50" y="370" />
+              <mxPoint x="50" y="1110" />
+              <mxPoint x="190" y="1110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x11" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#b85450;exitX=1;exitY=0.85;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" edge="1" source="d_reason" target="nat" value="LLM + VLM">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1018" y="621" />
+              <mxPoint x="1018" y="1080" />
+              <mxPoint x="245" y="1080" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="x12" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#9673a6;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.55;entryY=0;entryDx=0;entryDy=0;" edge="1" source="so_idp" target="ec" value="queue depth">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1040" y="755" />
+              <mxPoint x="1040" y="945" />
+              <mxPoint x="792" y="945" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

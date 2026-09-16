@@ -1,0 +1,1069 @@
+<mxfile host="app.diagrams.net" pages="4">
+  <diagram name="DGCL Production Scaling Architecture" id="dgcl-scale-v1">
+    <mxGraphModel dx="1115" dy="630" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1250" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="L_ing" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="1 · INGESTION SERVICE  —  singleton, network-bound" vertex="1">
+          <mxGeometry height="600" width="320" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_idp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="2 · IDP WORKERS  —  CPU/GPU, model-resident" vertex="1">
+          <mxGeometry height="600" width="340" x="400" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_rea" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="3 · REASONING WORKERS  —  IO-bound on external APIs" vertex="1">
+          <mxGeometry height="600" width="320" x="780" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_asm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="4 · ASSEMBLY + SERVING  —  cheap, colocated" vertex="1">
+          <mxGeometry height="600" width="340" x="1140" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_fail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="FAILURE HANDLING  —  cross-cutting" vertex="1">
+          <mxGeometry height="600" width="320" x="1520" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="SHARED STATE  —  the only things all four services touch" vertex="1">
+          <mxGeometry height="150" width="1800" x="40" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="L_obs" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="OBSERVABILITY PLANE  —  every service emits all four" vertex="1">
+          <mxGeometry height="200" width="1800" x="40" y="870" as="geometry" />
+        </mxCell>
+        <mxCell id="W_idp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="IDP worker (prefork, long-lived)" vertex="1">
+          <mxGeometry height="300" width="310" x="415" y="165" as="geometry" />
+        </mxCell>
+        <mxCell id="L_leg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry height="90" width="1800" x="40" y="1110" as="geometry" />
+        </mxCell>
+        <mxCell id="dms" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" value="DMS API&#xa;documents per case" vertex="1">
+          <mxGeometry height="70" width="135" x="60" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="los" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" value="LOS API&#xa;loan origination data" vertex="1">
+          <mxGeometry height="70" width="135" x="210" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="poll" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="every 30s ± jitter." vertex="1">
+          <mxGeometry height="80" width="285" x="60" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="join" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Case State Join&#xa;ready only when BOTH los_seen_at and&#xa;dms_manifest_hash are present" vertex="1">
+          <mxGeometry height="75" width="285" x="60" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="dedup" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="Idempotency Gate&#xa;1. input_fingerprint = sha256(los + dms manifest)&#xa;2. DB lease, not lock (self-heals on worker death)&#xa;3. celery task_id = fingerprint" vertex="1">
+          <mxGeometry height="95" width="285" x="60" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="disp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Dispatcher — drains status=&#39;ready&#39; at a rate&#xa;the cluster can absorb. THE BACKPRESSURE VALVE." vertex="1">
+          <mxGeometry height="70" width="285" x="60" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="q_idp" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;size=0.08;" value="q.idp — one task PER DOCUMENT&#xa;prefetch_multiplier = 1" vertex="1">
+          <mxGeometry height="60" width="300" x="420" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="prof" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="DoclingOptions profile by doc type&#xa;(extra profiles are free: 0.08s, +0 MB)" vertex="1">
+          <mxGeometry height="55" width="276" x="432" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="dock" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="Docling StandardPdfPipeline&#xa;preprocess → layout → OCR → post → TableFormer" vertex="1">
+          <mxGeometry height="70" width="276" x="432" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="ser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Post-filter + Serializer → ParsedDocument&#xa;(bboxes, tables, real per-model confidences)" vertex="1">
+          <mxGeometry height="60" width="276" x="432" y="355" as="geometry" />
+        </mxCell>
+        <mxCell id="warm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="prewarm on worker_ready — pays the 4s cold start at boot" vertex="1">
+          <mxGeometry height="32" width="276" x="432" y="425" as="geometry" />
+        </mxCell>
+        <mxCell id="n_idp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="SCALES ON PAGES/sec&#xa;• 4.0 s/page measured (1.8–7.3 range)&#xa;• ~400 MB RSS resident per process&#xa;• prefetch=1 — a 40-page statement must not&#xa;  block its neighbour" vertex="1">
+          <mxGeometry height="120" width="300" x="420" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="q_rea" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;size=0.08;" value="q.reason" vertex="1">
+          <mxGeometry height="50" width="280" x="800" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="LLM Sanitise + Doc-Type Classify&#xa;batch 5–10 docs per request&#xa;(cap the wait: 10 docs or 2s)" vertex="1">
+          <mxGeometry height="85" width="280" x="800" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="vlm" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="VLM Fallback — batch ALL flagged regions&#xa;of a page into ONE multi-image call&#xa;(today: 1 call/region + 250 ms sleep)" vertex="1">
+          <mxGeometry height="85" width="280" x="800" y="265" as="geometry" />
+        </mxCell>
+        <mxCell id="n_rea" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="SCALES ON API RATE LIMIT&#xa;• ~50 MB, pure HTTP wait&#xa;• concurrency 50–200 on one small box&#xa;• SPLIT REASON: a 45s LLM timeout must never&#xa;  occupy a 400 MB model slot" vertex="1">
+          <mxGeometry height="120" width="280" x="800" y="375" as="geometry" />
+        </mxCell>
+        <mxCell id="cache" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;" value="Content-addressed cache&#xa;sha256(bytes) + profile + model_version" vertex="1">
+          <mxGeometry height="70" width="280" x="800" y="515" as="geometry" />
+        </mxCell>
+        <mxCell id="q_asm" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;size=0.08;" value="q.assemble — one task PER CASE" vertex="1">
+          <mxGeometry height="50" width="300" x="1160" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="barrier" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Chord barrier — all document tasks complete&#xa;Partial results are valid: a missing doc becomes&#xa;INDETERMINATE, it does not fail the case" vertex="1">
+          <mxGeometry height="80" width="300" x="1160" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="check" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Parallel checkers&#xa;check_kyc · check_financial · check_loan_application" vertex="1">
+          <mxGeometry height="60" width="300" x="1160" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="score" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="12-POINT DGCL SCORECARD&#xa;VERIFIED / DISCREPANCY / INDETERMINATE / N_A&#xa;per checkpoint, with evidence + page anchors" vertex="1">
+          <mxGeometry height="80" width="300" x="1160" y="345" as="geometry" />
+        </mxCell>
+        <mxCell id="push" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Push results → S3 (idempotent key:&#xa;case_id + fingerprint + artifact)" vertex="1">
+          <mxGeometry height="60" width="300" x="1160" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="FastAPI /api/* → React review UI" vertex="1">
+          <mxGeometry height="50" width="300" x="1160" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="cls" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="Error classifier&#xa;Transient (5xx, timeout, 429) → backoff + jitter&#xa;Permanent (corrupt PDF, bad MIME) → fail fast" vertex="1">
+          <mxGeometry height="85" width="280" x="1540" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="slow" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="q.idp.slow — poison-pill lane&#xa;after attempt_count &gt;= 3, longer timeout" vertex="1">
+          <mxGeometry height="65" width="280" x="1540" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="quar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="Quarantine + alert&#xa;status=&#39;quarantined&#39;, never loops forever" vertex="1">
+          <mxGeometry height="60" width="280" x="1540" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="lease" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="Lease expiry sweeper&#xa;returns orphaned cases to the pool" vertex="1">
+          <mxGeometry height="60" width="280" x="1540" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="n_fail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="Retrying a corrupt file 5x is 5x wasted GPU.&#xa;Classify BEFORE you retry." vertex="1">
+          <mxGeometry height="45" width="280" x="1540" y="455" as="geometry" />
+        </mxCell>
+        <mxCell id="dlq" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;" value="Dead letter store" vertex="1">
+          <mxGeometry height="60" width="280" x="1540" y="525" as="geometry" />
+        </mxCell>
+        <mxCell id="pg" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="Postgres&#xa;case_state · leases · fingerprints · audit trail" vertex="1">
+          <mxGeometry height="80" width="400" x="70" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="Redis&#xa;Celery broker + result backend" vertex="1">
+          <mxGeometry height="80" width="380" x="510" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="S3&#xa;raw / extracted / structured / results" vertex="1">
+          <mxGeometry height="80" width="380" x="930" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="n_state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="One repo, one image, FOUR ENTRYPOINTS.&#xa;Services differ only by which queue they consume —&#xa;so schema changes stay atomic." vertex="1">
+          <mxGeometry height="80" width="460" x="1350" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="logs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="STRUCTURED LOGS (JSON)&#xa;Correlation triple on every line:&#xa;case_id · doc_id · run_id (ULID) + fingerprint&#xa;&#xa;Log DECISIONS, not narration:&#xa;• RETAINED_UNCAPTURED_TABLE_TEXT&#xa;• table dropped by fill-ratio → WARNING&#xa;  (silent table loss is data loss)&#xa;• per-element logs at DEBUG, 1% sampled" vertex="1">
+          <mxGeometry height="140" width="420" x="70" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="metrics" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="METRICS (Prometheus)&#xa;dgcl_stage_duration_seconds{stage,doc_type}&#xa;dgcl_queue_oldest_age_seconds{queue}  ← #1 ALERT&#xa;dgcl_llm_cost_usd_total{model}&#xa;dgcl_checkpoint_verdict_total{checkpoint,verdict}&#xa;&#xa;NEVER label with case_id/doc_id (cardinality).&#xa;Age beats depth: depth is a number, age is an SLA." vertex="1">
+          <mxGeometry height="140" width="430" x="510" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="traces" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="TRACES (OpenTelemetry)&#xa;One trace per case, spans per stage,&#xa;context propagated through Celery headers.&#xa;&#xa;With fan-out + barrier, the waterfall is the only&#xa;way to tell &#39;one slow document&#39; from &#39;queue wait&#39;.&#xa;Sample 1–5% + 100% of errors." vertex="1">
+          <mxGeometry height="140" width="420" x="960" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="dq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="DATA QUALITY (distinct from health)&#xa;• location_status mix, trended&#xa;• field completeness per doc type&#xa;• OCR vs LAYOUT confidence split&#xa;• DRIFT ALERT: not_extracted 2σ over the&#xa;  7-day mean → upstream format changed.&#xa;Catches a DMS change on day 1, not week 3." vertex="1">
+          <mxGeometry height="140" width="410" x="1400" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="dms" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="poll">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="los" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="poll">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="join">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="join" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="dedup" value="status=&#39;ready&#39;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="dedup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="disp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="disp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="q_idp" value="fan-out per doc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="380" y="565" />
+              <mxPoint x="380" y="115" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="q_idp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="W_idp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="prof" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="dock">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="dock" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="ser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="W_idp" style="rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="q_rea" value="ParsedDocument">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="750" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="q_rea" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="llm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="vlm" value="low-confidence regions">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="vlm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.35;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="q_asm" value="structured fields">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="300" />
+              <mxPoint x="1120" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="q_asm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="barrier">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="barrier" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="score">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="score" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="push">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="push" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="push" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="s3" value="results">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1130" y="480" />
+              <mxPoint x="1130" y="660" />
+              <mxPoint x="1215" y="660" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="W_idp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#82b366;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="cache" value="cache miss → parse">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="755" y="435" />
+              <mxPoint x="755" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="cls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="slow" value="transient">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="slow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="quar" value="still failing">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="quar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" target="dlq">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1530" y="315" />
+              <mxPoint x="1530" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="W_idp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#b85450;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cls" value="failures">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="745" y="465" />
+              <mxPoint x="745" y="650" />
+              <mxPoint x="1855" y="650" />
+              <mxPoint x="1855" y="127" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e25" edge="1" parent="1" source="dedup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#82b366;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.05;entryY=0;entryDx=0;entryDy=0;" target="pg" value="lease + fingerprint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="375" y="452" />
+              <mxPoint x="375" y="700" />
+              <mxPoint x="90" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e26" edge="1" parent="1" source="lease" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#82b366;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="pg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1500" y="400" />
+              <mxPoint x="1500" y="670" />
+              <mxPoint x="270" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="70" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Model inference / compute-heavy — the tier you pay for" vertex="1">
+          <mxGeometry height="44" width="400" x="102" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="520" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="External API call — latency and rate-limit bound" vertex="1">
+          <mxGeometry height="44" width="400" x="552" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="970" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Durable shared state" vertex="1">
+          <mxGeometry height="44" width="280" x="1002" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;fontStyle=1;size=0.08;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="1310" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Queue — a scaling boundary" vertex="1">
+          <mxGeometry height="44" width="230" x="1342" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="1600" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Failure path" vertex="1">
+          <mxGeometry height="44" width="200" x="1632" y="1140" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="FlMVjxtXuc6STAL5Amcz" name="Page-2">
+    <mxGraphModel dx="1227" dy="693" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="SIZING  —  every number below is DERIVED from the load profile on the left. Change that, and everything changes." vertex="1">
+          <mxGeometry height="205" width="1960" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="WHICH POD RUNS WHAT  —  one image (dgcl:&lt;sha&gt;), five entrypoints. The command is the only difference." vertex="1">
+          <mxGeometry height="195" width="1960" x="40" y="265" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="AWS REGION  ap-south-1  —  one VPC, private subnets, 3 Availability Zones" vertex="1">
+          <mxGeometry height="480" width="1960" x="40" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9ff;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;opacity=50;" value="AVAILABILITY ZONE  ap-south-1a" vertex="1">
+          <mxGeometry height="415" width="620" x="60" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="GPU NODE GROUP" vertex="1">
+          <mxGeometry height="175" width="580" x="80" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="CPU NODE GROUP  (spot-eligible)" vertex="1">
+          <mxGeometry height="170" width="580" x="80" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9ff;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;opacity=50;" value="AVAILABILITY ZONE  ap-south-1b" vertex="1">
+          <mxGeometry height="415" width="620" x="700" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="GPU NODE GROUP" vertex="1">
+          <mxGeometry height="175" width="580" x="720" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-9" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="CPU NODE GROUP  (spot-eligible)" vertex="1">
+          <mxGeometry height="170" width="580" x="720" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-10" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9ff;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;opacity=50;" value="AVAILABILITY ZONE  ap-south-1c" vertex="1">
+          <mxGeometry height="415" width="620" x="1340" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-11" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="GPU NODE GROUP" vertex="1">
+          <mxGeometry height="175" width="580" x="1360" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-12" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="CPU NODE GROUP  (spot-eligible)" vertex="1">
+          <mxGeometry height="170" width="580" x="1360" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-13" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="AUTOSCALING  —  two independent loops. Neither is CPU-based." vertex="1">
+          <mxGeometry height="175" width="1960" x="40" y="975" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-14" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="DATA PLANE AT 1,200 CASES / HOUR" vertex="1">
+          <mxGeometry height="165" width="1960" x="40" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="WHAT SATURATES FIRST  —  in order, as you turn the load up" vertex="1">
+          <mxGeometry height="185" width="1960" x="40" y="1355" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-16" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry height="85" width="1960" x="40" y="1560" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" value="LOAD PROFILE   (assumed — confirm via SCALING_PLAN §9.1/§9.2)&#xa;&#xa;  10 cases per 30s poll   =  1,200 cases / hour&#xa;  10 documents per case&#xa;   6 pages per document&#xa;  ------------------------------------------------&#xa;  60 pages/case · 72,000 pages/hour · 20 pages/sec&#xa;&#xa;  TARGET: 30-40 s per case, end to end" vertex="1">
+          <mxGeometry height="140" width="420" x="70" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-18" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="CAPACITY MATH   (at the measured 3.04 s/page)&#xa;&#xa;THROUGHPUT floor&#xa;  one slot = 3600 / 3.04      = 1,184 pages/hour&#xa;  72,000 / 1,184              =    61 slots&#xa;&#xa;LATENCY requirement&#xa;  case wall clock ~25s, arrivals every 30s&#xa;  =&gt; ~10 cases in flight x 10 docs each&#xa;                              =   100 doc-slots&#xa;&#xa;SIZE FOR LATENCY — it dominates.  Throughput is&#xa;then free (100 slots = 20k docs/h vs 12k needed)." vertex="1">
+          <mxGeometry height="140" width="480" x="520" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-19" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="DERIVED FLEET   @ 3.04 s/page&#xa;&#xa;  IDP        100 doc-slots&#xa;             -&gt; 25-50 pods  (c=2-4 per GPU)&#xa;             -&gt; 25-50 GPU nodes&#xa;  Reasoning  13 concurrent  -&gt; 2-4 pods (c=100)&#xa;  Assembly   ~1 concurrent  -&gt; 2 pods (HA only)&#xa;  API        3 pods&#xa;  Ingestion  1 active (Lease) + 1 standby&#xa;&#xa;  Slots-per-GPU is the open variable: models are&#xa;  ~400 MB so VRAM is not the limit, COMPUTE is." vertex="1">
+          <mxGeometry height="140" width="460" x="1030" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-20" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="SAME FLEET @ 1.5 s/page   (CUDA — ESTIMATED)&#xa;&#xa;  a 6-page doc drops 18.2s -&gt; ~9s, so a slot&#xa;  turns over twice as fast&#xa;&#xa;  IDP  -&gt; ~50 doc-slots -&gt; 13-25 GPU nodes&#xa;  every other tier unchanged (none are the&#xa;  bottleneck)&#xa;&#xa;  HALVES THE GPU BILL — the single biggest cost&#xa;  lever. Verify before budgeting (§9.6, §9.7)." vertex="1">
+          <mxGeometry height="140" width="450" x="1520" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="dgcl-ingestion            x1 active&#xa;cmd: python -m pipeline.ingestion&#xa;&#xa;• polls DMS + LOS every 30s (+/- jitter)&#xa;• joins on case_id, writes case_state&#xa;• fingerprint + DB lease + dedupe&#xa;• enqueues one task PER DOCUMENT&#xa;&#xa;node: CPU   port: none (egress only)" vertex="1">
+          <mxGeometry height="145" width="360" x="70" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="dgcl-idp               x25-50  [GPU]&#xa;cmd: celery worker -Q q.idp -c 2-4&#xa;     --prefetch-multiplier 1&#xa;&#xa;• Docling: layout -&gt; OCR -&gt; TableFormer&#xa;• post-filter + serialize ParsedDocument&#xa;• real per-model confidences + bboxes&#xa;&#xa;node: GPU   port: none   ~400 MB models" vertex="1">
+          <mxGeometry height="145" width="360" x="455" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="dgcl-reasoning             x2-4&#xa;cmd: celery worker -Q q.reason&#xa;     -c 100 --pool=gevent&#xa;&#xa;• LLM sanitise + doc-type classify&#xa;• Gemini VLM fallback on weak regions&#xa;• batches 5-10 docs per API call&#xa;&#xa;node: CPU   port: none   ~50 MB" vertex="1">
+          <mxGeometry height="145" width="360" x="840" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="dgcl-assembly               x2&#xa;cmd: celery worker -Q q.assemble -c 8&#xa;&#xa;• chord barrier: waits for all docs&#xa;• runs the 3 parallel checkers&#xa;• builds the 12-point DGCL scorecard&#xa;• idempotent push to S3&#xa;&#xa;node: CPU   port: none" vertex="1">
+          <mxGeometry height="145" width="360" x="1225" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-25" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="dgcl-api                    x3&#xa;cmd: uvicorn app.main:app --port 8000&#xa;&#xa;• serves /api/* to the React review UI&#xa;• reads results from S3 + Postgres&#xa;• human adjudication endpoints&#xa;&#xa;node: CPU   port: 8000 (the ONLY inbound)&#xa;metrics :9100 — as on all five" vertex="1">
+          <mxGeometry height="145" width="360" x="1610" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-26" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="g5.2xlarge  (1 x A10G, 8 vCPU, 32 GiB)&#xa;  nodes: 9-17   (cluster-autoscaler)&#xa;  1 x dgcl-idp pod per node, celery -c 2-4&#xa;  requests 2000m/4Gi  ·  limits nvidia.com/gpu: 1&#xa;  taint nvidia.com/gpu=true:NoSchedule&#xa;  ON-DEMAND — do not use spot: a 300s drain&#xa;  mid-document wastes the GPU time twice" vertex="1">
+          <mxGeometry height="125" width="550" x="95" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="m6i.large  (2 vCPU, 8 GiB)  ·  nodes: 2-4&#xa;  dgcl-reasoning  1-2 pods  (c=100, gevent)&#xa;  dgcl-assembly   1 pod&#xa;  dgcl-api        1 pod  (behind the ALB)&#xa;  ingestion leader lives here&#xa;while it holds the Lease" vertex="1">
+          <mxGeometry height="120" width="550" x="95" y="785" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-28" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="g5.2xlarge  (1 x A10G, 8 vCPU, 32 GiB)&#xa;  nodes: 8-17   (cluster-autoscaler)&#xa;  1 x dgcl-idp pod per node, celery -c 2-4&#xa;  requests 2000m/4Gi  ·  limits nvidia.com/gpu: 1&#xa;  taint nvidia.com/gpu=true:NoSchedule&#xa;  ON-DEMAND — do not use spot: a 300s drain&#xa;  mid-document wastes the GPU time twice" vertex="1">
+          <mxGeometry height="125" width="550" x="735" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-29" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="m6i.large  (2 vCPU, 8 GiB)  ·  nodes: 2-4&#xa;  dgcl-reasoning  1-2 pods  (c=100, gevent)&#xa;  dgcl-assembly   1 pod&#xa;  dgcl-api        1 pod  (behind the ALB)&#xa;  ingestion standby&#xa;(takes the Lease on AZ loss)" vertex="1">
+          <mxGeometry height="120" width="550" x="735" y="785" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-30" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="g5.2xlarge  (1 x A10G, 8 vCPU, 32 GiB)&#xa;  nodes: 8-16   (cluster-autoscaler)&#xa;  1 x dgcl-idp pod per node, celery -c 2-4&#xa;  requests 2000m/4Gi  ·  limits nvidia.com/gpu: 1&#xa;  taint nvidia.com/gpu=true:NoSchedule&#xa;  ON-DEMAND — do not use spot: a 300s drain&#xa;  mid-document wastes the GPU time twice" vertex="1">
+          <mxGeometry height="125" width="550" x="1375" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="m6i.large  (2 vCPU, 8 GiB)  ·  nodes: 2-4&#xa;  dgcl-reasoning  1-2 pods  (c=100, gevent)&#xa;  dgcl-assembly   1 pod&#xa;  dgcl-api        1 pod  (behind the ALB)&#xa;  no ingestion pod&#xa;(cold standby capacity)" vertex="1">
+          <mxGeometry height="120" width="550" x="1375" y="785" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="KEDA ScaledObject  dgcl-idp&#xa;  trigger: redis  listName=q.idp  listLength=5&#xa;  min 2  ·  max 50  ·  cooldown 300s&#xa;  min is NEVER 0: 4s model load + ~4 GB image pull" vertex="1">
+          <mxGeometry height="110" width="440" x="70" y="1020" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="KEDA ScaledObject  dgcl-reasoning&#xa;  trigger: redis  listName=q.reason  listLength=20&#xa;  min 2  ·  max 40  ·  cooldown 120s&#xa;  can scale fast and wide: 50 MB, pure HTTP wait" vertex="1">
+          <mxGeometry height="110" width="440" x="540" y="1020" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-34" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Cluster Autoscaler / Karpenter&#xa;  GPU group scales AFTER KEDA marks pods Pending&#xa;  node provision ~2-4 min + ~2 min image pull&#xa;  =&gt; keep warm headroom; do not scale to the floor" vertex="1">
+          <mxGeometry height="110" width="470" x="1010" y="1020" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-35" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="SCALE-UP LAG IS THE REAL RISK&#xa;A 10x burst needs new GPU nodes: ~5 min before&#xa;the first pod is Ready. Queue absorbs it only if&#xa;the SLA tolerates ~5 min of backlog.&#xa;Otherwise: over-provision the floor." vertex="1">
+          <mxGeometry height="110" width="460" x="1510" y="1020" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-36" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="ElastiCache Redis  (cache.m6g.large, multi-AZ)&#xa;  steady state depth ~0 — a rising depth IS the alert&#xa;  burst: 100 messages per poll (10 cases x 10 docs)&#xa;  alert on q.idp OLDEST AGE, not depth" vertex="1">
+          <mxGeometry height="105" width="450" x="70" y="1212" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-37" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="RDS PostgreSQL  (db.t4g.medium, multi-AZ)&#xa;  1,200 rows/hour = ~29k/day = ~10M/year&#xa;  trivial load — this tier will never be the limit&#xa;  sized for HA and audit retention, not throughput" vertex="1">
+          <mxGeometry height="105" width="450" x="550" y="1212" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-38" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="S3&#xa;  ~12 MB per case (raw + extracted + structured + result)&#xa;  = ~14 GB/hour  ·  ~345 GB/day  ·  ~126 TB/year&#xa;  LIFECYCLE POLICY IS MANDATORY: raw -&gt; IA at 30d,&#xa;  Glacier at 90d. Results stay hot for the review UI." vertex="1">
+          <mxGeometry height="105" width="470" x="1030" y="1212" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-39" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="The only tier that grows without bound is S3.&#xa;Everything else is steady-state.&#xa;&#xa;Budget the object count too, not just bytes:&#xa;~50 objects/case = 60k/hour = 500M/year." vertex="1">
+          <mxGeometry height="105" width="440" x="1530" y="1212" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-40" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="1 · GPU node count&#xa;The binding constraint and ~all of the cost.&#xa;74% of per-page time is OCR (§1.5) and it is&#xa;the only stage still on CPU. Fix that first and&#xa;this ladder shifts by one rung." vertex="1">
+          <mxGeometry height="125" width="370" x="70" y="1400" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-41" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="2 · LLM provider rate limit&#xa;12,000 documents/hour of extraction calls.&#xa;At 1 call/doc that is 3.3 req/s sustained —&#xa;check the tier limit. Batching 5-10 docs per&#xa;call drops it to ~0.5 req/s." vertex="1">
+          <mxGeometry height="125" width="370" x="465" y="1400" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-42" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="3 · Scale-up lag, not capacity&#xa;~5 min from burst to first Ready GPU pod.&#xa;A spiky arrival pattern hits this long before&#xa;it hits steady-state capacity." vertex="1">
+          <mxGeometry height="125" width="370" x="860" y="1400" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-43" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="4 · S3 object count / lifecycle&#xa;~500M objects/year. Not a throughput limit,&#xa;but a cost and listing-performance problem&#xa;if no lifecycle policy exists." vertex="1">
+          <mxGeometry height="125" width="350" x="1255" y="1400" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-44" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="NOT bottlenecks&#xa;  Postgres — trivial load&#xa;  Redis — steady depth ~0&#xa;  API / assembly tiers — milliseconds&#xa;  Ingestion — 2 API calls per 30s" vertex="1">
+          <mxGeometry height="125" width="340" x="1630" y="1400" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-45" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="80" y="1597" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-46" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="GPU-scheduled workload (the cost centre)" vertex="1">
+          <mxGeometry height="42" width="300" x="110" y="1587" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-47" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="420" y="1597" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-48" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="CPU workload / not a bottleneck" vertex="1">
+          <mxGeometry height="42" width="280" x="450" y="1587" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-49" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="740" y="1597" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-50" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Autoscaling control loop" vertex="1">
+          <mxGeometry height="42" width="230" x="770" y="1587" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-51" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="1010" y="1597" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-52" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Managed data service + volume" vertex="1">
+          <mxGeometry height="42" width="270" x="1040" y="1587" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-53" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="1320" y="1597" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-54" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Constraint or risk" vertex="1">
+          <mxGeometry height="42" width="200" x="1350" y="1587" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-55" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="1570" y="1597" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-56" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Derived arithmetic" vertex="1">
+          <mxGeometry height="42" width="220" x="1600" y="1587" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-57" edge="1" parent="1" source="uLAye5CqH_NBwLHg2VAG-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="uLAye5CqH_NBwLHg2VAG-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-58" edge="1" parent="1" source="uLAye5CqH_NBwLHg2VAG-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="uLAye5CqH_NBwLHg2VAG-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-59" edge="1" parent="1" source="uLAye5CqH_NBwLHg2VAG-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="uLAye5CqH_NBwLHg2VAG-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uLAye5CqH_NBwLHg2VAG-60" edge="1" parent="1" source="uLAye5CqH_NBwLHg2VAG-32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="uLAye5CqH_NBwLHg2VAG-34" value="pods Pending">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="290" y="1142" />
+              <mxPoint x="1245" y="1142" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="DGCL Production Scaling Architecture" id="Qfc9ztVf8krS6pejulxX">
+    <mxGraphModel dx="1227" dy="693" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1250" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="L_ing" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="1 · INGESTION SERVICE  —  singleton, network-bound" vertex="1">
+          <mxGeometry height="600" width="320" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_idp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="2 · IDP WORKERS  —  CPU/GPU, model-resident" vertex="1">
+          <mxGeometry height="600" width="340" x="400" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_rea" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="3 · REASONING WORKERS  —  IO-bound on external APIs" vertex="1">
+          <mxGeometry height="600" width="320" x="780" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_asm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="4 · ASSEMBLY + SERVING  —  cheap, colocated" vertex="1">
+          <mxGeometry height="600" width="340" x="1140" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_fail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="FAILURE HANDLING  —  cross-cutting" vertex="1">
+          <mxGeometry height="600" width="320" x="1520" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="L_state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="SHARED STATE  —  the only things all four services touch" vertex="1">
+          <mxGeometry height="150" width="1800" x="40" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="L_obs" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="OBSERVABILITY PLANE  —  every service emits all four" vertex="1">
+          <mxGeometry height="200" width="1800" x="40" y="870" as="geometry" />
+        </mxCell>
+        <mxCell id="W_idp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#aaaaaa;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=10;fontStyle=1;dashPattern=6 3;" value="IDP worker (prefork, long-lived)" vertex="1">
+          <mxGeometry height="300" width="310" x="415" y="165" as="geometry" />
+        </mxCell>
+        <mxCell id="L_leg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry height="90" width="1800" x="40" y="1110" as="geometry" />
+        </mxCell>
+        <mxCell id="dms" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" value="DMS API&#xa;documents per case" vertex="1">
+          <mxGeometry height="70" width="135" x="60" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="los" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" value="LOS API&#xa;loan origination data" vertex="1">
+          <mxGeometry height="70" width="135" x="210" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="poll" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="every 30s ± jitter." vertex="1">
+          <mxGeometry height="80" width="285" x="60" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="join" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=8;" value="Case State Join&#xa;ready only when BOTH los_seen_at and&#xa;dms_manifest_hash are present" vertex="1">
+          <mxGeometry height="75" width="285" x="60" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="dedup" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="Idempotency Gate&#xa;1. input_fingerprint = sha256(los + dms manifest)&#xa;2. DB lease, not lock (self-heals on worker death)&#xa;3. celery task_id = fingerprint" vertex="1">
+          <mxGeometry height="95" width="285" x="60" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="disp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Dispatcher — drains status=&#39;ready&#39; at a rate&#xa;the cluster can absorb. THE BACKPRESSURE VALVE." vertex="1">
+          <mxGeometry height="70" width="285" x="60" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="q_idp" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;size=0.08;" value="q.idp — one task PER DOCUMENT&#xa;prefetch_multiplier = 1" vertex="1">
+          <mxGeometry height="60" width="300" x="420" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="prof" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="DoclingOptions profile by doc type&#xa;(extra profiles are free: 0.08s, +0 MB)" vertex="1">
+          <mxGeometry height="55" width="276" x="432" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="dock" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="Docling StandardPdfPipeline&#xa;preprocess → layout → OCR → post → TableFormer" vertex="1">
+          <mxGeometry height="70" width="276" x="432" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="ser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Post-filter + Serializer → ParsedDocument&#xa;(bboxes, tables, real per-model confidences)" vertex="1">
+          <mxGeometry height="60" width="276" x="432" y="355" as="geometry" />
+        </mxCell>
+        <mxCell id="warm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="prewarm on worker_ready — pays the 4s cold start at boot" vertex="1">
+          <mxGeometry height="32" width="276" x="432" y="425" as="geometry" />
+        </mxCell>
+        <mxCell id="n_idp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="SCALES ON PAGES/sec&#xa;• 4.0 s/page measured (1.8–7.3 range)&#xa;• ~400 MB RSS resident per process&#xa;• prefetch=1 — a 40-page statement must not&#xa;  block its neighbour" vertex="1">
+          <mxGeometry height="120" width="300" x="420" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="q_rea" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;size=0.08;" value="q.reason" vertex="1">
+          <mxGeometry height="50" width="280" x="800" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="LLM Sanitise + Doc-Type Classify&#xa;batch 5–10 docs per request&#xa;(cap the wait: 10 docs or 2s)" vertex="1">
+          <mxGeometry height="85" width="280" x="800" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="vlm" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="VLM Fallback — batch ALL flagged regions&#xa;of a page into ONE multi-image call&#xa;(today: 1 call/region + 250 ms sleep)" vertex="1">
+          <mxGeometry height="85" width="280" x="800" y="265" as="geometry" />
+        </mxCell>
+        <mxCell id="n_rea" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="SCALES ON API RATE LIMIT&#xa;• ~50 MB, pure HTTP wait&#xa;• concurrency 50–200 on one small box&#xa;• SPLIT REASON: a 45s LLM timeout must never&#xa;  occupy a 400 MB model slot" vertex="1">
+          <mxGeometry height="120" width="280" x="800" y="375" as="geometry" />
+        </mxCell>
+        <mxCell id="cache" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;" value="Content-addressed cache&#xa;sha256(bytes) + profile + model_version" vertex="1">
+          <mxGeometry height="70" width="280" x="800" y="515" as="geometry" />
+        </mxCell>
+        <mxCell id="q_asm" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;size=0.08;" value="q.assemble — one task PER CASE" vertex="1">
+          <mxGeometry height="50" width="300" x="1160" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="barrier" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Chord barrier — all document tasks complete&#xa;Partial results are valid: a missing doc becomes&#xa;INDETERMINATE, it does not fail the case" vertex="1">
+          <mxGeometry height="80" width="300" x="1160" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="check" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Parallel checkers&#xa;check_kyc · check_financial · check_loan_application" vertex="1">
+          <mxGeometry height="60" width="300" x="1160" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="score" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="12-POINT DGCL SCORECARD&#xa;VERIFIED / DISCREPANCY / INDETERMINATE / N_A&#xa;per checkpoint, with evidence + page anchors" vertex="1">
+          <mxGeometry height="80" width="300" x="1160" y="345" as="geometry" />
+        </mxCell>
+        <mxCell id="push" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="Push results → S3 (idempotent key:&#xa;case_id + fingerprint + artifact)" vertex="1">
+          <mxGeometry height="60" width="300" x="1160" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=8;" value="FastAPI /api/* → React review UI" vertex="1">
+          <mxGeometry height="50" width="300" x="1160" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="cls" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="Error classifier&#xa;Transient (5xx, timeout, 429) → backoff + jitter&#xa;Permanent (corrupt PDF, bad MIME) → fail fast" vertex="1">
+          <mxGeometry height="85" width="280" x="1540" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="slow" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="q.idp.slow — poison-pill lane&#xa;after attempt_count &gt;= 3, longer timeout" vertex="1">
+          <mxGeometry height="65" width="280" x="1540" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="quar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="Quarantine + alert&#xa;status=&#39;quarantined&#39;, never loops forever" vertex="1">
+          <mxGeometry height="60" width="280" x="1540" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="lease" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="Lease expiry sweeper&#xa;returns orphaned cases to the pool" vertex="1">
+          <mxGeometry height="60" width="280" x="1540" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="n_fail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="Retrying a corrupt file 5x is 5x wasted GPU.&#xa;Classify BEFORE you retry." vertex="1">
+          <mxGeometry height="45" width="280" x="1540" y="455" as="geometry" />
+        </mxCell>
+        <mxCell id="dlq" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;" value="Dead letter store" vertex="1">
+          <mxGeometry height="60" width="280" x="1540" y="525" as="geometry" />
+        </mxCell>
+        <mxCell id="pg" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="Postgres&#xa;case_state · leases · fingerprints · audit trail" vertex="1">
+          <mxGeometry height="80" width="400" x="70" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="Redis&#xa;Celery broker + result backend" vertex="1">
+          <mxGeometry height="80" width="380" x="510" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;boundedLbl=1;" value="S3&#xa;raw / extracted / structured / results" vertex="1">
+          <mxGeometry height="80" width="380" x="930" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="n_state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="One repo, one image, FOUR ENTRYPOINTS.&#xa;Services differ only by which queue they consume —&#xa;so schema changes stay atomic." vertex="1">
+          <mxGeometry height="80" width="460" x="1350" y="725" as="geometry" />
+        </mxCell>
+        <mxCell id="logs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="STRUCTURED LOGS (JSON)&#xa;Correlation triple on every line:&#xa;case_id · doc_id · run_id (ULID) + fingerprint&#xa;&#xa;Log DECISIONS, not narration:&#xa;• RETAINED_UNCAPTURED_TABLE_TEXT&#xa;• table dropped by fill-ratio → WARNING&#xa;  (silent table loss is data loss)&#xa;• per-element logs at DEBUG, 1% sampled" vertex="1">
+          <mxGeometry height="140" width="420" x="70" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="metrics" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="METRICS (Prometheus)&#xa;dgcl_stage_duration_seconds{stage,doc_type}&#xa;dgcl_queue_oldest_age_seconds{queue}  ← #1 ALERT&#xa;dgcl_llm_cost_usd_total{model}&#xa;dgcl_checkpoint_verdict_total{checkpoint,verdict}&#xa;&#xa;NEVER label with case_id/doc_id (cardinality).&#xa;Age beats depth: depth is a number, age is an SLA." vertex="1">
+          <mxGeometry height="140" width="430" x="510" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="traces" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="TRACES (OpenTelemetry)&#xa;One trace per case, spans per stage,&#xa;context propagated through Celery headers.&#xa;&#xa;With fan-out + barrier, the waterfall is the only&#xa;way to tell &#39;one slow document&#39; from &#39;queue wait&#39;.&#xa;Sample 1–5% + 100% of errors." vertex="1">
+          <mxGeometry height="140" width="420" x="960" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="dq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=6;" value="DATA QUALITY (distinct from health)&#xa;• location_status mix, trended&#xa;• field completeness per doc type&#xa;• OCR vs LAYOUT confidence split&#xa;• DRIFT ALERT: not_extracted 2σ over the&#xa;  7-day mean → upstream format changed.&#xa;Catches a DMS change on day 1, not week 3." vertex="1">
+          <mxGeometry height="140" width="410" x="1400" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="dms" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="poll">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="los" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="poll">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="join">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="join" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="dedup" value="status=&#39;ready&#39;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="dedup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="disp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="disp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="q_idp" value="fan-out per doc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="380" y="565" />
+              <mxPoint x="380" y="115" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="q_idp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="W_idp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="prof" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="dock">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="dock" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="ser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="W_idp" style="rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="q_rea" value="ParsedDocument">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="750" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="q_rea" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="llm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="vlm" value="low-confidence regions">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="vlm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.35;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="q_asm" value="structured fields">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="300" />
+              <mxPoint x="1120" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="q_asm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="barrier">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="barrier" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="score">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="score" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="push">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="push" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="push" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="s3" value="results">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1130" y="480" />
+              <mxPoint x="1130" y="660" />
+              <mxPoint x="1215" y="660" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="W_idp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#82b366;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="cache" value="cache miss → parse">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="755" y="435" />
+              <mxPoint x="755" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="cls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="slow" value="transient">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="slow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="quar" value="still failing">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="quar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" target="dlq">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1530" y="315" />
+              <mxPoint x="1530" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="W_idp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#b85450;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cls" value="failures">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="745" y="465" />
+              <mxPoint x="745" y="650" />
+              <mxPoint x="1855" y="650" />
+              <mxPoint x="1855" y="127" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e25" edge="1" parent="1" source="dedup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#82b366;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.05;entryY=0;entryDx=0;entryDy=0;" target="pg" value="lease + fingerprint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="375" y="452" />
+              <mxPoint x="375" y="700" />
+              <mxPoint x="90" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e26" edge="1" parent="1" source="lease" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#82b366;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="pg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1500" y="400" />
+              <mxPoint x="1500" y="670" />
+              <mxPoint x="270" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="70" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Model inference / compute-heavy — the tier you pay for" vertex="1">
+          <mxGeometry height="44" width="400" x="102" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="520" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="External API call — latency and rate-limit bound" vertex="1">
+          <mxGeometry height="44" width="400" x="552" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="970" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Durable shared state" vertex="1">
+          <mxGeometry height="44" width="280" x="1002" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;fontStyle=1;size=0.08;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="1310" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Queue — a scaling boundary" vertex="1">
+          <mxGeometry height="44" width="230" x="1342" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;arcSize=8;" value="" vertex="1">
+          <mxGeometry height="24" width="26" x="1600" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5t" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Failure path" vertex="1">
+          <mxGeometry height="44" width="200" x="1632" y="1140" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Page-2" id="rr9-cV87EM_L7QFxVf-m">
+    <mxGraphModel dx="2467" dy="808" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="INTERNET" vertex="1">
+          <mxGeometry height="115" width="1960" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="INGRESS" vertex="1">
+          <mxGeometry height="150" width="1960" x="40" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9ff;strokeColor=#6c8ebf;dashed=0;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;opacity=40;" value="KUBERNETES NAMESPACE:  dgcl-prod" vertex="1">
+          <mxGeometry height="555" width="1960" x="40" y="345" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="NODE POOL: cpu-general   (no taint, spot-eligible)" vertex="1">
+          <mxGeometry height="490" width="950" x="60" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="NODE POOL: gpu   taint nvidia.com/gpu=true:NoSchedule" vertex="1">
+          <mxGeometry height="490" width="470" x="1030" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;fontSize=11;fontStyle=1;dashPattern=6 3;" value="CONFIG &amp; IDENTITY   (mounted by all four Deployments)" vertex="1">
+          <mxGeometry height="490" width="460" x="1520" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="MANAGED DATA SERVICES   (outside the cluster — do not self-host these)" vertex="1">
+          <mxGeometry height="150" width="1960" x="40" y="920" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="EGRESS   (all outbound TLS :443 via NAT gateway)" vertex="1">
+          <mxGeometry height="165" width="1960" x="40" y="1090" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-9" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="HELM CHART   —  one chart, four Deployments, values-driven" vertex="1">
+          <mxGeometry height="240" width="1960" x="40" y="1275" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-10" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fontSize=13;fontStyle=1;dashPattern=8 4;" value="Legend" vertex="1">
+          <mxGeometry height="85" width="1960" x="40" y="1535" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-11" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="Reviewers — browser&#xa;React review UI" vertex="1">
+          <mxGeometry height="60" width="210" x="80" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-12" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="DNS  dgcl.example.com → ALB&#xa;TLS cert: ACM or cert-manager (Let&#39;s Encrypt)&#xa;WAF / rate limit in front of the ALB" vertex="1">
+          <mxGeometry height="65" width="420" x="320" y="78" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-13" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="Ops — Grafana, Alertmanager&#xa;(separate ingress, SSO-gated)" vertex="1">
+          <mxGeometry height="60" width="250" x="780" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-14" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Only the API is publicly reachable. Ingestion, IDP, reasoning and assembly&#xa;have NO inbound route — they are queue consumers with egress only." vertex="1">
+          <mxGeometry height="65" width="890" x="1080" y="78" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Ingress Controller  (ingress-nginx or AWS ALB)&#xa;listens :443 TLS  →  forwards :80 http&#xa;ipressClassName: nginx&#xa;helm: bitnami/ingress-nginx (separate release)" vertex="1">
+          <mxGeometry height="95" width="380" x="80" y="218" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Ingress  dgcl&#xa;host: dgcl.example.com&#xa;  /        → svc/dgcl-api  :8000&#xa;  /api/*   → svc/dgcl-api  :8000&#xa;  /metrics → NOT exposed (ClusterIP only)" vertex="1">
+          <mxGeometry height="95" width="390" x="490" y="218" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="NetworkPolicy  dgcl-default-deny&#xa;ingress: deny all, then allow&#xa;  from: ingress-nginx namespace&#xa;  to:   app=dgcl-api  port 8000" vertex="1">
+          <mxGeometry height="95" width="360" x="910" y="218" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-18" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Ports in one place:&#xa;443 public TLS · 8000 API http · 9100 metrics (all pods)&#xa;5432 Postgres · 6379 Redis · 443 egress" vertex="1">
+          <mxGeometry height="95" width="670" x="1300" y="218" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Service  dgcl-api&#xa;type ClusterIP · port 8000 → targetPort 8000&#xa;selector app=dgcl-api" vertex="1">
+          <mxGeometry height="70" width="290" x="80" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-api            replicas: 2&#xa;cmd: uvicorn app.main:app --port 8000&#xa;ports: 8000 http · 9100 metrics&#xa;liveness/readiness: GET /healthz :8000&#xa;resources: req 250m/512Mi  lim 1/1Gi&#xa;HPA on CPU is fine HERE (request-bound)" vertex="1">
+          <mxGeometry height="135" width="290" x="80" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-ingestion      replicas: 1&#xa;strategy: Recreate  +  Lease leader election&#xa;  (replicas:1 is NOT a singleton on rollout)&#xa;cmd: python -m pipeline.ingestion&#xa;NO containerPort — egress + metrics :9100 only&#xa;NOT a CronJob: k8s min granularity is 1 min,&#xa;the poll is 30s&#xa;resources: req 100m/256Mi  lim 500m/512Mi" vertex="1">
+          <mxGeometry height="225" width="300" x="390" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-reasoning      KEDA 2→40&#xa;cmd: celery -A pipeline.celery_app worker&#xa;     -Q q.reason -c 100 --pool=gevent&#xa;IO-bound: high concurrency, tiny footprint&#xa;NO containerPort · metrics :9100&#xa;resources: req 200m/256Mi  lim 1/768Mi&#xa;nodeAffinity: NOT on the gpu pool" vertex="1">
+          <mxGeometry height="225" width="280" x="710" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="Deployment  dgcl-assembly       replicas: 2&#xa;celery worker -Q q.assemble -c 8&#xa;chord barrier → checkers → scorecard → S3&#xa;resources: req 250m/512Mi  lim 1/1Gi" vertex="1">
+          <mxGeometry height="95" width="290" x="80" y="675" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ScaledObject  dgcl-reasoning&#xa;trigger: redis  listName=q.reason  listLength=20&#xa;min 2 · max 40 · cooldown 120s" vertex="1">
+          <mxGeometry height="95" width="300" x="390" y="675" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-25" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Scale on QUEUE, never CPU%: a worker blocked on a&#xa;45s LLM call shows low CPU and HPA would scale it&#xa;down exactly as the backlog grows." vertex="1">
+          <mxGeometry height="95" width="280" x="710" y="675" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-26" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;fontStyle=0;" value="Deployment  dgcl-idp                    KEDA 2→20&#xa;cmd: celery -A pipeline.celery_app worker&#xa;     -Q q.idp -c 2 --prefetch-multiplier 1&#xa;resources: limits nvidia.com/gpu: 1&#xa;           req 2000m/4Gi   lim 4000m/8Gi&#xa;tolerations: nvidia.com/gpu=true:NoSchedule&#xa;nodeSelector: workload=gpu&#xa;terminationGracePeriodSeconds: 300  (&gt; longest task)&#xa;preStop: celery control shutdown  (warm drain)&#xa;readiness: prewarm-done marker + celery ping&#xa;liveness: generous — must NOT kill an 180s task&#xa;metrics :9100" vertex="1">
+          <mxGeometry height="245" width="430" x="1050" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ScaledObject  dgcl-idp&#xa;redis listName=q.idp&#xa;listLength=5&#xa;min 2 (never 0 — 4s model&#xa;load + GB image pull)&#xa;max 20 · cooldown 300s" vertex="1">
+          <mxGeometry height="130" width="205" x="1050" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-28" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="PodDisruptionBudget&#xa;minAvailable: 50%&#xa;stops a node drain from&#xa;evicting every&#xa;model-loaded pod at once" vertex="1">
+          <mxGeometry height="130" width="205" x="1275" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-29" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Models baked into the image — no runtime download." vertex="1">
+          <mxGeometry height="34" width="430" x="1050" y="832" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-30" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ConfigMap  dgcl-config&#xa;POLL_INTERVAL_SECONDS=30 · MAX_DOC_WORKERS&#xa;LLM_MODEL · S3_BUCKET · OCR_TEXT_SCORE&#xa;docling profile table · LOG_LEVEL" vertex="1">
+          <mxGeometry height="95" width="420" x="1540" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ExternalSecret → Secret  dgcl-secrets&#xa;LLM_API_KEY · GEMINI_API_KEY&#xa;DMS_API_TOKEN · LOS_API_TOKEN&#xa;DATABASE_URL · REDIS_URL&#xa;(External Secrets Operator ← AWS Secrets Manager)" vertex="1">
+          <mxGeometry height="105" width="420" x="1540" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ServiceAccount  dgcl&#xa;IRSA / Workload Identity → S3&#xa;No static AWS keys anywhere" vertex="1">
+          <mxGeometry height="75" width="420" x="1540" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="ServiceMonitor  dgcl&#xa;scrapes :9100/metrics on all four Deployments&#xa;Prometheus Operator picks it up by label" vertex="1">
+          <mxGeometry height="80" width="420" x="1540" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-34" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Roll pods on config change: checksum/config annotation." vertex="1">
+          <mxGeometry height="30" width="420" x="1540" y="845" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-35" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="Amazon RDS PostgreSQL   :5432&#xa;case_state · leases · fingerprints · audit trail&#xa;private subnet · SG allows the node CIDR only" vertex="1">
+          <mxGeometry height="90" width="440" x="80" y="962" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-36" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="ElastiCache Redis   :6379&#xa;Celery broker + result backend&#xa;q.idp · q.reason · q.assemble · q.idp.slow" vertex="1">
+          <mxGeometry height="90" width="440" x="550" y="962" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-37" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="S3   :443 via VPC gateway endpoint&#xa;raw / extracted / structured / results&#xa;bucket policy scoped to the IRSA role" vertex="1">
+          <mxGeometry height="90" width="440" x="1020" y="962" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-38" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="ECR   :443&#xa;ONE image, FOUR entrypoints:  dgcl:&lt;git-sha&gt;&#xa;models baked in (~3-4 GB) · imagePullPolicy IfNotPresent" vertex="1">
+          <mxGeometry height="90" width="470" x="1490" y="962" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-39" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="NAT Gateway&#xa;static EIP so upstreams&#xa;can allow-list you" vertex="1">
+          <mxGeometry height="100" width="220" x="80" y="1132" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-40" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="DMS API  :443&#xa;called by: ingestion ONLY&#xa;delta poll 30s ± jitter&#xa;circuit breaker + backoff" vertex="1">
+          <mxGeometry height="100" width="300" x="330" y="1132" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-41" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="LOS API  :443&#xa;called by: ingestion (poll)&#xa;and assembly (push results)" vertex="1">
+          <mxGeometry height="100" width="300" x="660" y="1132" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-42" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="OpenRouter  :443&#xa;called by: reasoning ONLY&#xa;LLM sanitise + classify" vertex="1">
+          <mxGeometry height="100" width="300" x="990" y="1132" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-43" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;fontStyle=2;" value="Gemini VLM  :443&#xa;called by: reasoning ONLY&#xa;low-confidence regions" vertex="1">
+          <mxGeometry height="100" width="300" x="1320" y="1132" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-44" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="NetworkPolicy egress&#xa;ingestion → DMS, LOS&#xa;reasoning → OpenRouter, Gemini&#xa;all → RDS 5432, Redis 6379, S3 443&#xa;everything else: DENY" vertex="1">
+          <mxGeometry height="100" width="310" x="1650" y="1132" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-45" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="charts/dgcl/&#xa;  Chart.yaml&#xa;  values.yaml           # defaults&#xa;  values-prod.yaml      # overrides&#xa;  templates/&#xa;    _helpers.tpl&#xa;    configmap.yaml&#xa;    externalsecret.yaml&#xa;    serviceaccount.yaml&#xa;    servicemonitor.yaml&#xa;    networkpolicy.yaml&#xa;    api-deployment.yaml   api-service.yaml   ingress.yaml&#xa;    ingestion-deployment.yaml&#xa;    idp-deployment.yaml   idp-scaledobject.yaml   idp-pdb.yaml&#xa;    reasoning-deployment.yaml   reasoning-scaledobject.yaml&#xa;    assembly-deployment.yaml" vertex="1">
+          <mxGeometry height="185" width="560" x="80" y="1318" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-46" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9a9a9a;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;fontFamily=Courier New;" value="values.yaml&#xa;&#xa;image:&#xa;  repository: &lt;acct&gt;.dkr.ecr.../dgcl&#xa;  tag: &quot;&quot;                 # set to git sha at deploy&#xa;&#xa;services:&#xa;  api:        {replicas: 2,  port: 8000}&#xa;  ingestion:  {replicas: 1}&#xa;  idp:        {keda: {min: 2, max: 20, queue: q.idp}}&#xa;  reasoning:  {keda: {min: 2, max: 40, queue: q.reason}}&#xa;  assembly:   {replicas: 2}&#xa;&#xa;gpu: {enabled: true, nodeSelector: {workload: gpu}}&#xa;external: {postgresHost, redisHost, s3Bucket}" vertex="1">
+          <mxGeometry height="185" width="610" x="670" y="1318" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-47" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;" value="Dependencies (subcharts or separate releases)&#xa;  keda           — queue autoscaling        (required)&#xa;  prometheus-operator — ServiceMonitor CRD   (required)&#xa;  external-secrets — ExternalSecret CRD      (required)&#xa;  ingress-nginx  — install once per cluster  (separate release)&#xa;&#xa;Deploy:&#xa;  helm upgrade --install dgcl charts/dgcl \&#xa;    -n dgcl-prod --create-namespace \&#xa;    -f values-prod.yaml --set image.tag=$GIT_SHA&#xa;&#xa;All four Deployments share one template helper — they differ&#xa;only in command, queue, resources and scaling trigger." vertex="1">
+          <mxGeometry height="185" width="650" x="1310" y="1318" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-48" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="80" y="1572" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-49" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Deployment (workload)" vertex="1">
+          <mxGeometry height="42" width="230" x="110" y="1562" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-50" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;fontStyle=0;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="350" y="1572" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-51" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="GPU-scheduled Deployment" vertex="1">
+          <mxGeometry height="42" width="250" x="380" y="1562" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-52" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="640" y="1572" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-53" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Service / Ingress object" vertex="1">
+          <mxGeometry height="42" width="240" x="670" y="1562" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-54" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="920" y="1572" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-55" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Config, identity, autoscaling" vertex="1">
+          <mxGeometry height="42" width="260" x="950" y="1562" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-56" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;boundedLbl=1;align=left;spacingLeft=8;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="1230" y="1572" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-57" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Managed data service" vertex="1">
+          <mxGeometry height="42" width="230" x="1260" y="1562" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-58" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=left;spacingLeft=6;verticalAlign=top;spacingTop=5;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="22" width="24" x="1500" y="1572" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-59" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;" value="Network policy / disruption budget" vertex="1">
+          <mxGeometry height="42" width="300" x="1530" y="1562" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-60" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-15" value=":443">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-61" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-62" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-19" value=":8000">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="480" y="290" />
+              <mxPoint x="480" y="410" />
+              <mxPoint x="298" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-63" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-64" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.93;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-35" value="lease + state :5432">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="640" />
+              <mxPoint x="700" y="910" />
+              <mxPoint x="300" y="910" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-65" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.95;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-36" value=":6379">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1002" y="644" />
+              <mxPoint x="1002" y="910" />
+              <mxPoint x="770" y="910" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-66" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0;exitY=0.9;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-36" value=":6379">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1020" y="650" />
+              <mxPoint x="1020" y="930" />
+              <mxPoint x="994" y="930" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-67" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-37" value="results :443">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="225" y="875" />
+              <mxPoint x="1240" y="875" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-68" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-39" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-40">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-69" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;exitX=0.1;exitY=0;exitDx=0;exitDy=0;entryX=0.014;entryY=0.433;entryDx=0;entryDy=0;entryPerimeter=0;" target="p_BhC8dV9QR5N-CQCCgb-39" value="poll :443">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="370" />
+              <mxPoint x="10" y="370" />
+              <mxPoint x="10" y="1175.33" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-70" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#b85450;exitX=1;exitY=0.85;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-39" value="LLM + VLM">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1018" y="621" />
+              <mxPoint x="1018" y="1080" />
+              <mxPoint x="245" y="1080" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p_BhC8dV9QR5N-CQCCgb-71" edge="1" parent="1" source="p_BhC8dV9QR5N-CQCCgb-27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;dashed=1;strokeColor=#9673a6;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.55;entryY=0;entryDx=0;entryDy=0;" target="p_BhC8dV9QR5N-CQCCgb-36" value="queue depth">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1040" y="755" />
+              <mxPoint x="1040" y="945" />
+              <mxPoint x="792" y="945" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
