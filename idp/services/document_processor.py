@@ -33,20 +33,25 @@ class DocumentProcessor:
         # caches by options fingerprint) rather than rebuilt every time the
         # document-type mix changes mid-batch.
         self._docling_parsers: Dict[str, DoclingParser] = {}
-        # Standalone OCR engine bypassed — Docling is primary engine
-        self.ocr_engine = None
-        self.ocr_router = None
         self.router = ConfidenceRouter()
         self.vlm_client = VLMClient()
         self.serializer = DocumentSerializer()
 
-    def _get_docling_parser(self, doc_type: str) -> DoclingParser:
-        """Return the cached DoclingParser tuned for this canonical document type."""
-        parser = self._docling_parsers.get(doc_type)
+    def _get_docling_parser(self, doc_type: str, is_scanned: Optional[bool] = None) -> DoclingParser:
+        """Return the cached DoclingParser tuned for this canonical document type.
+
+        `is_scanned` is the preprocessor's content-based text-layer inspection
+        result (PreprocessedDocument.is_scanned_pdf) and takes precedence over
+        the doc_type-only heuristic inside get_profile_for_document_type --
+        see that function's docstring. It is folded into the cache key since
+        the same doc_type can now resolve to different profiles.
+        """
+        cache_key = f"{doc_type}::{is_scanned}"
+        parser = self._docling_parsers.get(cache_key)
         if parser is None:
-            profile: DoclingOptions = get_profile_for_document_type(doc_type)
+            profile: DoclingOptions = get_profile_for_document_type(doc_type, is_scanned=is_scanned)
             parser = DoclingParser(profile)
-            self._docling_parsers[doc_type] = parser
+            self._docling_parsers[cache_key] = parser
         return parser
 
     async def process_document(
@@ -102,7 +107,7 @@ class DocumentProcessor:
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
             try:
-                docling_parser = self._get_docling_parser(doc_type_hint)
+                docling_parser = self._get_docling_parser(doc_type_hint, is_scanned=prep_doc.is_scanned_pdf)
                 docling_result = docling_parser.parse(local_file_path, doc_id=document_id)
             except Exception as e:
                 logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))

@@ -3,7 +3,6 @@ import pytest
 from pathlib import Path
 from idp.services.docling.options import DoclingOptions
 from idp.services.docling.parser import DoclingParser
-from idp.services.ocr.rapidocr_engine import RapidOCREngine
 from idp.services.vlm.router import ConfidenceRouter
 from idp.services.output.serializer import DocumentSerializer
 from idp.models.processing import ProcessingMetrics
@@ -56,9 +55,7 @@ def test_pipeline_architecture_benchmark(sample_pdf_path):
     parser_a = DoclingParser(docling_options_a)
     result_a = parser_a.parse(sample_pdf_path, doc_id=f"{doc_id}_A")
     
-    # Pass 2: Standalone RapidOCR
-    ocr_engine = RapidOCREngine()
-    # Dummy image bytes for mock OCR test if PDF fitz renders
+    # Pass 2: OCR results empty for legacy comparison
     ocr_results_a = []
     
     # Pass 3: Serializer merging with spatial alignment

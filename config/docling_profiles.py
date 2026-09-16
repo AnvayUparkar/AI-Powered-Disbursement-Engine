@@ -8,6 +8,8 @@ Provides pre-tuned settings optimized for specific use cases:
 - Performance-optimized settings
 """
 
+from typing import Optional
+
 from idp.services.docling.options import DoclingOptions
 
 
@@ -21,7 +23,10 @@ from idp.services.docling.options import DoclingOptions
 
 IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
     do_table_structure=False,
-    table_mode="ACCURATE",
+    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide (see pipeline.py).
+                            # Moot here since do_table_structure=False skips TableFormer entirely,
+                            # but "FAST" previously triggered a misleading forced-override warning
+                            # on every identity-document parse for a value that was never honored.
     do_ocr=True,
     force_full_page_ocr=False,
     ocr_lang=["english", "hindi"],
@@ -60,9 +65,25 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     merge_adjacent_cells=True,  # Let comb-box detector handle merging
     detect_cell_spans=True,
     
-    # OCR Settings (use native text when available)
+    # OCR Settings
     do_ocr=True,
-    force_full_page_ocr=False,  # Extract digital text natively
+    # PRODUCTION FIX: force_full_page_ocr=False leaves Docling's OCR mode at
+    # its library default, OcrMode.DEFAULT -> PDF_AWARE_LAYOUT_REGIONS, which
+    # explicitly "eliminates clusters that contain exclusively text PDF
+    # cells" from OCR (see RapidOcrOptions / OcrMode in the installed
+    # docling.datamodel.pipeline_options). A scanned/photographed form has no
+    # native PDF text anywhere, so nothing gets eliminated and every cell
+    # still gets OCR'd -- comb-box characters merge correctly "by accident".
+    # A genuinely digital PDF's comb-box grid usually DOES have some native
+    # text in that region (even if it's one mis-segmented multi-character
+    # run rather than one token per printed cell), so PDF_AWARE_LAYOUT_REGIONS
+    # skips OCR there and CombBoxDetector never gets clean per-character
+    # tokens to merge. force_full_page_ocr=True forces OcrMode.FULL_PAGE
+    # (see OcrOptions._apply_force_full_page_ocr), so this profile always
+    # re-OCRs every character box regardless of what native text exists --
+    # matching the already-correct scanned-document behavior for digital
+    # inputs too, without touching CombBoxDetector/serializer.py at all.
+    force_full_page_ocr=True,
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (balanced)
@@ -318,32 +339,53 @@ def get_profile(profile_name: str) -> DoclingOptions:
     return DOCLING_PROFILES[profile_name]
 
 
-def get_profile_for_document_type(doc_type: str) -> DoclingOptions:
+def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = None) -> DoclingOptions:
     """
-    Auto-select profile based on document type.
-    
+    Auto-select profile based on document type, refined by actual scan-status
+    inspection when available.
+
     Args:
         doc_type: Document type (e.g., "application_form", "aadhaar", "kfs")
-        
+        is_scanned: Result of DocumentPreprocessor's content-based text-layer
+            inspection (PreprocessedDocument.is_scanned_pdf), when known.
+            True/False takes precedence over the doc_type-based OCR guess
+            below, since it reflects the actual PDF text layer rather than a
+            filename/doc-type assumption. Pass None (default) to preserve the
+            legacy doc_type-only heuristic for callers that haven't inspected
+            the file (e.g. profile lookups made before preprocessing runs).
+
     Returns:
         Appropriate DoclingOptions profile
     """
     # Pure identity cards: bypass TableFormer completely (zero tables in Aadhaar/PAN/DL/Voter ID)
+    # Structural choice, independent of scan status.
     if doc_type in ["aadhaar", "pan", "pan_card", "dl", "driving_license", "voter_id", "passport"]:
         return IDENTITY_DOCUMENT_PROFILE
 
     # Indian government forms with character boxes (e.g. application form)
+    # Structural choice, independent of scan status.
     elif doc_type in ["application_form"]:
         return CHARACTER_BOX_FORMS_PROFILE
-    
+
+    # Content-inspected scan status takes precedence over the doc_type guess:
+    # a "bank_statement" that is actually a clean digital export should not be
+    # force-rasterized and re-OCR'd, and a "loan_agreement" that is actually a
+    # scanned copy should get the aggressive scanned-document OCR settings.
+    elif is_scanned is True:
+        return SCANNED_DOCUMENTS_PROFILE
+
+    elif is_scanned is False:
+        return DIGITAL_PDF_PROFILE
+
+    # is_scanned unknown -- fall back to the pre-inspection doc_type heuristic.
     # Financial documents (typically scanned)
     elif doc_type in ["bank_statement", "salary_slip"]:
         return SCANNED_DOCUMENTS_PROFILE
-    
+
     # Legal/contract documents (typically digital)
     elif doc_type in ["loan_agreement", "sanction_letter", "nach_mandate"]:
         return DIGITAL_PDF_PROFILE
-    
+
     # Default: mixed content
     else:
         return MIXED_CONTENT_PROFILE

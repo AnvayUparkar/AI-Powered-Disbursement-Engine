@@ -207,7 +207,7 @@ def prewarm_docling_converters() -> None:
     logger.info("[DoclingPrewarm] Pre-warming Docling converters...")
     try:
         # 1. Prewarm identity configuration (no tables)
-        id_opts = DoclingOptions(do_table_structure=False, table_mode="FAST")
+        id_opts = DoclingOptions(do_table_structure=False, table_mode="ACCURATE")
         get_cached_converter(id_opts)
 
         # 2. Prewarm tabular configuration (TableFormer ACCURATE)

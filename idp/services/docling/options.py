@@ -49,7 +49,7 @@ class DoclingOptions(BaseModel):
     # OCR ENGINE (RapidOCR PP-OCRv6)
     # ═══════════════════════════════════════════════════════════════════════
     do_ocr: bool = True  # Enable OCR for text extraction
-    ocr_engine_name: str = "rapidocr"  # [INERT] Engine backend (RapidOCR backend is fixed)
+    ocr_engine_name: str = "docling_ocr"  # Engine backend (Docling integrated OCR)
     ocr_model_name: str = "PP-OCRv6_medium"  # Model variant (used in cache key & logging)
     
     # OCR Model Paths (optional custom models)

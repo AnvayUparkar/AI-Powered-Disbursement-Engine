@@ -41,5 +41,5 @@ class OCRTokenDebug(BaseModel):
     bbox: List[float]  # [x1, y1, x2, y2] normalized
     bbox_pixels: Optional[List[float]] = None
     confidence: float = 1.0
-    source: str = "rapidocr"
+    source: str = "docling_ocr"
     line_number: Optional[int] = None
