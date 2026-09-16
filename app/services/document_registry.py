@@ -81,9 +81,6 @@ class DocumentRegistry:
 
     def _scan_idp_parsed_storage(self) -> None:
         """Scan disk storage for any existing parsed documents in IDP store."""
-        if self._parsed_storage_scanned:
-            return
-        self._parsed_storage_scanned = True
         scan_idp_parsed_storage(
             known_doc_ids=set(self._dynamic_docs.keys()),
             register_func=self.register_uploaded_document,

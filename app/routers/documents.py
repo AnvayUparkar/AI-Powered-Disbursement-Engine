@@ -108,6 +108,28 @@ def preview_document(
                         target_path = matches[0].resolve()
                         break
 
+        # Fallback 3: Search in IDP mock S3 raw documents storage
+        if not target_path:
+            try:
+                from idp.core.config import settings as idp_settings
+                idp_raw_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / idp_settings.RAW_DOCUMENT_PREFIX
+                if idp_raw_dir.exists():
+                    clean_doc_stem = Path(doc_name).stem.lower()
+                    for raw_f in idp_raw_dir.iterdir():
+                        if raw_f.is_file():
+                            raw_stem = raw_f.stem.lower()
+                            if (
+                                raw_f.name == doc_name
+                                or raw_f.name.endswith(f"_{doc_name}")
+                                or doc_name.lower() in raw_f.name.lower()
+                                or clean_doc_stem in raw_stem
+                                or raw_stem in clean_doc_stem
+                            ):
+                                target_path = raw_f.resolve()
+                                break
+            except Exception as idp_search_err:
+                logger.debug("IDP raw storage preview fallback note: %s", idp_search_err)
+
     IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif")
     name_lower = doc_name.lower()
     is_image_req = format == "image" or name_lower.endswith(IMAGE_EXTS)

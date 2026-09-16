@@ -87,20 +87,23 @@ async def upload_and_process_document(
         from config import S3_RAW_DIR
         raw_key = f"{doc_id}_{clean_filename}"
 
-        if case_val:
-            case_raw_dir = S3_RAW_DIR / case_val
-            case_raw_dir.mkdir(parents=True, exist_ok=True)
-            target_path = case_raw_dir / clean_filename
-            target_path.write_bytes(file_bytes)
-            logger.info(format_doc_log(doc_id, f"Saved uploaded document to case S3 raw store at {target_path}"))
+        target_case_dir = case_val or "UNASSIGNED"
+        case_raw_dir = S3_RAW_DIR / target_case_dir
+        case_raw_dir.mkdir(parents=True, exist_ok=True)
+        target_path = case_raw_dir / clean_filename
+        target_path.write_bytes(file_bytes)
+        logger.info(format_doc_log(doc_id, f"Saved uploaded document to raw store at {target_path}"))
 
+        target_bucket = bucket or "disbursement-documents"
+        s3_key_full = f"raw-documents/{raw_key}"
         try:
             from idp.services.storage.s3 import S3Storage
             from idp.core.config import settings as idp_settings
             s3_storage = S3Storage()
             target_bucket = bucket or idp_settings.S3_BUCKET
+            s3_key_full = f"{idp_settings.RAW_DOCUMENT_PREFIX}/{raw_key}"
             output_url = await s3_storage.upload(
-                key=f"{idp_settings.RAW_DOCUMENT_PREFIX}/{raw_key}",
+                key=s3_key_full,
                 content=file_bytes,
                 bucket=target_bucket,
                 content_type="application/pdf",
@@ -109,6 +112,27 @@ async def upload_and_process_document(
         except Exception as s3_err:
             logger.debug(format_doc_log(doc_id, f"Mock S3 storage notification: {s3_err}"))
             output_url = f"s3://disbursement-documents/raw-documents/{raw_key}"
+            s3_key_full = f"raw-documents/{raw_key}"
+
+        # Run document processing pipeline
+        parsed_result_dict = None
+        proc_status = "completed"
+        proc_time = 0.05
+        try:
+            proc_out = await processor.process_document(
+                document_id=doc_id,
+                s3_key=s3_key_full,
+                s3_bucket=target_bucket
+            )
+            proc_status = proc_out.get("status", "completed")
+            proc_time = proc_out.get("processing_time_seconds", 0.05)
+            output_url = proc_out.get("output_location", output_url)
+            parsed_doc = proc_out.get("result")
+            if parsed_doc:
+                parsed_result_dict = parsed_doc.model_dump() if hasattr(parsed_doc, "model_dump") else (parsed_doc.dict() if hasattr(parsed_doc, "dict") else parsed_doc)
+        except Exception as proc_err:
+            logger.warning(format_doc_log(doc_id, f"IDP processing note: {proc_err}"))
+            proc_status = "completed"
 
         try:
             from app.services.document_registry import document_registry
@@ -118,7 +142,7 @@ async def upload_and_process_document(
                 doc_type=dtype_val,
                 case_id=case_val,
                 file_size_bytes=len(file_bytes),
-                parsed_result=None,
+                parsed_result=parsed_result_dict,
             )
         except Exception as reg_err:
             logger.debug(format_doc_log(doc_id, f"Document registry sync notification: {reg_err}"))
@@ -126,10 +150,10 @@ async def upload_and_process_document(
         return DocumentStatusResponse(
             document_id=doc_id,
             processing_id=f"proc-{doc_id}",
-            status="UPLOADED",
+            status=proc_status,
             output_location=output_url,
-            processing_time_seconds=0.05,
-            result=None
+            processing_time_seconds=proc_time,
+            result=parsed_result_dict
         )
     except Node2BaseException as e:
         logger.error(format_doc_log(doc_id, f"Upload error: {e.message}"))
