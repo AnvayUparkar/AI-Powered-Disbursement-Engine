@@ -13,7 +13,6 @@ async def test_kyc_image_invokes_docling():
     processor.preprocessor = MagicMock()
     mock_docling_parser = MagicMock()
     processor._get_docling_parser = MagicMock(return_value=mock_docling_parser)
-    processor.ocr_router = MagicMock()
     processor.router = MagicMock()
     processor.vlm_client = MagicMock()
     processor.serializer = MagicMock()
@@ -60,7 +59,6 @@ async def test_bank_statement_pdf_invokes_docling():
     processor.preprocessor = MagicMock()
     mock_docling_parser = MagicMock()
     processor._get_docling_parser = MagicMock(return_value=mock_docling_parser)
-    processor.ocr_router = MagicMock()
     processor.router = MagicMock()
     processor.vlm_client = MagicMock()
     processor.serializer = MagicMock()
@@ -81,15 +79,6 @@ async def test_bank_statement_pdf_invokes_docling():
     mock_docling_result = MagicMock()
     mock_docling_result.elements = []
     mock_docling_parser.parse.return_value = mock_docling_result
-
-    mock_ocr = MagicMock()
-    mock_ocr.page_number = 1
-    mock_ocr.elements = []
-    mock_ocr.average_confidence = 0.95
-    mock_ocr.low_confidence_count = 0
-    mock_ocr.image_width = 595.0
-    mock_ocr.image_height = 842.0
-    processor.ocr_router.process_page.return_value = mock_ocr
     processor.router.should_use_vlm.return_value = False
     processor.serializer.build_unified_document.return_value = MagicMock()
 

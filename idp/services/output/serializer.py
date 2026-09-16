@@ -277,7 +277,17 @@ class DocumentSerializer:
                                 )
                                 continue
 
-                        final_text = self.evaluator.clean_bilingual_label_noise(elem.text)
+                        # PRODUCTION FIX: clean_bilingual_label_noise() rule 7 strips a
+                        # "lone uppercase letter" UNLESS it sees word characters flanking
+                        # it in the SAME string ("RAJESH K SHARMA" keeps its "K"). A
+                        # comb-box element's text IS a single character by design -- its
+                        # neighbors are separate elements the function never sees -- so
+                        # that guard can never pass and every plain single-letter cell
+                        # ("P", "A", "I", ...) was silently wiped to "", dropped by the
+                        # `not final_text` check below, and never reached CombBoxDetector.
+                        # Comb candidates skip this label-noise cleanup entirely: it exists
+                        # for full label/line text, not isolated per-cell characters.
+                        final_text = elem.text.strip() if is_comb_candidate else self.evaluator.clean_bilingual_label_noise(elem.text)
 
                         retained_meta: Dict[str, Any] = {}
                         if not is_comb_candidate:
@@ -455,19 +465,45 @@ class DocumentSerializer:
             if comb_box_enabled:
                 comb_detector = CombBoxDetector()
                 total_merged = 0
-                
+
                 for pno in sorted(pages_map.keys()):
                     p = pages_map[pno]
-                    
+
                     # Detect and merge comb-box sequences
                     merged_tokens = comb_detector.detect_and_merge_comb_boxes(
                         elements=p.elements,
                         page_number=pno,
                         doc_id=doc_id
                     )
-                    
+                    if not merged_tokens:
+                        continue
+
+                    # PRODUCTION FIX: merged tokens used to get a hardcoded
+                    # reading_order=9999, dumping EVERY comb-box field value
+                    # on the page (name, father's/mother's name, mobile
+                    # number, PAN, ...) into one undifferentiated block at
+                    # the very end of the page's text, disconnected from any
+                    # field label. That starved the downstream LLM field
+                    # extractor of the label-proximity context it needs --
+                    # e.g. to tell "Applicant Name" from "Father's Name"
+                    # apart when both end in the same surname -- which
+                    # surfaced as fields resolving to the wrong or only a
+                    # fragment of their value. Inheriting the EARLIEST
+                    # constituent character's reading_order instead keeps
+                    # the clean merged value next to its label.
+                    reading_order_by_id = {
+                        e.id: e.reading_order for e in p.elements if e.id is not None
+                    }
+
                     # Add merged tokens as supplementary LayoutElements
                     for mt in merged_tokens:
+                        constituent_orders = [
+                            reading_order_by_id[cid]
+                            for cid in mt.constituent_element_ids
+                            if reading_order_by_id.get(cid) is not None
+                        ]
+                        merged_reading_order = min(constituent_orders) if constituent_orders else 9999
+
                         merged_elem = LayoutElement(
                             id=mt.id,
                             text=mt.text,
@@ -476,7 +512,7 @@ class DocumentSerializer:
                             confidence=mt.confidence,
                             source="comb_box_merged",
                             type=ElementType.TEXT,
-                            reading_order=9999,  # Place after regular elements
+                            reading_order=merged_reading_order,
                             structure_source="spatial_clustering",
                             metadata={
                                 "merge_method": mt.merge_method,
@@ -487,6 +523,11 @@ class DocumentSerializer:
                         )
                         p.elements.append(merged_elem)
                         total_merged += 1
+
+                    # Re-sort: merged tokens were appended above (out of
+                    # list order), so restore spatial reading order before
+                    # full_text_parts is built from p.elements below.
+                    p.elements.sort(key=lambda e: (e.reading_order if e.reading_order is not None else 9999, round(e.bbox[1] if e.bbox else 0.0, 2), e.bbox[0] if e.bbox else 0.0))
 
                 if total_merged > 0:
                     logger.info(

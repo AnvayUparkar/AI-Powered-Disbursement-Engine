@@ -382,3 +382,105 @@ def test_serializer_retains_partial_garble_row_with_value():
     assert kept.metadata.get("partial_garble_retained") is True
     assert kept.metadata.get("needs_vlm") is True
     assert kept.confidence <= 0.35
+
+
+def test_comb_box_merged_tokens_stay_near_their_field_label():
+    """Regression: merged comb-box tokens used to get a hardcoded
+    reading_order=9999, so EVERY comb-box field's value on a page (e.g. both
+    "Applicant Name" and "Father's Name", each split into one-character-per-
+    box cells) collapsed into one undifferentiated block at the very end of
+    the page's text, after every other label -- starving the downstream LLM
+    field extractor of the label-proximity context it needs to tell the two
+    fields apart. The merged "PRAKASH"/"KHATRI" tokens must now appear in
+    full_text BEFORE the unrelated "Father:" label two rows below, not after
+    it."""
+    from idp.services.docling.parser import DoclingParseResult
+    from idp.models.layout import LayoutElement, ElementType
+    from idp.models.processing import ProcessingMetrics
+
+    serializer = DocumentSerializer()
+
+    elements = []
+    order = 1
+
+    # Row 1: "Name:" label followed by a comb-box "PRAKASH" + "KHATRI" (one
+    # character per printed cell, as Docling/OCR would emit it).
+    elements.append(LayoutElement(
+        id="lbl-name", type=ElementType.TEXT, text="Name:",
+        bbox=[50.0, 100.0, 90.0, 112.0], confidence=0.95,
+        page_number=1, source="docling_ocr", structure_source="docling",
+        reading_order=order,
+    ))
+    order += 1
+    x = 100.0
+    for ch in "PRAKASH":
+        elements.append(LayoutElement(
+            id=f"name-{ch}-{order}", type=ElementType.TEXT, text=ch,
+            bbox=[x, 100.0, x + 10.0, 114.0], confidence=0.9,
+            page_number=1, source="docling_ocr", structure_source="docling",
+            reading_order=order,
+        ))
+        order += 1
+        x += 15.0
+    x += 15.0  # word gap before surname
+    for ch in "KHATRI":
+        elements.append(LayoutElement(
+            id=f"surname-{ch}-{order}", type=ElementType.TEXT, text=ch,
+            bbox=[x, 100.0, x + 10.0, 114.0], confidence=0.9,
+            page_number=1, source="docling_ocr", structure_source="docling",
+            reading_order=order,
+        ))
+        order += 1
+        x += 15.0
+
+    # Row 2 (visually lower on the page, later reading order): "Father:"
+    # label followed by its own comb-box name -- unrelated to row 1.
+    elements.append(LayoutElement(
+        id="lbl-father", type=ElementType.TEXT, text="Father:",
+        bbox=[50.0, 150.0, 90.0, 162.0], confidence=0.95,
+        page_number=1, source="docling_ocr", structure_source="docling",
+        reading_order=order,
+    ))
+    order += 1
+    x = 100.0
+    for ch in "GYAN":
+        elements.append(LayoutElement(
+            id=f"father-{ch}-{order}", type=ElementType.TEXT, text=ch,
+            bbox=[x, 150.0, x + 10.0, 164.0], confidence=0.9,
+            page_number=1, source="docling_ocr", structure_source="docling",
+            reading_order=order,
+        ))
+        order += 1
+        x += 15.0
+
+    docling_res = DoclingParseResult(
+        elements=elements,
+        tables=[],
+        page_count=1,
+        pages_dimensions=[{"width": 595.0, "height": 842.0}],
+    )
+
+    parsed_doc = serializer.build_unified_document(
+        doc_id="TEST-COMB-ORDER",
+        filename="kyc_form.pdf",
+        mime_type="application/pdf",
+        file_size_bytes=1024,
+        page_count=1,
+        docling_result=docling_res,
+        ocr_results=[],
+        vlm_corrections={},
+        metrics=ProcessingMetrics(),
+    )
+
+    merged_texts = {e.text for e in parsed_doc.elements if e.source == "comb_box_merged"}
+    assert "PRAKASH" in merged_texts
+    assert "KHATRI" in merged_texts
+
+    name_idx = parsed_doc.text.index("PRAKASH")
+    # full_text passes labels through clean_ocr_text, which strips the
+    # trailing colon ("Father:" -> "Father") -- search for the stripped form.
+    father_label_idx = parsed_doc.text.index("Father")
+    assert name_idx < father_label_idx, (
+        "merged 'PRAKASH' token landed after the unrelated 'Father:' label -- "
+        "comb-box merged tokens are not staying near their own field label"
+    )
