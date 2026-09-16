@@ -132,6 +132,16 @@ KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "gender", "los_field": "applicant_gender", "method": "exact_string_ci", "aliases": ["applicant_gender"]},
         {"doc_field": "pan_number", "los_field": "applicant_pan_number", "method": "exact_id", "aliases": ["pan", "applicant_pan_number"]},
     ],
+    "aadhaar_xml": [
+        {
+            "doc_field": "aadhaar_number",
+            "los_field": "aadhaar_no",
+            "method": "masked_aadhaar",
+            "aliases": ["aadhaar", "uid", "aadhaar_no"],
+            "check_id": "chk_aadhaar_xml_aadhaar_no_vs_los",
+            "optional": True,
+        },
+    ],
 }
 
 

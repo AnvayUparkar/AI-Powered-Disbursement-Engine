@@ -265,7 +265,7 @@ def run_field_checks(
         aliases = check.get("aliases", [])
         is_optional = check.get("optional", False)
 
-        check_id = f"chk_{subnode_name}_{doc_type}_{doc_field}_vs_los"
+        check_id = check.get("check_id") or f"chk_{subnode_name}_{doc_type}_{doc_field}_vs_los"
 
         # Case 1: Entire document missing
         if doc_data is None:

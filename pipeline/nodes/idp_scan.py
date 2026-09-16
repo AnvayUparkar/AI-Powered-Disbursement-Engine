@@ -55,6 +55,16 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
             doc_id=doc_id,
         )
 
+    # For Aadhaar XML docs, inject the UID extracted from the <UidData uid="..."> attribute.
+    # The LLM never sees this value since it's an XML attribute, not element text.
+    if doc_type == "aadhaar_xml" and parsed and parsed.custom_metadata:
+        aadhaar_uid = parsed.custom_metadata.get("aadhaar_uid")
+        if aadhaar_uid and not (extracted_fields or {}).get("aadhaar_number"):
+            extracted_fields = dict(extracted_fields or {})
+            extracted_fields["aadhaar_number"] = aadhaar_uid
+
+    template_fields = format_template_json(extracted_fields or {})
+
     raw_element_dicts = []
     for elem in parsed.elements:
         elem_dict = elem.model_dump()
