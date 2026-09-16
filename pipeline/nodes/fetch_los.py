@@ -3,9 +3,9 @@ import json
 import logging
 from typing import Any, Dict
 
-from config import LOS_LOANS_DIR
+from config import LOS_LOANS_DIR, S3_LOS_DIR
 from pipeline.state import PipelineState
-from pipeline.storage import read_json, save_s3_los, update_status
+from pipeline.storage import read_json, save_s3_los, update_status, write_json
 
 logger = logging.getLogger("disbursement_pipeline.fetch_los")
 
@@ -20,9 +20,10 @@ def fetch_los(state: PipelineState) -> PipelineState:
     logger.info("Executing fetch_los for loan: %s", loan_id)
 
     los_file = LOS_LOANS_DIR / f"{loan_id}.json"
-    los_data: Dict[str, Any] = {}
+    s3_file = S3_LOS_DIR / f"{loan_id}.json"
+    los_data: Dict[str, Any] = state.get("los_data") or {}
 
-    if los_file.exists():
+    if not los_data and los_file.exists():
         try:
             los_data = read_json(los_file)
             save_s3_los(loan_id, los_data)
@@ -31,7 +32,21 @@ def fetch_los(state: PipelineState) -> PipelineState:
             msg = f"Failed to read/stage LOS file {los_file}: {e}"
             logger.error(msg)
             errors.append(msg)
-    else:
+    elif not los_data and s3_file.exists():
+        try:
+            los_data = read_json(s3_file)
+            save_s3_los(loan_id, los_data)
+            if not los_file.exists():
+                try:
+                    write_json(los_file, los_data)
+                except OSError:
+                    pass
+            logger.info("Successfully fetched and staged LOS data from S3 LOS for %s", loan_id)
+        except (json.JSONDecodeError, OSError) as e:
+            msg = f"Failed to read S3 LOS file {s3_file}: {e}"
+            logger.error(msg)
+            errors.append(msg)
+    elif not los_data:
         # Fallback: Check loans.db SQLite database
         db_path = LOS_LOANS_DIR / "loans.db"
         if db_path.exists():
@@ -46,14 +61,19 @@ def fetch_los(state: PipelineState) -> PipelineState:
                 if row:
                     los_data = dict(row)
                     save_s3_los(loan_id, los_data)
+                    if not los_file.exists():
+                        try:
+                            write_json(los_file, los_data)
+                        except OSError:
+                            pass
                     logger.info("Successfully fetched %s from loans.db and staged to S3 LOS", loan_id)
             except Exception as e:
                 logger.warning("Error querying loans.db for %s: %s", loan_id, e)
 
-        if not los_data:
-            msg = f"LOS loan record not found for ID: {loan_id}"
-            logger.warning(msg)
-            errors.append(msg)
+    if not los_data:
+        msg = f"LOS loan record not found for ID: {loan_id}"
+        logger.warning(msg)
+        errors.append(msg)
 
     update_status(loan_id, current_node="fetch_los", errors=errors, node_history=history)
 

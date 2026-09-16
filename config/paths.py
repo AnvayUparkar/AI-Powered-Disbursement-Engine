@@ -24,6 +24,9 @@ S3_EXTRACTED_DIR = POC_DATA_DIR / "s3_extracted"
 S3_EXTRACTED_STRUCTURED_DIR = POC_DATA_DIR / "s3_extracted_structured"
 S3_RESULT_DIR = POC_DATA_DIR / "s3_result"
 
+# Trusted Root Certificates (Indian CCA & PKI)
+TRUSTED_ROOTS_DIR = BASE_DIR / "config" / "trusted_roots"
+
 # Ensure canonical directory structures exist
 for d in (
     POC_DATA_DIR,
@@ -36,6 +39,7 @@ for d in (
     S3_EXTRACTED_DIR,
     S3_EXTRACTED_STRUCTURED_DIR,
     S3_RESULT_DIR,
+    TRUSTED_ROOTS_DIR,
 ):
     d.mkdir(parents=True, exist_ok=True)
 

@@ -85,22 +85,21 @@ def update_status(
             logger.warning("Failed reading status.json for %s: %s. Resetting status.", loan_id, e)
             status_data = {}
 
-    history = status_data.get("node_history", [])
-    if current_node and (not history or history[-1] != current_node):
-        history.append(current_node)
-
-    errs = status_data.get("errors", [])
-    if errors:
-        for e in errors:
-            if e not in errs:
-                errs.append(e)
-
     now_iso = datetime.now(IST).isoformat()
-    # Reset timestamps on a fresh pipeline execution
     if current_node == "fetch_los":
+        history = node_history if node_history is not None else [current_node]
+        errs = list(errors or [])
         started_at = now_iso
         completed_at = None
     else:
+        history = status_data.get("node_history", [])
+        if current_node and (not history or history[-1] != current_node):
+            history.append(current_node)
+        errs = status_data.get("errors", [])
+        if errors:
+            for e in errors:
+                if e not in errs:
+                    errs.append(e)
         started_at = status_data.get("started_at") or now_iso
         completed_at = status_data.get("completed_at")
 
@@ -158,13 +157,27 @@ def save_s3_los(loan_id: str, data: dict[str, Any]) -> Path:
 
 
 def get_s3_los(loan_id: str) -> dict[str, Any]:
-    """Retrieves LOS data from s3_los or fallback LOS_LOANS_DIR."""
+    """Retrieves LOS data from s3_los or fallback LOS_LOANS_DIR / loans.db."""
     s3_path = S3_LOS_DIR / f"{loan_id}.json"
     if s3_path.exists():
         return read_json(s3_path)
     los_path = LOS_LOANS_DIR / f"{loan_id}.json"
     if los_path.exists():
         return read_json(los_path)
+    db_path = LOS_LOANS_DIR / "loans.db"
+    if db_path.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM loan_applications WHERE loan_id = ?", (loan_id,))
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                return dict(row)
+        except Exception:
+            pass
     return {}
 
 

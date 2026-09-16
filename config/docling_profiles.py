@@ -23,20 +23,24 @@ from idp.services.docling.options import DoclingOptions
 
 IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
     do_table_structure=False,
+<<<<<<< HEAD
     table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide (see pipeline.py).
                             # Moot here since do_table_structure=False skips TableFormer entirely,
                             # but "FAST" previously triggered a misleading forced-override warning
                             # on every identity-document parse for a value that was never honored.
+=======
+    table_mode="ACCURATE",
+>>>>>>> d138c8929794877f7c21651c7ff2603aeb6d4fa4
     do_ocr=True,
     force_full_page_ocr=False,
     ocr_lang=["english", "hindi"],
     images_scale=2.0,
     do_layout_analysis=True,
     detect_reading_order=True,
-    reading_order_method="spatial",
+    reading_order_method="column_aware",
     max_num_pages=10,
     use_gpu=False,
-    num_threads=4,
+    num_threads=6,
 )
 
 
@@ -54,15 +58,15 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     table_mode="ACCURATE",
     table_confidence_threshold=0.4,  # Lower threshold to catch character grids
     table_min_rows=1,  # Allow single-row "tables" (character sequences)
-    table_min_cols=3,  # Min 3 chars to qualify
+    table_min_cols=2,  # Min 3 chars to qualify
     
     # Character Box Handling
     merge_character_boxes=True,
     character_box_max_width=30.0,  # Typical char box width
-    character_box_gap_threshold=5.0,
+    character_box_gap_threshold=2.0,
     
     # Cell Merging (disabled to preserve individual chars for comb-box detector)
-    merge_adjacent_cells=False,  # Let comb-box detector handle merging
+    merge_adjacent_cells=True,  # Let comb-box detector handle merging
     detect_cell_spans=True,
     
     # OCR Settings
@@ -88,8 +92,8 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     
     # OCR Quality (balanced)
     det_limit_side_len=960,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.6,
+    det_db_thresh=0.1,
+    det_db_box_thresh=0.35,
     rec_batch_num=6,
     
     # Image Processing
@@ -101,12 +105,12 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     # Layout Analysis
     do_layout_analysis=True,
     detect_reading_order=True,
-    reading_order_method="spatial",
+    reading_order_method="column_aware",
     
     # Performance
     max_num_pages=50,
     use_gpu=False,
-    num_threads=4,
+    num_threads=6,
 )
 
 
@@ -131,7 +135,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     
     # OCR Settings (aggressive for scanned images)
     do_ocr=True,
-    force_full_page_ocr=True,  # Always run OCR on scanned docs
+    force_full_page_ocr=False,  # Always run OCR on scanned docs
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (high quality for low-res scans)
@@ -154,7 +158,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     # Performance
     max_num_pages=100,
     use_gpu=False,
-    num_threads=4,
+    num_threads=6,
 )
 
 
@@ -199,7 +203,7 @@ DIGITAL_PDF_PROFILE = DoclingOptions(
     # Layout Analysis
     do_layout_analysis=True,
     detect_reading_order=True,
-    reading_order_method="spatial",
+    reading_order_method="column_aware",
     
     # Performance (fast)
     max_num_pages=100,
@@ -247,12 +251,12 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     # Layout Analysis
     do_layout_analysis=True,
     detect_reading_order=True,
-    reading_order_method="spatial",
+    reading_order_method="column_aware",
     
     # Performance
     max_num_pages=100,
     use_gpu=False,
-    num_threads=4,
+    num_threads=6,
 )
 
 

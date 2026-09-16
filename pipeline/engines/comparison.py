@@ -265,7 +265,7 @@ def run_field_checks(
         aliases = check.get("aliases", [])
         is_optional = check.get("optional", False)
 
-        check_id = f"chk_{subnode_name}_{doc_type}_{doc_field}_vs_los"
+        check_id = check.get("check_id") or f"chk_{subnode_name}_{doc_type}_{doc_field}_vs_los"
 
         # Case 1: Entire document missing
         if doc_data is None:
@@ -296,7 +296,7 @@ def run_field_checks(
 
         # Missing field in either doc or LOS
         if raw_doc_val is None or (los_field and raw_los_val is None):
-            if is_optional and raw_doc_val is None:
+            if is_optional:
                 continue
             missing_source = doc_type if raw_doc_val is None else "los"
             records.append({

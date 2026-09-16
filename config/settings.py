@@ -11,8 +11,8 @@ load_dotenv(dotenv_path=ENV_PATH)
 NAME_MATCH_ALGO = "jaro_winkler"
 ADDRESS_MATCH_ALGO = "tfidf_cosine"
 
-FUZZY_MATCH_BAND = float(os.getenv("FUZZY_MATCH_BAND", "0.92"))          # >= 0.92: auto MATCH
-FUZZY_PARTIAL_LOWER = float(os.getenv("FUZZY_PARTIAL_LOWER", "0.75"))   # 0.75 - 0.92: PARTIAL -> LLM, < 0.75: MISMATCH
+FUZZY_MATCH_BAND = float(os.getenv("FUZZY_MATCH_BAND", "0.5"))          # >= 0.92: auto MATCH
+FUZZY_PARTIAL_LOWER = float(os.getenv("FUZZY_PARTIAL_LOWER", "0.4"))   # 0.75 - 0.92: PARTIAL -> LLM, < 0.75: MISMATCH
 
 FACE_MATCH_BAND = float(os.getenv("FACE_MATCH_BAND", "0.90"))           # >= 0.90: auto MATCH
 FACE_REVIEW_LOWER = float(os.getenv("FACE_REVIEW_LOWER", "0.75"))       # 0.75 - 0.90: PARTIAL/REVIEW, < 0.75: MISMATCH
@@ -44,3 +44,12 @@ SKIP_IDP = os.getenv("SKIP_IDP", "false").lower() in ("true", "1", "yes")
 # Turn on while iterating on Docling/OCR config so "Run Verification Engine" reflects current code
 # instead of replaying a stale extraction from an earlier run.
 DISABLE_IDP_EXTRACTION_CACHE = os.getenv("DISABLE_IDP_EXTRACTION_CACHE", "false").lower() in ("true", "1", "yes")
+
+# Field weight strategy: When True, all fields in all documents receive equal weight (1.0).
+# When False (default), the tiered criticality weights (3.0, 2.0, 1.0) are applied.
+USE_EQUAL_FIELD_WEIGHTS = os.getenv("USE_EQUAL_FIELD_WEIGHTS", "false").lower() in ("true", "1", "yes")
+
+# Digital Signature Policy: When True, requires pyHanko to verify a trusted PKI root chain (e.g., CCA India or Mozilla bundle).
+# When False (default), intact and cryptographically valid digital signatures pass without requiring a production root CA.
+REQUIRE_TRUSTED_DIGITAL_SIGNATURE = os.getenv("REQUIRE_TRUSTED_DIGITAL_SIGNATURE", "false").lower() in ("true", "1", "yes")
+

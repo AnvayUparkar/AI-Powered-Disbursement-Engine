@@ -1,6 +1,8 @@
 """Pipeline verification checks configuration — field match specifications and 12-checkpoint metadata."""
 from typing import Any, Dict, List
 
+from config.settings import USE_EQUAL_FIELD_WEIGHTS
+
 # ── NEO LOS DB column -> canonical field name ──────────────────────────────
 NEO_LOS_FIELD_MAP: dict[str, str] = {
     "loan_id": "loan_id",
@@ -42,7 +44,7 @@ FIELD_ALIASES: dict[str, list[str]] = {
 # Tier 1 (3.0): Core identity and regulatory hard gates
 # Tier 2 (2.0): Core loan financials
 # Tier 3 (1.0): Contact, demographic, and metadata
-FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
+TIERED_FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
     # Tier 1: Core Identity
     "applicant_name": 3.0,
     "customer_name": 3.0,
@@ -87,6 +89,24 @@ FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
     "type_of_account": 1.0,
 }
 
+EQUAL_FIELD_CRITICALITY_WEIGHTS: dict[str, float] = {
+    k: 1.0 for k in TIERED_FIELD_CRITICALITY_WEIGHTS
+}
+
+FIELD_CRITICALITY_WEIGHTS: dict[str, float] = (
+    EQUAL_FIELD_CRITICALITY_WEIGHTS
+    if USE_EQUAL_FIELD_WEIGHTS
+    else TIERED_FIELD_CRITICALITY_WEIGHTS
+)
+
+
+def get_field_criticality_weights(use_equal: bool | None = None) -> dict[str, float]:
+    """Returns field weights dictionary: equal weights (all 1.0) if True, tiered if False."""
+    if use_equal is None:
+        use_equal = USE_EQUAL_FIELD_WEIGHTS
+    return EQUAL_FIELD_CRITICALITY_WEIGHTS if use_equal else TIERED_FIELD_CRITICALITY_WEIGHTS
+
+
 # ── 1. KYC Field Checks (KYC Checker Node) ───────────────────────────────────
 KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "aadhaar": [
@@ -112,6 +132,16 @@ KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "gender", "los_field": "applicant_gender", "method": "exact_string_ci", "aliases": ["applicant_gender"]},
         {"doc_field": "pan_number", "los_field": "applicant_pan_number", "method": "exact_id", "aliases": ["pan", "applicant_pan_number"]},
     ],
+    "aadhaar_xml": [
+        {
+            "doc_field": "aadhaar_number",
+            "los_field": "aadhaar_no",
+            "method": "masked_aadhaar",
+            "aliases": ["aadhaar", "uid", "aadhaar_no"],
+            "check_id": "chk_aadhaar_xml_aadhaar_no_vs_los",
+            "optional": True,
+        },
+    ],
 }
 
 
@@ -130,6 +160,7 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
         {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
         {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
         {"doc_field": "emi", "los_field": "emi", "method": "exact_numeric", "aliases": ["monthly_emi", "emi_amount"]},
+        {"doc_field": "bpi", "los_field": "bpi_charges", "method": "exact_numeric", "aliases": ["bpi_charges", "bpi_charge", "broken_period_interest", "BPI"], "optional": True},
         {"doc_field": "customer_consent", "los_field": None, "method": "presence_only", "aliases": ["consent", "is_consented"]},
     ],
     "disbursal_memo": [

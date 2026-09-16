@@ -1,6 +1,18 @@
 {
   "loan_amount": 500000.0,
   "tenure_months": 24,
+  "pyhanko_inspection": {
+    "filename": "loan_agreement.pdf",
+    "file_size_bytes": 450,
+    "error": "Failed to parse PDF document: Dictionary read error at byte 0x0x119: stream must begin with '<<'",
+    "is_signed": false,
+    "signature_count": 0,
+    "page_count": 0,
+    "is_acceptable": false,
+    "signatures": []
+  },
+  "loan_agreement_present": true,
+  "loan_agreement_signed": false,
   "applicant_name": null,
   "fathers_name": null,
   "dob": null,
@@ -19,9 +31,7 @@
   "BPI": null,
   "irr_percent": null,
   "emi": null,
-  "aadhaar_xml_present": false,
-  "loan_agreement_present": false,
-  "loan_agreement_signed": false,
-  "_formatted_text": "{\n  \"applicant_name\": null,\n  \"fathers_name\": null,\n  \"dob\": null,\n  \"mobile_no\": null,\n  \"gender\": null,\n  \"aadhaar_number\": null,\n  \"pan_number\": null,\n  \"address\": null,\n  \"current_address\": null,\n  \"bank_account_no\": null,\n  \"type_of_account\": null,\n  \"loan_amount\": 500000.0,\n  \"loan_validity\": 24,\n  \"loan_type\": null,\n  \"application_no\": null,\n  \"application_date\": null,\n  \"BPI\": null,\n  \"irr_percent\": null,\n  \"emi\": null,\n  \"aadhaar_xml_present\": false,\n  \"loan_agreement_present\": false,\n  \"loan_agreement_signed\": false\n}",
-  "formattedText": "{\n  \"applicant_name\": null,\n  \"fathers_name\": null,\n  \"dob\": null,\n  \"mobile_no\": null,\n  \"gender\": null,\n  \"aadhaar_number\": null,\n  \"pan_number\": null,\n  \"address\": null,\n  \"current_address\": null,\n  \"bank_account_no\": null,\n  \"type_of_account\": null,\n  \"loan_amount\": 500000.0,\n  \"loan_validity\": 24,\n  \"loan_type\": null,\n  \"application_no\": null,\n  \"application_date\": null,\n  \"BPI\": null,\n  \"irr_percent\": null,\n  \"emi\": null,\n  \"aadhaar_xml_present\": false,\n  \"loan_agreement_present\": false,\n  \"loan_agreement_signed\": false\n}"
+  "customer_consent": false,
+  "_formatted_text": "{\n  \"applicant_name\": null,\n  \"fathers_name\": null,\n  \"dob\": null,\n  \"mobile_no\": null,\n  \"gender\": null,\n  \"aadhaar_number\": null,\n  \"pan_number\": null,\n  \"address\": null,\n  \"current_address\": null,\n  \"bank_account_no\": null,\n  \"type_of_account\": null,\n  \"loan_amount\": 500000.0,\n  \"loan_validity\": 24,\n  \"loan_type\": null,\n  \"application_no\": null,\n  \"application_date\": null,\n  \"BPI\": null,\n  \"irr_percent\": null,\n  \"emi\": null,\n  \"customer_consent\": false\n}",
+  "formattedText": "{\n  \"applicant_name\": null,\n  \"fathers_name\": null,\n  \"dob\": null,\n  \"mobile_no\": null,\n  \"gender\": null,\n  \"aadhaar_number\": null,\n  \"pan_number\": null,\n  \"address\": null,\n  \"current_address\": null,\n  \"bank_account_no\": null,\n  \"type_of_account\": null,\n  \"loan_amount\": 500000.0,\n  \"loan_validity\": 24,\n  \"loan_type\": null,\n  \"application_no\": null,\n  \"application_date\": null,\n  \"BPI\": null,\n  \"irr_percent\": null,\n  \"emi\": null,\n  \"customer_consent\": false\n}"
 }

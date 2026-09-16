@@ -12,6 +12,9 @@ SUPPORTED_MIME_TYPES = {
     "image/jpeg": "image",
     "image/jpg": "image",
     "image/tiff": "image",
+    "image/tif": "image",
+    "image/x-tiff": "image",
+    "image/bmp": "image",
     "application/xml": "xml",
     "text/xml": "xml"
 }
@@ -23,6 +26,7 @@ SUPPORTED_EXTENSIONS = {
     ".jpeg": "image",
     ".tif": "image",
     ".tiff": "image",
+    ".bmp": "image",
     ".xml": "xml"
 }
 
@@ -41,10 +45,18 @@ def detect_file_type(file_path: str) -> Tuple[str, str]:
     # Primary check: match detected system MIME type
     if mime_type and mime_type in SUPPORTED_MIME_TYPES:
         category = SUPPORTED_MIME_TYPES[mime_type]
-    # Disabled fallback check:
-    # elif ext in SUPPORTED_EXTENSIONS:
-    #     category = SUPPORTED_EXTENSIONS[ext]
-    #     mime_type = mime_type or f"application/{ext.lstrip('.')}"
+    # Fallback check: match file extension if MIME type is missing or non-standard
+    elif ext in SUPPORTED_EXTENSIONS:
+        category = SUPPORTED_EXTENSIONS[ext]
+        if not mime_type or mime_type not in SUPPORTED_MIME_TYPES:
+            if ext in (".tif", ".tiff"):
+                mime_type = "image/tiff"
+            elif ext == ".pdf":
+                mime_type = "application/pdf"
+            elif ext == ".xml":
+                mime_type = "application/xml"
+            else:
+                mime_type = f"image/{ext.lstrip('.')}"
 
     if not category:
         raise UnsupportedFileType(f"Unsupported file type for {file_path}. Ext: '{ext}', Mime: '{mime_type}'")
