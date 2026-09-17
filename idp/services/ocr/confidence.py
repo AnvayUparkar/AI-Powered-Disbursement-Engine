@@ -126,18 +126,32 @@ class OCRConfidenceEvaluator:
         cleaned = re.sub(r"\b[A-Z]{2,}\d+\s?\d*\b", _strip_garble_blob, cleaned)  # e.g., "TT3T 3"
 
         # 7. Remove standalone short noise: single letters on their own.
-        # GUARD: keep a lone uppercase letter flanked by word characters on both
-        # sides -- it is a genuine middle initial ("RAJESH K SHARMA") or a split
-        # checkbox option ("P G"), not stray Devanagari-misread noise.
+        # GUARD (Production-Grade):
+        # A lone uppercase letter must NEVER be stripped if:
+        #   a) The string is a spaced comb-box sequence (e.g. "V A N A J A K S H A M M A", "D M I P M 5 9 4 3 R")
+        #   b) It is a leading initial before a word (e.g. "A VEERANNA", "K SHARMA")
+        #   c) It is a middle initial between words (e.g. "RAJESH K SHARMA")
+        #   d) It is a trailing initial after a word (e.g. "RAMESH S", "VEERANNA A")
+        #   e) It is an alphanumeric code or state prefix (e.g. "KA 04", "DL 1", "A 101")
+        # Stray Devanagari OCR noise appears isolated or preceded by label punctuation: "Name / P", "DOB : X".
+        tokens = cleaned.split()
+        is_spaced_sequence = (
+            len(tokens) >= 2 and sum(1 for t in tokens if len(t) <= 2) / len(tokens) >= 0.6
+        )
+
         def _strip_lone_upper(m: "re.Match[str]") -> str:
             src = m.string
             before = src[:m.start()].rstrip()
             after = src[m.end():].lstrip()
-            if before and after and before[-1].isalpha() and after[0].isalpha():
+            # If adjacent to an alphanumeric token (initial, word, or number), preserve it
+            has_alnum_before = bool(before and before[-1].isalnum())
+            has_alnum_after = bool(after and after[0].isalnum())
+            if has_alnum_before or has_alnum_after:
                 return m.group(0)
             return ""
 
-        cleaned = re.sub(r"\b[A-Z]\b(?!\w)", _strip_lone_upper, cleaned)  # Single uppercase letters: "R", "A" (preserve numbers)
+        if not is_spaced_sequence:
+            cleaned = re.sub(r"\b[A-Z]\b(?!\w)", _strip_lone_upper, cleaned)  # Single uppercase letters: "R", "A" (preserve numbers)
 
         # 8. Remove random character sequences with mixed punctuation
         cleaned = re.sub(r"\b[a-z]{1,2}\s*[,\)\(]\s*[a-z0-9\s,\)\(]{5,}\b", "", cleaned)  # e.g., "ee , a fr ) s4 H4"

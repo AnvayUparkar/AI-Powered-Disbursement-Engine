@@ -62,12 +62,18 @@ def normalize_bbox(bbox: List[float], page_width: float, page_height: float) -> 
 def crop_image_region(
     image_bytes: bytes,
     bbox: List[float],
-    page_width: float,
-    page_height: float,
     padding_pct: float = 0.05
 ) -> Optional[bytes]:
     """
     Crop a micro region from an image given a bbox [l, t, r, b] for targeted VLM input.
+
+    ``bbox`` must be either normalized to [0, 1] or already expressed in the
+    SAME pixel space as ``image_bytes``. A normalized bbox is scaled by the
+    image's OWN pixel dimensions (read from ``image_bytes`` itself), not by
+    ``page_width``/``page_height`` -- those can be a PDF's point-space page
+    size (e.g. 595x842) while ``image_bytes`` was rendered at a DPI that
+    makes its actual pixel size much larger (e.g. ~1240x1754 at 150 DPI).
+    Scaling by the wrong pair silently crops the wrong region of the page.
     """
     try:
         from PIL import Image
@@ -76,9 +82,11 @@ def crop_image_region(
 
         l, t, r, b = bbox[0], bbox[1], bbox[2], bbox[3]
 
-        # Convert normalized coordinates if l,t,r,b are <= 1.0
-        if r <= 1.0 and b <= 1.0 and page_width > 1.0:
-            l, t, r, b = l * page_width, t * page_height, r * page_width, b * page_height
+        # Convert normalized coordinates using this image's OWN pixel
+        # dimensions -- see docstring above for why page_width/page_height
+        # must not be used here.
+        if r <= 1.0 and b <= 1.0:
+            l, t, r, b = l * img_w, t * img_h, r * img_w, b * img_h
 
         # Apply padding
         width = r - l

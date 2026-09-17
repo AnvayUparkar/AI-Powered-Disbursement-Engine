@@ -18,12 +18,16 @@ def test_is_scanned_true_overrides_digital_doc_type_hint():
 
 
 def test_is_scanned_false_overrides_scanned_doc_type_hint():
-    """A 'bank_statement' (normally SCANNED_DOCUMENTS_PROFILE) that the
-    preprocessor found has a real text layer must get the native-text digital
-    profile instead of being force-rasterized and re-OCR'd."""
+    """A 'bank_statement' that the preprocessor found has a real text layer
+    gets DIGITAL_PDF_PROFILE instead of the aggressive scanned profile.
+    DIGITAL_PDF_PROFILE now sets force_full_page_ocr=True: Docling's default
+    PDF_AWARE_LAYOUT_REGIONS mode skips OCR on regions that already carry
+    native PDF text, so comb-box fields on otherwise-digital forms never
+    produce per-character tokens and CombBoxDetector never merges them.
+    FULL_PAGE OCR is the same reliable path scanned documents already use."""
     profile = get_profile_for_document_type("bank_statement", is_scanned=False)
     assert profile is DIGITAL_PDF_PROFILE
-    assert profile.force_full_page_ocr is False
+    assert profile.force_full_page_ocr is True
 
 
 def test_is_scanned_none_falls_back_to_legacy_doc_type_heuristic():

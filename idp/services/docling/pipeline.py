@@ -114,15 +114,17 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                     if options.cls_model_path:
                         ocr_opts.cls_model_path = options.cls_model_path
                     
-                    # OCR quality/performance settings
-                    if hasattr(ocr_opts, "det_limit_side_len"):
-                        ocr_opts.det_limit_side_len = options.det_limit_side_len
-                    if hasattr(ocr_opts, "det_db_thresh"):
-                        ocr_opts.det_db_thresh = options.det_db_thresh
-                    if hasattr(ocr_opts, "det_db_box_thresh"):
-                        ocr_opts.det_db_box_thresh = options.det_db_box_thresh
-                    if hasattr(ocr_opts, "rec_batch_num"):
-                        ocr_opts.rec_batch_num = options.rec_batch_num
+                    ocr_opts.scale = options.images_scale
+                    if ocr_opts.rapidocr_params is None:
+                        ocr_opts.rapidocr_params = {}
+                    if options.det_limit_side_len is not None:
+                        ocr_opts.rapidocr_params["Det.limit_side_len"] = options.det_limit_side_len
+                    if options.det_db_thresh is not None:
+                        ocr_opts.rapidocr_params["Det.thresh"] = options.det_db_thresh
+                    if options.det_db_box_thresh is not None:
+                        ocr_opts.rapidocr_params["Det.box_thresh"] = options.det_db_box_thresh
+                    if options.rec_batch_num is not None:
+                        ocr_opts.rapidocr_params["Rec.batch_num"] = options.rec_batch_num
                     
                     pipeline_options.ocr_options = ocr_opts
                     logger.info(
@@ -178,7 +180,18 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
             if hasattr(pipeline_options, "do_denoise"):
                 pipeline_options.do_denoise = options.denoise
 
-            format_options = {"pdf": PdfFormatOption(pipeline_options=pipeline_options)}
+            try:
+                from docling.datamodel.base_models import InputFormat
+                format_options = {
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                }
+                try:
+                    from docling.document_converter import ImageFormatOption
+                    format_options[InputFormat.IMAGE] = ImageFormatOption(pipeline_options=pipeline_options)
+                except Exception:
+                    pass
+            except Exception:
+                format_options = {"pdf": PdfFormatOption(pipeline_options=pipeline_options)}
             converter = DocumentConverter(format_options=format_options)
             logger.info(
                 "[DoclingCache] DocumentConverter built and cached. "

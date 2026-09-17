@@ -35,7 +35,11 @@ from __future__ import annotations
 
 import io
 import re
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 from idp.models.layout import LayoutElement, ElementType
 from idp.services.extraction.comb_box_detector import CombBoxDetector
@@ -62,6 +66,12 @@ _ACCEPT_WIDTH_CV = 0.45
 class CombGridDetector:
     """Recovers per-cell geometry for comb-box rows Docling welded into one element."""
 
+    _COMMON_LABELS = {
+        "APPLICANT", "NAME", "FATHER", "MOTHER", "APPLICATION", "ACCOUNT",
+        "NUMBER", "DATE", "BIRTH", "MONTH", "YEAR", "SIGNATURE", "ADDRESS",
+        "BRANCH", "AMOUNT", "MOBILE", "PHONE", "GENDER", "AADHAAR", "PAN"
+    }
+
     # ------------------------------------------------------------------ #
     # Row-signature predicate + value extraction                         #
     # ------------------------------------------------------------------ #
@@ -69,15 +79,14 @@ class CombGridDetector:
     def is_fused_comb_row(text: Optional[str], bbox: Optional[List[float]]) -> bool:
         """
         True if a Docling line element looks like a welded comb-box row: a wide,
-        short band pairing a human-readable label with an embedded value run
-        carrying >= 2 digits (date / application no. / GSTIN / account no.).
+        short band pairing a human-readable label with an embedded value run.
         """
         if not text or not bbox or len(bbox) < 4:
             return False
         stripped = text.strip()
         if len(stripped) < _MIN_ROW_TEXT_LEN:
             return False
-        if not re.search(r"[a-z:]", stripped):
+        if not re.search(r"[A-Za-z:]", stripped):
             return False
         try:
             w = abs(float(bbox[2]) - float(bbox[0]))
@@ -90,12 +99,17 @@ class CombGridDetector:
 
     @staticmethod
     def value_runs(text: str) -> List[str]:
-        """Ordered value runs inside a fused row (>= 4 chars, >= 2 digits)."""
+        """Ordered value runs inside a fused row (>= 4 chars, with >= 2 digits or non-header name run)."""
         stripped = (text or "").strip()
-        return [
-            r for r in _VALUE_RUN_RE.findall(stripped)
-            if r != stripped and sum(c.isdigit() for c in r) >= 2
-        ]
+        runs = []
+        for r in _VALUE_RUN_RE.findall(stripped):
+            if r == stripped:
+                continue
+            if sum(c.isdigit() for c in r) >= 2:
+                runs.append(r)
+            elif len(r) >= 3 and r.isalpha() and r not in CombGridDetector._COMMON_LABELS:
+                runs.append(r)
+        return runs
 
     # ------------------------------------------------------------------ #
     # CV: crop -> ink bands -> glyph boxes (all in crop pixels)          #

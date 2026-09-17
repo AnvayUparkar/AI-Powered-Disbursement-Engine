@@ -68,7 +68,7 @@ export function adaptNode2DocumentToRecord(
     if (!e.text || !e.text.trim()) return;
 
     const conf = Math.round(e.confidence <= 1.0 ? e.confidence * 100 : e.confidence);
-    const source = e.source || 'ocr';
+    const source = e.source || 'docling_ocr';
 
     if (e.text.includes(':') || e.text.includes('=')) {
       const delimiter = e.text.includes(':') ? ':' : '=';
