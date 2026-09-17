@@ -127,7 +127,7 @@ echo [4/5] Launching IDP Microservice (Port 8001)...
 start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload"
 
 echo [5/5] Launching Celery Worker and Frontend UI...
-start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info"
+start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info -P threads"
 
 start "Disbursement Scorecard - Vite Frontend (5173)" cmd /k "cd /d "%~dp0frontend" && color 03 && npm run dev"
 

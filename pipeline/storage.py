@@ -216,7 +216,7 @@ def get_s3_extracted_structured(loan_id: str, doc_key: str) -> dict[str, Any]:
 
 
 def get_all_s3_extracted_structured(loan_id: str) -> dict[str, dict[str, Any]]:
-    """Retrieves all structured document JSONs for a loan, indexing by both canonical key and file stem."""
+    """Retrieves all structured document JSONs for a loan, merging s3_extracted and s3_extracted_structured."""
     from config.doc_types import get_canonical_doc_type
 
     docs: dict[str, dict[str, Any]] = {}
@@ -232,21 +232,28 @@ def get_all_s3_extracted_structured(loan_id: str) -> dict[str, dict[str, Any]]:
             except Exception:
                 pass
 
-    # Fallback to s3_extracted for any missing docs
+    # Merge non-null fields from s3_extracted tier
     ext_dir = S3_EXTRACTED_DIR / loan_id
     if ext_dir.exists():
         for f in ext_dir.glob("*.json"):
             if f.stem.endswith("_structured"):
                 continue
             canon_key = get_canonical_doc_type(f.stem)
-            if canon_key not in docs:
-                try:
-                    data = read_json(f)
-                    if isinstance(data, dict):
-                        docs[canon_key] = data
-                        docs[f.stem] = data
-                except Exception:
-                    pass
+            try:
+                ext_data = read_json(f)
+                if isinstance(ext_data, dict):
+                    if canon_key not in docs:
+                        docs[canon_key] = ext_data
+                        docs[f.stem] = ext_data
+                    else:
+                        # Backfill non-null fields from s3_extracted if s3_extracted_structured has nulls
+                        for fk, fv in ext_data.items():
+                            if fv is not None and (fk not in docs[canon_key] or docs[canon_key][fk] is None):
+                                docs[canon_key][fk] = fv
+                                if f.stem in docs:
+                                    docs[f.stem][fk] = fv
+            except Exception:
+                pass
 
     return docs
 
