@@ -22,6 +22,7 @@ LOAN_AMOUNT_THRESHOLD_PCT = float(os.getenv("LOAN_AMOUNT_THRESHOLD_PCT", "0.90")
 DISBURSAL_MEMO_THRESHOLD_PCT = float(os.getenv("DISBURSAL_MEMO_THRESHOLD_PCT", "0.90"))
 BROKEN_PERIOD_INTEREST_TOLERANCE_PCT = float(os.getenv("BROKEN_PERIOD_INTEREST_TOLERANCE_PCT", "0.10"))
 FUNDING_AMOUNT_SOURCE_FIELD = "funding_amount"
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 
 # Gemini LLM Adjudication Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -32,6 +33,7 @@ GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.0"))
 LLM_API_KEY = os.getenv("LLM_API_KEY") or GEMINI_API_KEY
 LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.5-flash-lite")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2048"))
 
 # Max workers for document & node processing
 MAX_DOC_WORKERS = int(os.getenv("MAX_DOC_WORKERS", "4"))
@@ -52,4 +54,10 @@ USE_EQUAL_FIELD_WEIGHTS = os.getenv("USE_EQUAL_FIELD_WEIGHTS", "false").lower() 
 # Digital Signature Policy: When True, requires pyHanko to verify a trusted PKI root chain (e.g., CCA India or Mozilla bundle).
 # When False (default), intact and cryptographically valid digital signatures pass without requiring a production root CA.
 REQUIRE_TRUSTED_DIGITAL_SIGNATURE = os.getenv("REQUIRE_TRUSTED_DIGITAL_SIGNATURE", "false").lower() in ("true", "1", "yes")
+
+# IDP Microservice (8001) connection
+IDP_SERVICE_URL = os.getenv("IDP_SERVICE_URL", "http://127.0.0.1:8001")
+IDP_REQUEST_TIMEOUT = float(os.getenv("IDP_REQUEST_TIMEOUT", "300"))  # seconds; Docling can be slow
+USE_REMOTE_IDP = os.getenv("USE_REMOTE_IDP", "true").lower() in ("true", "1", "yes")
+
 

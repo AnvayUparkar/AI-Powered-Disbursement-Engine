@@ -1,6 +1,5 @@
 """Document type detection, name normalization, and synthetic alias resolution."""
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config.doc_types import get_canonical_doc_type, get_display_name

@@ -46,6 +46,7 @@ def test_build_idp_result_from_parsed_injects_uid():
             file_type="xml",
             mime_type="application/xml",
             file_size_bytes=100,
+            page_count=1,
         ),
         custom_metadata={"aadhaar_uid": "xxxxxxxx1407"},
     )

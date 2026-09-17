@@ -39,11 +39,9 @@ class DocumentSerializer:
 
     # ------------------------------------------------------------------
     # NOTE: Per this repo's own standard ("Zero Hardcoded Business Logic:
-    # All comparison thresholds... are configured in pipeline/config.py"),
-    # these belong in pipeline/config.py, not here. They're defined as
-    # named class constants -- and overridable via __init__ -- as a
-    # stopgap until pipeline/config.py's actual contents can be patched
-    # directly (see the accompanying pipeline/config.py snippet).
+    # All comparison thresholds... are configured in the config package"),
+    # these belong in config/, not here. They're defined as named class
+    # constants -- and overridable via __init__.
     # ------------------------------------------------------------------
 
     # candidate_ratio >= this -> confidently a comb-box grid, reclassify.
@@ -797,7 +795,7 @@ class DocumentSerializer:
              alphanumeric token (CombBoxDetector.is_candidate_text()).
 
         Thresholds are injected (not hardcoded) so they can be sourced
-        from pipeline/config.py and tuned without touching this file.
+        from config/ and tuned without touching this file.
 
         Returns:
             RECLASSIFY_AS_COMB_BOX  if candidate_ratio >= reclassify_ratio
@@ -1015,3 +1013,99 @@ class DocumentSerializer:
         except Exception as e:
             logger.error(format_doc_log(doc_id, f"XML fast-path parsing error: {e}"))
             raise SerializationError(f"Failed to parse XML file {file_path}", details=str(e))
+
+    def parse_loan_agreement_fast_path(
+        self,
+        file_path: str,
+        doc_id: str,
+        filename: Optional[str] = None,
+        s3_bucket: Optional[str] = None,
+        s3_key: Optional[str] = None,
+    ) -> ParsedDocument:
+        """
+        Deterministic fast path for Loan Agreement PDFs: runs pyHanko digital signature inspection,
+        bypassing Docling layout and OCR, and constructs a unified ParsedDocument.
+        """
+        from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures
+
+        actual_filename = filename or os.path.basename(file_path)
+        logger.info(format_doc_log(doc_id, f"Executing Loan Agreement signature fast-path for: {actual_filename}"))
+        try:
+            sig_res = inspect_pdf_signatures(file_path, filename=actual_filename)
+            is_signed = bool(sig_res.get("is_signed", False))
+            is_acceptable = bool(sig_res.get("is_acceptable", False))
+            sig_count = int(sig_res.get("signature_count", 0))
+            signatures = sig_res.get("signatures", [])
+            page_count = sig_res.get("page_count", 1) or 1
+            signer_cn = signatures[0]["signer"]["common_name"] if signatures else "N/A"
+            status_label = "DIGITALLY SIGNED (VALID)" if is_acceptable else ("DIGITALLY SIGNED (UNVERIFIED)" if is_signed else "NOT SIGNED")
+
+            diag_text = (
+                f"Loan Agreement Digital Signature Analysis\n"
+                f"Filename: {actual_filename}\nPages: {page_count}\nStatus: {status_label}\nSignatures Detected: {sig_count}\n"
+            )
+            if is_signed and signatures:
+                sig0 = signatures[0]
+                diag_text += f"Signer CN: {signer_cn}\nIssuer: {sig0['signer'].get('issuer_dn')}\nTrust Anchor: {sig0.get('trust_anchor_label')}\n"
+
+            file_size = os.path.getsize(file_path) if os.path.isfile(file_path) else 0
+
+            elem = LayoutElement(
+                id="loan_agreement-sig-1",
+                type=ElementType.PARAGRAPH,
+                text=diag_text,
+                bbox=[0.0, 0.0, 1.0, 1.0],
+                confidence=1.0,
+                page_number=1,
+                source="pyhanko",
+            )
+
+            proc_meta = ProcessingMetadata(
+                document_id=doc_id,
+                processing_id=f"proc-{doc_id}",
+                file_type="pdf",
+                mime_type="application/pdf",
+                file_size_bytes=file_size,
+                page_count=page_count,
+                docling_used=False,
+                ocr_engine="none",
+                ocr_model="none",
+                vlm_used=False,
+                metrics=ProcessingMetrics(total_elements_extracted=1),
+            )
+
+            page = PageInformation(
+                page_number=1,
+                width=595.0,
+                height=842.0,
+                elements=[elem],
+                tables=[],
+            )
+
+            return ParsedDocument(
+                document_id=doc_id,
+                source=DocumentSource(
+                    filename=actual_filename,
+                    mime_type="application/pdf",
+                    s3_bucket=s3_bucket,
+                    s3_key=s3_key,
+                ),
+                pages=[page],
+                tables=[],
+                elements=[elem],
+                text=diag_text,
+                formatted_text=diag_text,
+                processing=proc_meta,
+                custom_metadata={
+                    "pyhanko_inspection": sig_res,
+                    "loan_agreement_present": True,
+                    "loan_agreement_signed": is_acceptable,
+                    "llm_extracted_fields": {"loan_agreement_signed": is_acceptable},
+                },
+            )
+        except Exception as e:
+            logger.error(format_doc_log(doc_id, f"Loan Agreement fast-path parsing error: {e}"))
+            raise SerializationError(f"Failed to parse Loan Agreement {file_path}", details=str(e))
+
+
+OutputSerializer = DocumentSerializer

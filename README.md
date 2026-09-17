@@ -122,6 +122,8 @@ flowchart TD
 │   ├── test_pipeline_edge_cases.py # Extreme thresholds & corrupt data tests
 │   └── test_integration.py         # End-to-end multi-loan pipeline tests
 ├── generate_mock_data.py           # Synthetic loan case data generator
+├── start_all.bat                   # Master launcher (WSL Redis, FastAPI, IDP, Celery, React)
+├── stop_all.bat                    # Graceful shutdown script for all services
 ├── config.py                       # Global configuration and environment settings
 ├── requirements.txt                # Python backend dependencies
 └── pytest.ini                      # Pytest runner configuration
@@ -133,7 +135,7 @@ flowchart TD
 
 ### 1. Prerequisites & Installation
 
-Ensure you have **Python 3.10+** and **Node.js 18+** installed.
+Ensure you have **Python 3.10+**, **Node.js 18+**, and **WSL2** (for Redis) installed.
 
 ```bash
 # Clone the repository
@@ -163,12 +165,16 @@ cd ..
 
 ### 2. Environment Configuration
 
-Create a `.env` file in the root directory (or use default environment fallbacks):
+Create a `.env` file in the root directory (or copy `.env.example`):
 
 ```env
-# Direct Google Gemini (recommended for fastest OCR extraction)
+# Direct Google Gemini (recommended for LLM adjudication & VLM fallbacks)
 GEMINI_API_KEY=your_gemini_api_key_here
-LLM_MODEL=gemini-2.5-flash-lite
+GEMINI_MODEL=gemini-2.5-flash-lite
+
+# OpenRouter / LLM Field Extractor (Node 2 OCR text → structured JSON)
+LLM_API_KEY=your_openrouter_api_key_here
+LLM_MODEL=google/gemini-2.5-flash-lite
 
 # Redis Broker (WSL2 / localhost)
 REDIS_URL=redis://127.0.0.1:6379/0
@@ -176,6 +182,8 @@ REDIS_URL=redis://127.0.0.1:6379/0
 APP_PORT=8000
 IDP_PORT=8001
 ENVIRONMENT=development
+USE_EQUAL_FIELD_WEIGHTS=false
+SKIP_IDP=false
 ```
 
 ### 3. Setting Up Redis (Low-RAM Windows / WSL2 Setup)
@@ -214,31 +222,47 @@ python generate_mock_data.py
 
 ### 5. Running the Services
 
-#### Option A: Run Backend API Server (FastAPI)
+#### Option 1: One-Click Startup (Windows — Recommended)
+Run the automated batch script to check dependencies, start WSL Redis, spawn the FastAPI Backend, IDP Microservice, Celery Worker, and Vite Frontend in dedicated windows:
+
+```powershell
+.\start_all.bat
+```
+
+To stop all services cleanly at any time:
+```powershell
+.\stop_all.bat
+```
+
+---
+
+#### Option 2: Individual Manual Services
+
+**A. Run Backend API Server (FastAPI)**
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 * **Swagger API Docs**: `http://127.0.0.1:8000/docs`
 * **Health Check**: `http://127.0.0.1:8000/health`
 
-#### Option B: Run Background Celery Worker (Windows)
+**B. Run Background Celery Worker (Windows)**
 Because Windows does not support `fork`, Celery must run with the `threads` or `solo` pool:
 
 ```bash
 # In an activated virtual environment:
-celery -A pipeline.celery_app worker --loglevel=info --pool=threads --concurrency=2
+python -m celery -A pipeline.celery_app worker --loglevel=info
 ```
 * Pipelines triggered via `POST /api/cases/{case_id}/run?async=true` will be processed asynchronously by this worker.
 
-#### Option C: Run IDP Microservice (Optional standalone)
+**C. Run IDP Microservice (Standalone)**
 ```bash
 uvicorn idp.main:app --reload --port 8001
 ```
 
-#### Option D: Run Frontend Application
+**D. Run Frontend Application**
 ```bash
 cd frontend
-npm.cmd run dev
+npm run dev
 ```
 * **Frontend Web App**: `http://localhost:5173`
 

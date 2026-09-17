@@ -23,7 +23,14 @@ from typing import Any
 
 import httpx
 
-from config import LLM_API_KEY, LLM_MODEL
+from config.settings import (
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MAX_TOKENS,
+    LLM_MODEL,
+)
 
 logger = logging.getLogger("disbursement_pipeline.llm_field_extractor")
 
@@ -168,7 +175,7 @@ _SYSTEM_PROMPT: str = (
     "- customer_consent        : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
 )
 
-_OPENROUTER_URL: str = "https://openrouter.ai/api/v1/chat/completions"
+_OPENROUTER_URL: str = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
 
 _OPENROUTER_HEADERS: dict[str, str] = {
     "Content-Type": "application/json",
@@ -254,6 +261,7 @@ def _extract_with_gemini(
             model=model_name,
             google_api_key=api_key,
             temperature=0.0,
+            max_output_tokens=LLM_MAX_TOKENS,
             max_retries=2,
             timeout=45.0,
         )
@@ -345,6 +353,7 @@ def llm_extract_fields(
             {"role": "user", "content": user_content},
         ],
         "temperature": 0,
+        "max_tokens": LLM_MAX_TOKENS,
         "response_format": {"type": "json_object"},
     }
 
@@ -384,8 +393,14 @@ def llm_extract_fields(
             e.response.status_code,
             e.response.text[:500],
         )
+        if GEMINI_API_KEY:
+            logger.info("[%s] Falling back to Gemini direct extraction...", doc_id)
+            return _extract_with_gemini(user_content, GEMINI_API_KEY, GEMINI_MODEL, doc_id, doc_type)
     except httpx.TimeoutException:
         logger.error("[%s] OpenRouter request timed out (doc_type=%s)", doc_id, doc_type)
+        if GEMINI_API_KEY:
+            logger.info("[%s] Falling back to Gemini direct extraction after OpenRouter timeout...", doc_id)
+            return _extract_with_gemini(user_content, GEMINI_API_KEY, GEMINI_MODEL, doc_id, doc_type)
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         logger.error("[%s] Failed to parse LLM JSON response: %s", doc_id, e)
     except Exception as e:  # noqa: BLE001 — defensive boundary, always return {}

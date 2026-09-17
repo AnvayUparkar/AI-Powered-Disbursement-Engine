@@ -1,24 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard,
   FolderKanban,
   FileText,
-  ShieldCheck,
-  ClipboardList,
-  BarChart3,
-  History,
-  Settings,
 } from 'lucide-react';
 
 const nav = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/cases', label: 'Loan Cases', icon: FolderKanban },
   { to: '/documents', label: 'Documents', icon: FileText },
-  { to: '/verification', label: 'Verification', icon: ShieldCheck },
-  { to: '/review', label: 'Review Queue', icon: ClipboardList },
-  { to: '/reports', label: 'Reports', icon: BarChart3 },
-  { to: '/audit', label: 'Audit Log', icon: History },
-  { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

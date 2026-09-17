@@ -28,14 +28,14 @@ IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
                             # but "FAST" previously triggered a misleading forced-override warning
                             # on every identity-document parse for a value that was never honored.
     do_ocr=True,
-    force_full_page_ocr=False,
+    force_full_page_ocr=True,
     ocr_lang=["english", "hindi"],
     images_scale=2.0,
     do_layout_analysis=True,
     detect_reading_order=True,
     reading_order_method="column_aware",
     max_num_pages=10,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=6,
 )
 
@@ -105,7 +105,7 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     
     # Performance
     max_num_pages=50,
-    use_gpu=False,
+    use_gpu= True,
     num_threads=6,
 )
 
@@ -153,7 +153,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     
     # Performance
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=6,
 )
 
@@ -221,7 +221,7 @@ DIGITAL_PDF_PROFILE = DoclingOptions(
     
     # Performance (fast)
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=6,
 )
 
@@ -247,7 +247,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     
     # OCR Settings (adaptive)
     do_ocr=True,
-    force_full_page_ocr=False,  # Use native text when available
+    force_full_page_ocr=True,  # Use native text when available
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (balanced)
@@ -269,7 +269,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     
     # Performance
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=6,
 )
 
@@ -295,7 +295,7 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     
     # OCR Settings (fast)
     do_ocr=True,
-    force_full_page_ocr=False,
+    force_full_page_ocr=True,
     ocr_lang=["english"],
     
     # OCR Quality (lower resolution, faster)
@@ -316,7 +316,7 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     
     # Performance (maximum speed)
     max_num_pages=100,
-    use_gpu=False,
+    use_gpu=True,
     num_threads=8,
 )
 

@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,12 +9,25 @@ from idp.core.config import settings
 from idp.core.exceptions import Node2BaseException
 from idp.core.logging import logger
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        from idp.services.docling.pipeline import prewarm_docling_converters
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, prewarm_docling_converters)
+    except Exception as exc:
+        logger.warning(f"Failed to prewarm Docling converters: {exc}")
+    yield
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="Node 2 — Intelligent Document Processing Engine for AI-Powered Disbursement Pipeline.",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # CORS Middleware - environment-based origins

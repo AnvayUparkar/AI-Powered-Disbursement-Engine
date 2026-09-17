@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from config import DMS_DIR, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RAW_DIR
+from config import DMS_DIR, IST, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RAW_DIR
 from pipeline.engines.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
@@ -320,6 +320,9 @@ def _build_case_document_record(
     elif not formatted_text:
         formatted_text = ""
 
+    mtime = fpath.stat().st_mtime if (source_kind != "extracted" and fpath.exists()) else time.time()
+    uploaded_at = datetime.fromtimestamp(mtime, tz=IST).strftime("%Y-%m-%d %H:%M IST")
+
     return {
         "id": doc_id,
         "name": doc_filename,
@@ -329,7 +332,8 @@ def _build_case_document_record(
         "extractionStatus": "COMPLETED" if has_data else "PENDING",
         "confidence": 98.0 if has_data else 95.0,
         "vlmUsed": bool(ext_data.get("_vlm_used", False)),
-        "uploadedAt": datetime.now().strftime("%Y-%m-%d"),
+        "uploadedAt": uploaded_at,
+        "uploadedTimestamp": mtime,
         "caseId": c_id,
         "sizeKb": size_kb,
         "extractedFields": extracted_fields,

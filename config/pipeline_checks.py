@@ -148,14 +148,14 @@ KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
 # ── 2. Financial Field Checks (Financial Checker Node) ────────────────────────
 FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "application_form": [
-        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["funding_amount", "amount"]},
+        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "[exact_numeric]", "aliases": ["funding_amount", "amount"]},
         {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
         {"doc_field": "account_no", "los_field": "applicant_bank_account_no", "method": "exact_id", "aliases": ["account_number", "applicant_bank_account_no", "bank_account_no"]},
         {"doc_field": "type_of_account", "los_field": "bank_account_type", "method": "exact_string_ci", "aliases": ["bank_account_type", "account_type"]},
         {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
     ],
     "kfs": [
-        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["funding_amount", "amount"]},
+        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "exact_numeric", "aliases": ["funding_amount", "amount"]},
         {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
         {"doc_field": "loan_type", "los_field": "loan_type", "method": "exact_string_ci", "aliases": []},
         {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
@@ -165,11 +165,11 @@ FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     ],
     "disbursal_memo": [
         {"doc_field": "loan_no", "los_field": "loan_id", "method": "exact_id", "aliases": ["loan_id", "loan_number", "application_id"]},
-        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["disbursal_amount", "amount"]},
+        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "exact_numeric", "aliases": ["disbursal_amount", "amount"]},
     ],
     "sanction_letter": [
         {"doc_field": "applicant_name", "los_field": "applicant_name", "method": "jaro_winkler", "aliases": ["name"]},
-        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "threshold_90", "aliases": ["funding_amount", "amount", "sanctioned_amount"]},
+        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "exact_numeric", "aliases": ["funding_amount", "amount", "sanctioned_amount"]},
         {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
         {"doc_field": "irr_percent", "los_field": "irr_percent", "method": "exact_numeric", "aliases": ["irr", "roi", "interest_rate"]},
         {"doc_field": "emi", "los_field": "emi", "method": "exact_numeric", "aliases": ["monthly_emi", "emi_amount"]},

@@ -1,10 +1,9 @@
 """Node: LLM Structure — Structures raw extracted OCR text via LLM into S3 Extracted Structured tier."""
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any, Dict
 
-from config import MAX_DOC_WORKERS, S3_EXTRACTED_STRUCTURED_DIR, SKIP_IDP, get_canonical_doc_type
+from config import MAX_DOC_WORKERS, SKIP_IDP
 from pipeline.engines.llm_field_extractor import llm_extract_fields
 from pipeline.state import PipelineState
 from pipeline.storage import (
