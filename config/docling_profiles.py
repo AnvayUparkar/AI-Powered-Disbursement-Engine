@@ -83,13 +83,13 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     # re-OCRs every character box regardless of what native text exists --
     # matching the already-correct scanned-document behavior for digital
     # inputs too, without touching CombBoxDetector/serializer.py at all.
-    force_full_page_ocr=True,
+    force_full_page_ocr=False,
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (balanced)
-    det_limit_side_len=960,
-    det_db_thresh=0.1,
-    det_db_box_thresh=0.35,
+    det_limit_side_len=1536,
+    det_db_thresh=0.05,
+    det_db_box_thresh=0.2,
     rec_batch_num=6,
     
     # Image Processing
@@ -120,7 +120,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     # Table Detection (strict, avoid false positives)
     do_table_structure=True,
     table_mode="ACCURATE",
-    table_confidence_threshold=0.7,  # Higher threshold for scans
+    table_confidence_threshold=0.4,  # Higher threshold for scans
     table_min_rows=2,
     table_min_cols=2,
     
@@ -131,14 +131,14 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     
     # OCR Settings (aggressive for scanned images)
     do_ocr=True,
-    force_full_page_ocr=False,  # Always run OCR on scanned docs
+    force_full_page_ocr=True,  # Always run OCR on scanned docs
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (high quality for low-res scans)
-    det_limit_side_len=1280,  # Higher resolution
-    det_db_thresh=0.2,  # Lower threshold = more text boxes
-    det_db_box_thresh=0.5,
-    rec_batch_num=4,
+    det_limit_side_len = 1536, # Detection input size (higher = slower, better)
+    det_db_thresh = 0.05,  # Detection threshold (lower = more boxes)
+    det_db_box_thresh = 0.2,  # Box confidence threshold (lower = detect low-contrast/faint text)
+    rec_batch_num = 6,  # Batch size for recognition
     
     # Image Processing (enhanced)
     images_scale=3.0,  # 3x upscaling for low-res scans
@@ -166,11 +166,17 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
 # ═══════════════════════════════════════════════════════════════════════════
 
 DIGITAL_PDF_PROFILE = DoclingOptions(
-    # Table Detection (standard)
+    # Table Detection
+    # table_confidence_threshold: 0.4 (not 0.6) -- character-box grids score
+    # lower confidence in TableFormer than proper tabular tables; 0.6 silently
+    # drops the entire field grid before CombBoxDetector ever sees it.
+    # table_min_rows: 1 (not 2) -- a single horizontal comb row (e.g. the
+    # 10-digit mobile number or date field) is a 1-row "table"; 2 would discard
+    # every single-row comb sequence even when per-char OCR tokens are correct.
     do_table_structure=True,
     table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
-    table_confidence_threshold=0.6,
-    table_min_rows=2,
+    table_confidence_threshold=0.4,
+    table_min_rows=1,
     table_min_cols=2,
     
     # Cell Merging
@@ -178,20 +184,32 @@ DIGITAL_PDF_PROFILE = DoclingOptions(
     cell_merge_threshold=0.9,  # Strict merging for clean text
     detect_cell_spans=True,
     
-    # OCR Settings (minimal, only for images/missing text)
+    # OCR Settings
     do_ocr=True,
-    force_full_page_ocr=False,  # Use native PDF text
+    # PRODUCTION FIX: same reasoning as CHARACTER_BOX_FORMS_PROFILE (lines 70-85).
+    # Docling's default OcrMode.PDF_AWARE_LAYOUT_REGIONS skips re-OCR for any
+    # layout region that already carries native PDF text. For a digital comb-box
+    # form the entire field region is excluded — CombBoxDetector never receives
+    # per-character tokens and the field never merges (0 merged tokens, 0 bbox).
+    # force_full_page_ocr=True switches to OcrMode.FULL_PAGE, re-OCRing every
+    # region regardless of native text so digital comb-box grids follow the same
+    # reliable per-character OCR path as scanned documents already do.
+    force_full_page_ocr=False,
     ocr_on_tables_only=False,
     ocr_lang=["english"],
     
     # OCR Quality (standard, rarely used)
-    det_limit_side_len=960,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.6,
+    det_limit_side_len=1536,
+    det_db_thresh=0.05,
+    det_db_box_thresh=0.2,
     rec_batch_num=6,
     
-    # Image Processing (minimal)
-    images_scale=1.5,
+    # Image Processing
+    # images_scale=2.0 (not 1.5): individual comb-box character cells are
+    # ~18-22px wide at the native PDF resolution. At 1.5× RapidOCR struggles
+    # to segment thin strokes cleanly; 2.0× (same as CHARACTER_BOX_FORMS)
+    # gives the detector enough pixels per glyph for reliable per-char tokens.
+    images_scale=2.0,
     enhance_contrast=False,
     denoise=False,
     deskew=False,
@@ -233,9 +251,9 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     ocr_lang=["english", "hindi"],
     
     # OCR Quality (balanced)
-    det_limit_side_len=960,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.6,
+    det_limit_side_len=1536,
+    det_db_thresh=0.05,
+    det_db_box_thresh=0.2,
     rec_batch_num=6,
     
     # Image Processing (moderate)
@@ -281,10 +299,10 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     ocr_lang=["english"],
     
     # OCR Quality (lower resolution, faster)
-    det_limit_side_len=640,  # Lower resolution
-    det_db_thresh=0.4,
-    det_db_box_thresh=0.7,
-    rec_batch_num=8,  # Larger batches
+    det_limit_side_len=1536,  # Lower resolution
+    det_db_thresh=0.05,
+    det_db_box_thresh=0.2,
+    rec_batch_num=6,  # Larger batches
     
     # Image Processing (minimal)
     images_scale=1.5,
