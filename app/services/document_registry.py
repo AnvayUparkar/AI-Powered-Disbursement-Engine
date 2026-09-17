@@ -79,6 +79,45 @@ class DocumentRegistry:
             logger.info("Registered document %s (%s) for case %s", doc_id, filename, assoc_case)
             return record
 
+    def update_extracted_result(self, doc_id: str, result: dict) -> None:
+        """Merge IDP extracted result into an existing registry record."""
+        with self._lock:
+            if doc_id in self._dynamic_docs:
+                rec = self._dynamic_docs[doc_id]
+                raw_txt = result.get("raw_text", "") or rec.get("rawText", "")
+                fmt_txt = result.get("formatted_text", "") or rec.get("formattedText", "")
+                ext_fields_raw = result.get("extracted_fields") or {}
+                field_locs = result.get("field_locations") or {}
+                ocr_tokens = result.get("ocr_tokens") or []
+
+                from .registry.normalizer import parse_extracted_fields
+                llm_meta = ext_fields_raw if isinstance(ext_fields_raw, dict) else {}
+                parsed_shim = {
+                    "custom_metadata": {
+                        "field_locations": field_locs,
+                        "ocr_tokens": ocr_tokens,
+                    },
+                    "elements": result.get("elements", []),
+                    "tables": result.get("tables", []),
+                }
+                extracted_fields_list = parse_extracted_fields(doc_id, parsed_shim, llm_meta)
+
+                rec.update({
+                    "status": "processed",
+                    "ocrStatus": "COMPLETED",
+                    "extractionStatus": "COMPLETED",
+                    "confidence": 97.5,
+                    "rawText": raw_txt,
+                    "formattedText": fmt_txt,
+                    "extractedFields": extracted_fields_list or rec.get("extractedFields", []),
+                    "debug": {
+                        "field_locations": field_locs,
+                        "ocr_tokens": ocr_tokens,
+                        "page_dimensions": result.get("page_dimensions", []),
+                    },
+                })
+                logger.info("Updated extracted result for doc %s", doc_id)
+
     def _scan_idp_parsed_storage(self) -> None:
         """Scan disk storage for any existing parsed documents in IDP store."""
         if self._parsed_storage_scanned:
@@ -197,7 +236,28 @@ class DocumentRegistry:
                 except OSError as e:
                     logger.warning("Failed deleting raw upload %s: %s", raw_path, e)
 
+    def update_extracted_result(self, doc_id: str, result: Dict[str, Any]) -> None:
+        """Merge IDP extracted result into an existing registry record.
+
+        Called by pipeline.celery_app.process_document_task after 8001 returns
+        the full extracted payload so 8000 can serve it immediately via GET /api/documents/{doc_id}.
+        """
+        with self._lock:
+            if doc_id in self._dynamic_docs:
+                self._dynamic_docs[doc_id].update({
+                    "status": "processed",
+                    "rawText": result.get("raw_text", ""),
+                    "formattedText": result.get("formatted_text", ""),
+                    "extractedFields": result.get("extracted_fields", {}),
+                    "fieldLocations": result.get("field_locations", {}),
+                    "ocrTokens": result.get("ocr_tokens", []),
+                })
+                logger.info("Updated extracted result for doc %s", doc_id)
+            else:
+                logger.warning("update_extracted_result: doc_id %s not found in registry", doc_id)
+
     def get_distinct_types(self) -> List[str]:
+
         """Return distinct document types currently present in the registry or supported by default."""
         with self._lock:
             dynamic_types = {d.get("type") for d in self._dynamic_docs.values() if d.get("type")}

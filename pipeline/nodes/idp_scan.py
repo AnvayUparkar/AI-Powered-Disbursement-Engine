@@ -5,16 +5,19 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import httpx
 
 from config import (
     DISABLE_IDP_EXTRACTION_CACHE,
+    IDP_REQUEST_TIMEOUT,
+    IDP_SERVICE_URL,
     MAX_DOC_WORKERS,
     S3_EXTRACTED_DIR,
     S3_RAW_DIR,
     SKIP_IDP,
+    USE_REMOTE_IDP,
     get_canonical_doc_type,
 )
-from idp.services.document_processor import DocumentProcessor
 from pipeline.engines.key_value_extractor import KeyValueExtractor
 from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures, is_loan_agreement
 from pipeline.state import PipelineState
@@ -25,21 +28,12 @@ from pipeline.storage import (
     update_status,
     write_json,
 )
-
 from idp.models.document import ParsedDocument
 from idp.services.extraction.field_location_resolver import FieldLocationResolver
+from idp.services.output.serializer import DocumentSerializer
 from pipeline.engines.llm_field_extractor import format_template_json, llm_extract_fields
 
 logger = logging.getLogger("disbursement_pipeline.idp_scan")
-
-_processor: Optional[DocumentProcessor] = None
-
-
-def get_processor() -> DocumentProcessor:
-    global _processor
-    if _processor is None:
-        _processor = DocumentProcessor()
-    return _processor
 
 
 def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: str) -> Dict[str, Any]:
@@ -161,29 +155,47 @@ def is_tabular_or_misc_doc(doc_type: str) -> bool:
 
 
 def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Optional[Dict[str, Any]]:
-    """Runs IDP DocumentProcessor asynchronously in synchronous loop with smart routing."""
-    processor = get_processor()
-    try:
-        prep = processor.preprocessor.preprocess(str(file_path), doc_id=doc_id)
-        if prep.file_category == "xml":
-            parsed = processor.serializer.parse_xml_fast_path(str(file_path), doc_id=doc_id)
-        else:
-            coro = processor.process_document(
-                document_id=doc_id,
-                s3_key=str(file_path),
+    """Runs IDP via 8001 HTTP microservice. XML fast-path runs locally via DocumentSerializer.
+    
+    Port 8000 NEVER runs local Docling, OCR, or heavy DL models.
+    """
+    # XML fast-path runs locally on 8000 (pure deterministic XML tree parsing, zero heavy ML models)
+    if file_path.suffix.lower() == ".xml" or doc_key == "aadhaar_xml":
+        try:
+            serializer = DocumentSerializer()
+            parsed = serializer.parse_xml_fast_path(str(file_path), doc_id=doc_id)
+            if parsed:
+                return build_idp_result_from_parsed(parsed=parsed, doc_type=doc_key, doc_id=doc_id)
+        except Exception as e:
+            logger.warning("Local XML fast-path parsing failed for %s: %s", file_path, e)
+            return None
+
+    # Enforce HTTP delegation to Port 8001 IDP microservice
+    if USE_REMOTE_IDP:
+        try:
+            with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
+                resp = client.post(
+                    f"{IDP_SERVICE_URL}/api/v1/documents/process",
+                    json={"document_id": doc_id, "s3_key": str(file_path)},
+                )
+                resp.raise_for_status()
+
+                get_resp = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}")
+                get_resp.raise_for_status()
+
+                parsed = ParsedDocument.model_validate(get_resp.json())
+                return build_idp_result_from_parsed(parsed=parsed, doc_type=doc_key, doc_id=doc_id)
+        except Exception as exc:
+            logger.warning(
+                "Remote IDP call to %s failed for %s (%s): %s",
+                IDP_SERVICE_URL,
+                doc_id,
+                file_path,
+                exc,
             )
-            try:
-                asyncio.run(coro)
-            except RuntimeError:
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(coro)
+            return None
 
-            parsed = asyncio.run(processor.get_parsed_document(doc_id))
-
-        if parsed:
-            return build_idp_result_from_parsed(parsed=parsed, doc_type=doc_key, doc_id=doc_id)
-    except Exception as e:
-        logger.warning("Native IDP processing encountered an issue for %s: %s", file_path, e)
+    logger.warning("USE_REMOTE_IDP is disabled and local OCR execution is disabled on Port 8000 for %s", file_path)
     return None
 
 

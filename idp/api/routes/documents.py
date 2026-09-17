@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from idp.schemas.document import ProcessDocumentRequest, DocumentStatusResponse
 from idp.schemas.response import ErrorResponse
-from idp.services.document_processor import DocumentProcessor, processor
+from idp.services.document_processor import processor
 from idp.core.exceptions import Node2BaseException
 from idp.core.logging import logger, format_doc_log
 
@@ -39,7 +39,14 @@ async def process_document(request: ProcessDocumentRequest):
             processing_id=f"proc-{doc_id}",
             status=result["status"],
             output_location=result["output_location"],
-            processing_time_seconds=result["processing_time_seconds"]
+            processing_time_seconds=result["processing_time_seconds"],
+            result={
+                "raw_text": result.get("raw_text", ""),
+                "formatted_text": result.get("formatted_text", ""),
+                "extracted_fields": result.get("extracted_fields", {}),
+                "field_locations": result.get("field_locations", {}),
+                "ocr_tokens": result.get("ocr_tokens", []),
+            },
         )
 
     except Node2BaseException as e:
@@ -93,6 +100,11 @@ async def upload_and_process_document(
             target_path = case_raw_dir / clean_filename
             target_path.write_bytes(file_bytes)
             logger.info(format_doc_log(doc_id, f"Saved uploaded document to case S3 raw store at {target_path}"))
+        else:
+            gen_raw_dir = S3_RAW_DIR / "GENERAL"
+            gen_raw_dir.mkdir(parents=True, exist_ok=True)
+            target_path = gen_raw_dir / clean_filename
+            target_path.write_bytes(file_bytes)
 
         try:
             from idp.services.storage.s3 import S3Storage
@@ -123,12 +135,18 @@ async def upload_and_process_document(
         except Exception as reg_err:
             logger.debug(format_doc_log(doc_id, f"Document registry sync notification: {reg_err}"))
 
+        try:
+            from pipeline.celery_app import process_document_task
+            process_document_task.delay(doc_id, str(target_path), case_val)
+        except Exception as celery_err:
+            logger.warning(format_doc_log(doc_id, f"Celery task enqueue notification: {celery_err}"))
+
         return DocumentStatusResponse(
             document_id=doc_id,
             processing_id=f"proc-{doc_id}",
-            status="UPLOADED",
+            status="queued",
             output_location=output_url,
-            processing_time_seconds=0.05,
+            processing_time_seconds=0.0,
             result=None
         )
     except Node2BaseException as e:

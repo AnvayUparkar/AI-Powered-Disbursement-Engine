@@ -396,3 +396,25 @@ def test_idp_scan_bypasses_ocr_and_populates_pyhanko(tmp_path: Path, monkeypatch
     assert agree_doc["pyhanko_inspection"]["is_signed"] is True
     assert "Digital Signature Status: DIGITALLY SIGNED (VALID)" in agree_doc["_raw_text"]
     assert agree_doc["_components"]["raw_elements"][0]["type"] == "paragraph"
+
+
+def test_parse_loan_agreement_fast_path():
+    """Verifies that DocumentSerializer.parse_loan_agreement_fast_path outputs standard ParsedDocument."""
+    from idp.services.output.serializer import DocumentSerializer
+
+    serializer = DocumentSerializer()
+    parsed_doc = serializer.parse_loan_agreement_fast_path(
+        file_path=str(SIGNED_PDF),
+        doc_id="DOC-TEST-LOAN-AGREEMENT",
+        filename="Loan_Agreement.pdf",
+    )
+
+    assert parsed_doc.document_id == "DOC-TEST-LOAN-AGREEMENT"
+    assert parsed_doc.source.filename == "Loan_Agreement.pdf"
+    assert parsed_doc.processing.docling_used is False
+    assert parsed_doc.processing.ocr_engine == "none"
+    assert parsed_doc.custom_metadata["loan_agreement_present"] is True
+    assert parsed_doc.custom_metadata["loan_agreement_signed"] is True
+    assert parsed_doc.custom_metadata["pyhanko_inspection"]["is_signed"] is True
+    assert "DIGITALLY SIGNED (VALID)" in parsed_doc.text
+

@@ -75,6 +75,12 @@ def merge_and_deduplicate(
         seen_keys.add(key)
         all_docs.append(d)
 
+    # Sort youngest (newest upload) to oldest
+    all_docs.sort(
+        key=lambda x: (x.get("uploadedTimestamp") or 0.0, x.get("uploadedAt") or ""),
+        reverse=True,
+    )
+
     return all_docs
 
 

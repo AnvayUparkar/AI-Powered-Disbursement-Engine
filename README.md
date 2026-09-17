@@ -225,8 +225,8 @@ uvicorn app.main:app --reload --port 8000
 Because Windows does not support `fork`, Celery must run with the `threads` or `solo` pool:
 
 ```bash
-# In an activated virtual environment:
-celery -A pipeline.celery_app worker --loglevel=info --pool=threads --concurrency=2
+# In an activated virtual environment (concurrency is pulled from MAX_DOC_WORKERS in .env):
+python -m celery -A pipeline.celery_app worker --loglevel=info
 ```
 * Pipelines triggered via `POST /api/cases/{case_id}/run?async=true` will be processed asynchronously by this worker.
 

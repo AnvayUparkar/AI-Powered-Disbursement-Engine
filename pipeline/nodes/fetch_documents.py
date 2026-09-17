@@ -1,7 +1,6 @@
 """Worker 2: Fetch Documents — Validates and stages loan document package in S3 Raw tier."""
 import logging
 import shutil
-from pathlib import Path
 from typing import Dict
 
 from config import DMS_DIR, S3_RAW_DIR

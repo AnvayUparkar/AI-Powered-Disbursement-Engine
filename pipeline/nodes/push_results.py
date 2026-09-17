@@ -1,9 +1,8 @@
 """Node: Push Results — Writes final decision artifacts and notifies external LOS / sinks."""
 import logging
 import shutil
-from pathlib import Path
 
-from config import LOS_RECEIVED_DIR, S3_RESULT_DIR
+from config import LOS_RECEIVED_DIR
 from pipeline.state import PipelineState
 from pipeline.storage import copy_file, save_s3_result, update_status
 

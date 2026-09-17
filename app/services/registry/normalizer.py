@@ -1,10 +1,11 @@
 """Normalization and schema transformation for document registry records."""
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from config import S3_EXTRACTED_DIR
+from config import IST, S3_EXTRACTED_DIR
 from pipeline.engines.llm_field_extractor import format_template_json
 
 
@@ -206,7 +207,9 @@ def normalize_uploaded_record(
     parsed_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Create normalized DocumentRecord from uploaded data and parsing output."""
-    upload_date = datetime.now().strftime("%Y-%m-%d")
+    now_ist = datetime.now(IST)
+    upload_date = now_ist.strftime("%Y-%m-%d %H:%M IST")
+    upload_timestamp = time.time()
     processing_steps = build_default_processing_steps(doc_id)
 
     pages_count = 1
@@ -242,16 +245,20 @@ def normalize_uploaded_record(
 
     field_locs = (p_res.get("custom_metadata") or {}).get("field_locations") or {}
 
+    ocr_status = "COMPLETED" if parsed_result else "PROCESSING"
+    extraction_status = "COMPLETED" if parsed_result else "PROCESSING"
+
     return {
         "id": doc_id,
         "name": filename,
         "type": detected_type,
         "pages": pages_count,
-        "ocrStatus": "COMPLETED",
-        "extractionStatus": "COMPLETED",
+        "ocrStatus": ocr_status,
+        "extractionStatus": extraction_status,
         "confidence": confidence,
         "vlmUsed": vlm_used,
         "uploadedAt": upload_date,
+        "uploadedTimestamp": upload_timestamp,
         "caseId": assoc_case,
         "sizeKb": max(1, round(file_size_bytes / 1024)) if file_size_bytes else 45,
         "extractedFields": extracted_fields,

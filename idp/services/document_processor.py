@@ -80,13 +80,16 @@ class DocumentProcessor:
             await self.storage.download(key=s3_key, dest_path=local_file_path, bucket=bucket, doc_id=document_id)
 
             # Step 2: Preprocess and validate document
-            prep_doc: PreprocessedDocument = self.preprocessor.preprocess(local_file_path, doc_id=document_id)
+            prep_doc: PreprocessedDocument = await asyncio.to_thread(
+                self.preprocessor.preprocess, local_file_path, doc_id=document_id
+            )
 
             metrics = ProcessingMetrics()
 
             # Fast path for XML documents
             if prep_doc.file_category == "xml":
-                parsed_doc = self.serializer.parse_xml_fast_path(
+                parsed_doc = await asyncio.to_thread(
+                    self.serializer.parse_xml_fast_path,
                     file_path=local_file_path,
                     doc_id=document_id,
                     s3_bucket=bucket,
@@ -98,7 +101,33 @@ class DocumentProcessor:
                     "document_id": document_id,
                     "status": "completed",
                     "output_location": output_location,
-                    "processing_time_seconds": round(elapsed, 3)
+                    "processing_time_seconds": round(elapsed, 3),
+                    "raw_text": parsed_doc.text,
+                    "formatted_text": parsed_doc.formatted_text or "",
+                    "extracted_fields": (parsed_doc.custom_metadata or {}).get("llm_extracted_fields", {}),
+                }
+
+            # Fast path for Loan Agreement PDFs (digital signature inspection via pyHanko)
+            from pipeline.engines.pyhanko_inspector import is_loan_agreement
+            if (is_loan_agreement(filename) or is_loan_agreement(doc_type_hint)) and local_file_path.lower().endswith(".pdf"):
+                parsed_doc = await asyncio.to_thread(
+                    self.serializer.parse_loan_agreement_fast_path,
+                    file_path=local_file_path,
+                    doc_id=document_id,
+                    filename=filename,
+                    s3_bucket=bucket,
+                    s3_key=s3_key,
+                )
+                output_location = await self._save_and_upload_output(parsed_doc, document_id, bucket)
+                elapsed = time.time() - start_time
+                return {
+                    "document_id": document_id,
+                    "status": "completed",
+                    "output_location": output_location,
+                    "processing_time_seconds": round(elapsed, 3),
+                    "raw_text": parsed_doc.text,
+                    "formatted_text": parsed_doc.formatted_text or "",
+                    "extracted_fields": (parsed_doc.custom_metadata or {}).get("llm_extracted_fields", {}),
                 }
 
             # Step 3: Docling layout + integrated OCR parsing (runs on all document types),
@@ -108,7 +137,9 @@ class DocumentProcessor:
             docling_result: Optional[DoclingParseResult] = None
             try:
                 docling_parser = self._get_docling_parser(doc_type_hint, is_scanned=prep_doc.is_scanned_pdf)
-                docling_result = docling_parser.parse(local_file_path, doc_id=document_id)
+                docling_result = await asyncio.to_thread(
+                    docling_parser.parse, local_file_path, doc_id=document_id
+                )
             except Exception as e:
                 logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
@@ -171,7 +202,8 @@ class DocumentProcessor:
             # element by reading the printed cell-divider grid off the page image
             # and assigning the value characters back to their cells.
             try:
-                n_grid = self._recover_comb_grids(
+                n_grid = await asyncio.to_thread(
+                    self._recover_comb_grids,
                     docling_result, page_image_data, document_id
                 )
                 if n_grid:
@@ -187,7 +219,8 @@ class DocumentProcessor:
             metrics.total_processing_time = round(time.time() - start_time, 3)
 
             # Step 6: Serialize into Canonical Unified Document Representation
-            parsed_doc = self.serializer.build_unified_document(
+            parsed_doc = await asyncio.to_thread(
+                self.serializer.build_unified_document,
                 doc_id=document_id,
                 filename=filename,
                 mime_type=prep_doc.mime_type,
@@ -211,7 +244,8 @@ class DocumentProcessor:
             llm_fields: Dict[str, Any] = {}
             try:
                 from pipeline.engines.llm_field_extractor import llm_extract_fields
-                llm_fields = llm_extract_fields(
+                llm_fields = await asyncio.to_thread(
+                    llm_extract_fields,
                     doc_type=doc_type_hint,
                     raw_text=parsed_doc.text,
                     doc_id=document_id,
@@ -240,7 +274,8 @@ class DocumentProcessor:
                                     "confidence": cell.confidence
                                 })
 
-                        field_locs = resolver.resolve_field_locations(
+                        field_locs = await asyncio.to_thread(
+                            resolver.resolve_field_locations,
                             extracted_fields=llm_fields,
                             ocr_elements=raw_element_dicts,
                             table_cells=table_cells_dicts,
