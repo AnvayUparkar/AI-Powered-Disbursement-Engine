@@ -13,7 +13,7 @@ Architecture:
 
 import uuid
 import statistics
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional,Any
 from idp.models.layout import LayoutElement
 from idp.models.merged_token import MergedToken
 from idp.core.logging import logger
@@ -31,26 +31,31 @@ class CombBoxDetector:
     # Shared candidate definition — MUST match what upstream ingestion
     # (idp/services/output/serializer.py) uses to decide which elements are
     # allowed to bypass noise/table filtering before this detector ever sees
-    # them. Keeping this as a single static method avoids the two call sites
-    # drifting apart, which is what originally let comb-box characters get
-    # deleted upstream before merging was ever attempted.
-    DEFAULT_MAX_CHAR_LENGTH = 3
+    # them. Multi-character OCR runs up to 4 characters (e.g. 'AR', 'AJA', 'ATAK')
+    # are accepted as comb-box candidates, while standard prose words (>= 5 chars)
+    # are excluded.
+    DEFAULT_MAX_CHAR_LENGTH = 4
 
-    @staticmethod
-    def is_candidate_text(text: Optional[str], max_char_length: int = DEFAULT_MAX_CHAR_LENGTH) -> bool:
+    _ALLOWED_SYMBOLS = frozenset("@.-/,_#")
+
+    @classmethod
+    def is_candidate_text(cls, text: Optional[str], max_char_length: int = DEFAULT_MAX_CHAR_LENGTH) -> bool:
         """
         True if `text` is short/simple enough to plausibly be one cell of a
-        comb-box field (a single handwritten or printed character/short code).
+        comb-box field (a single handwritten or printed character/short code,
+        including common symbols like @, ., -, /, ,, #).
         """
         if not text:
             return False
         stripped = text.strip()
-        return bool(stripped) and len(stripped) <= max_char_length and stripped.isalnum()
+        if not stripped or len(stripped) > max_char_length:
+            return False
+        return all(c.isalnum() or c in cls._ALLOWED_SYMBOLS for c in stripped)
 
     def __init__(self,
-                 y_tolerance: float = 0.045,
-                 spacing_uniformity_threshold: float = 0.35,
-                 size_uniformity_threshold: float = 0.40,
+                 y_tolerance: float = 0.065,
+                 spacing_uniformity_threshold: float = 0.45,
+                 size_uniformity_threshold: float = 0.50,
                  min_sequence_length: int = 2,
                  max_char_length: int = DEFAULT_MAX_CHAR_LENGTH):
         """
@@ -157,21 +162,13 @@ class CombBoxDetector:
 
         return merged_tokens
     
-    # A wide comb-box row (e.g. a 10-digit mobile number) photographed with
-    # even slight camera skew drifts in y across its width. Bounding that
-    # drift by a multiple of the per-step tolerance (rather than leaving it
-    # unbounded) still lets one physical row cluster together while stopping
-    # the rolling anchor below from chaining genuinely different rows.
-    _ROW_SPAN_TOLERANCE_MULTIPLIER = 3.0
-
     def _cluster_by_row(
         self,
         elements: List[LayoutElement]
     ) -> List[List[LayoutElement]]:
         """
-        Group elements into horizontal rows based on y-coordinate alignment.
-
-        Uses y_tolerance to handle slight vertical misalignment from OCR.
+        Group elements into horizontal rows based on vertical overlap and central baseline.
+        Prevents cascading drift that chains distinct form lines together.
 
         Args:
             elements: Elements to cluster
@@ -182,51 +179,57 @@ class CombBoxDetector:
         if not elements:
             return []
 
-        # Sort by vertical position (top to bottom)
-        sorted_elements = sorted(elements, key=lambda e: e.bbox[1])
+        # Sort primarily by vertical center, secondarily by left X
+        sorted_elements = sorted(
+            elements,
+            key=lambda e: ((e.bbox[1] + e.bbox[3]) / 2.0, e.bbox[0])
+        )
 
-        rows = []
-        current_row = [sorted_elements[0]]
-        current_y = sorted_elements[0].bbox[1]
-        row_min_y = current_y
-        row_max_y = current_y
+        rows: List[Dict[str, Any]] = []
 
-        # Adaptive y_tolerance based on coordinate space (normalized <= 1.5 vs pixels > 1.5)
-        sample_y = sorted_elements[0].bbox[1]
-        effective_tolerance = self.y_tolerance if sample_y <= 1.5 else max(15.0, self.y_tolerance * 500.0)
-        span_cap = effective_tolerance * self._ROW_SPAN_TOLERANCE_MULTIPLIER
+        for elem in sorted_elements:
+            ey0, ey1 = elem.bbox[1], elem.bbox[3]
+            eh = max(0.0001, ey1 - ey0)
+            ecy = (ey0 + ey1) / 2.0
 
-        for elem in sorted_elements[1:]:
-            elem_y = elem.bbox[1]
+            best_row = None
+            best_overlap = 0.0
 
-            # Local step: compare against the LAST accepted element, not the
-            # row's first element. A fixed anchor lets cumulative skew drift
-            # across a wide row (e.g. digit 1 to digit 10 of a mobile number)
-            # exceed one tolerance band even though each adjacent pair is
-            # well within it, silently fracturing the row into fragments.
-            within_step = abs(elem_y - current_y) <= effective_tolerance
-            # Total span guard: still cap how far the row can drift overall,
-            # so the rolling anchor can't chain together unrelated rows.
-            within_span = (max(row_max_y, elem_y) - min(row_min_y, elem_y)) <= span_cap
+            for r in rows:
+                # Vertical overlap between element and row band
+                inter_top = max(ey0, r["top"])
+                inter_bottom = min(ey1, r["bottom"])
+                inter_h = max(0.0, inter_bottom - inter_top)
+                overlap_ratio = inter_h / eh
 
-            if within_step and within_span:
-                current_row.append(elem)
-                current_y = elem_y
-                row_min_y = min(row_min_y, elem_y)
-                row_max_y = max(row_max_y, elem_y)
+                cy_dist = abs(ecy - r["cy"])
+                max_allowed_dist = max(eh, r["h"]) * 0.65
+
+                if overlap_ratio >= 0.35 or cy_dist <= max_allowed_dist:
+                    if overlap_ratio > best_overlap or (best_row is None and cy_dist <= max_allowed_dist):
+                        best_row = r
+                        best_overlap = overlap_ratio
+
+            if best_row is not None:
+                best_row["elements"].append(elem)
+                best_row["top"] = min(best_row["top"], ey0)
+                best_row["bottom"] = max(best_row["bottom"], ey1)
+                all_cys = [(e.bbox[1] + e.bbox[3]) / 2.0 for e in best_row["elements"]]
+                all_hs = [e.bbox[3] - e.bbox[1] for e in best_row["elements"]]
+                best_row["cy"] = sum(all_cys) / len(all_cys)
+                best_row["h"] = sum(all_hs) / len(all_hs)
             else:
-                # Start new row
-                rows.append(current_row)
-                current_row = [elem]
-                current_y = elem_y
-                row_min_y = elem_y
-                row_max_y = elem_y
+                rows.append({
+                    "elements": [elem],
+                    "top": ey0,
+                    "bottom": ey1,
+                    "cy": ecy,
+                    "h": eh,
+                })
 
-        # Add last row
-        if current_row:
-            rows.append(current_row)
+        rows.sort(key=lambda r: r["cy"])
+        return [r["elements"] for r in rows]
 
-        return rows
     
     def _find_comb_box_sequences(
         self,
@@ -246,30 +249,58 @@ class CombBoxDetector:
         """
         if len(row_elements) < self.min_sequence_length:
             return []
-        
-        sequences = []
-        current_seq = [row_elements[0]]
-        
+
+        # Step 1: Pre-split row into sub-runs separated by whole-field jumps (large gaps between words or fields)
+        char_lens = [max(1, len(e.text.strip()) if e.text else 1) for e in row_elements]
+        norm_widths = [max(0.001, abs(e.bbox[2] - e.bbox[0]) / c_len) for e, c_len in zip(row_elements, char_lens)]
+        norm_heights = [max(0.001, abs(e.bbox[3] - e.bbox[1])) for e in row_elements]
+        row_med_w = statistics.median(norm_widths) if norm_widths else 0.01
+        row_med_h = statistics.median(norm_heights) if norm_heights else 0.02
+
+        sub_runs = []
+        current_sub = [row_elements[0]]
         for i in range(1, len(row_elements)):
-            # Try adding next element to current sequence
-            test_seq = current_seq + [row_elements[i]]
-            
-            # Check if still uniform
-            is_uniform, _ = self._is_comb_box_sequence(test_seq)
-            
-            if is_uniform:
-                current_seq = test_seq
+            prev_e = row_elements[i - 1]
+            curr_e = row_elements[i]
+            gap = curr_e.bbox[0] - prev_e.bbox[2]
+
+            # In normalized coordinates (<= 1.5) vs pixel coordinates (> 1.5)
+            # Scaled by median character width and height across the row.
+            # Allow empty comb-box spacer cells (up to ~2.5x pitch) within a multi-word field,
+            # while cleanly separating true whole-field/multi-column jumps (>= 3.5x width/height)
+            gap_threshold = (
+                max(row_med_w * 4.0, row_med_h * 2.0, 0.065)
+                if prev_e.bbox[0] <= 1.5
+                else max(row_med_w * 4.0, row_med_h * 2.0, 42.0)
+            )
+
+            if gap > gap_threshold:
+                if len(current_sub) >= self.min_sequence_length:
+                    sub_runs.append(current_sub)
+                current_sub = [curr_e]
             else:
-                # Break sequence - save current if long enough
-                if len(current_seq) >= self.min_sequence_length:
-                    sequences.append(current_seq)
-                # Start new sequence
-                current_seq = [row_elements[i]]
-        
-        # Add last sequence
-        if len(current_seq) >= self.min_sequence_length:
-            sequences.append(current_seq)
-        
+                current_sub.append(curr_e)
+
+        if len(current_sub) >= self.min_sequence_length:
+            sub_runs.append(current_sub)
+
+        # Step 2: Extract uniform sequences within each sub-run
+        sequences = []
+        for run in sub_runs:
+            current_seq = [run[0]]
+            for i in range(1, len(run)):
+                test_seq = current_seq + [run[i]]
+                is_uniform, _ = self._is_comb_box_sequence(test_seq)
+                if is_uniform:
+                    current_seq = test_seq
+                else:
+                    if len(current_seq) >= self.min_sequence_length:
+                        sequences.append(current_seq)
+                    current_seq = [run[i]]
+
+            if len(current_seq) >= self.min_sequence_length:
+                sequences.append(current_seq)
+
         return sequences
     
     def _is_comb_box_sequence(
@@ -280,9 +311,9 @@ class CombBoxDetector:
         Detect uniform spacing/sizing signature of comb-box rendering.
         
         Checks:
-        1. Spacing uniformity: gaps between boxes are consistent
-        2. Size uniformity: box widths are consistent
-        3. Aspect ratio: boxes are roughly square (not words)
+        1. Spacing uniformity: per-character gaps/pitches between boxes are consistent
+        2. Size uniformity: per-character box widths or center pitches are consistent
+        3. Aspect ratio: per-character boxes are roughly character-like
         
         Args:
             elements: Candidate sequence (already sorted left-to-right)
@@ -294,24 +325,8 @@ class CombBoxDetector:
             return False, 0.0
 
         # --- Geometry gate ------------------------------------------------
-        # A genuine comb-box field is a run of cells that advance strictly
-        # left-to-right at a roughly constant pitch along ONE shared text
-        # baseline. Reject sequences that don't look like that:
-        #   1. VERTICAL STACKS -- a column of single characters (a numbered
-        #      list "1"/"2"/"3", stacked initials) shares one x position, so
-        #      the abs()-based spacing check further down mistakes it for a
-        #      perfectly uniform comb row and merges it into a tall, narrow
-        #      bogus token.
-        #   2. FAR-APART TOKENS ON ONE LINE -- e.g. a label and a value
-        #      ("STD" ........ "PAN") with nothing between them, merged into
-        #      a single page-spanning token.
-        # Every tolerance below is scaled by the MEDIAN cell width/height of
-        # the whole run, never an individual element's own size: a real comb
-        # row legitimately mixes a thin "1"/"I" with a wide "M"/"0" inside an
-        # identical printed cell pitch, and scaling by the thin glyph's width
-        # (as an earlier version did) wrongly broke the field so it stopped
-        # being detected at all.
-        widths = [e.bbox[2] - e.bbox[0] for e in elements]
+        char_lens = [max(1, len(e.text.strip()) if e.text else 1) for e in elements]
+        widths = [(e.bbox[2] - e.bbox[0]) / c_len for e, c_len in zip(elements, char_lens)]
         heights = [e.bbox[3] - e.bbox[1] for e in elements]
         med_w = statistics.median(widths)
         med_h = statistics.median(heights)
@@ -319,50 +334,65 @@ class CombBoxDetector:
             return False, 0.0
 
         origin_advances = [
-            elements[i + 1].bbox[0] - elements[i].bbox[0]
+            (elements[i + 1].bbox[0] - elements[i].bbox[0]) / ((char_lens[i] + char_lens[i + 1]) / 2.0)
             for i in range(len(elements) - 1)
         ]
         centre_ys = [(e.bbox[1] + e.bbox[3]) / 2.0 for e in elements]
 
         # 1a. Every cell must sit clearly to the right of the previous one.
-        #     A vertical stack advances by ~0 (shared column); even a tightly
-        #     kerned comb row still advances by most of a glyph width.
-        if min(origin_advances) < med_w * 0.25:
+        min_allowed_advance = min(med_w * 0.25, med_h * 0.15)
+        if min(origin_advances) < min_allowed_advance:
             return False, 0.0
 
-        # 1b. All cell centres must lie on one baseline, checked as a PER-STEP
-        #     difference rather than the total span of the whole sequence.
-        #     A cumulative-span check dilutes to near-zero tolerance per
-        #     character as a sequence grows, so it silently caps how long any
-        #     comb-box run can ever be -- fragmenting exactly the long fields
-        #     (10-digit mobile numbers, 12-digit Aadhaar numbers) that
-        #     legitimately need many cells, even when a mild, uniform camera
-        #     skew is well within a normal printed-row baseline. A vertical
-        #     stack is already rejected by gate 1a's origin-advance check
-        #     above (its consecutive-centre step would be near med_h anyway),
-        #     so this can stay generous per step.
+        # 1b. Baseline alignment
         centre_y_steps = [abs(centre_ys[i + 1] - centre_ys[i]) for i in range(len(centre_ys) - 1)]
         if max(centre_y_steps) > med_h * 0.6:
             return False, 0.0
-        # Bounded total-drift safety net: even smooth per-step skew shouldn't
-        # let the whole row wander more than a couple of glyph heights
-        # top-to-bottom.
         if max(centre_ys) - min(centre_ys) > med_h * 1.5:
             return False, 0.0
 
-        # 2.  No single step may be a whole-field jump instead of a cell pitch
-        #     (a label-to-value gap). Real comb pitch stays within a few
-        #     median cell widths.
-        if max(origin_advances) > med_w * 5.0:
+        # 2. No single step may be a whole-field jump (scale against height if width is narrow)
+        max_allowed_advance = max(med_w * 6.5, med_h * 3.0)
+        if max(origin_advances) > max_allowed_advance:
             return False, 0.0
 
-        # Calculate gaps between consecutive elements
+        # Check size / pitch uniformity (per-character normalized, accounting for empty cell steps)
+        x_centers = [(e.bbox[0] + e.bbox[2]) / 2.0 for e in elements]
+        raw_pitches = [
+            (x_centers[i + 1] - x_centers[i]) / ((char_lens[i] + char_lens[i + 1]) / 2.0)
+            for i in range(len(elements) - 1)
+        ]
+        med_pitch = statistics.median(raw_pitches) if raw_pitches else max(med_w, 0.001)
+
+        pitches = []
+        for p in raw_pitches:
+            if med_pitch > 0:
+                steps = max(1, round(p / med_pitch))
+                # If step is within 1 to 3 grid cell steps, normalize by step count
+                if steps <= 3:
+                    pitches.append(p / steps)
+                else:
+                    pitches.append(p)
+            else:
+                pitches.append(p)
+
+        if len(pitches) >= 2:
+            mean_pitch = statistics.mean(pitches)
+            std_pitch = statistics.stdev(pitches) if len(pitches) > 1 else 0.0
+            pitch_cv = std_pitch / (mean_pitch + 1e-4) if mean_pitch > 0 else 0.0
+        else:
+            pitch_cv = 0.0
+
+        # Calculate normalized per-character gaps between consecutive elements
         gaps = []
         for i in range(len(elements) - 1):
-            gap = elements[i + 1].bbox[0] - elements[i].bbox[2]
-            gaps.append(gap)
-
-        # `widths` / `heights` were already computed for the geometry gate above.
+            raw_gap = (elements[i + 1].bbox[0] - elements[i].bbox[2]) / ((char_lens[i] + char_lens[i + 1]) / 2.0)
+            if med_pitch > 0:
+                steps = max(1, round(raw_pitches[i] / med_pitch))
+                effective_gap = raw_gap - (steps - 1) * med_pitch if (1 < steps <= 3) else raw_gap
+            else:
+                effective_gap = raw_gap
+            gaps.append(effective_gap)
 
         # Check spacing uniformity
         if len(gaps) >= 2:
@@ -372,8 +402,7 @@ class CombBoxDetector:
             gap_cv = std_gap / (mean_gap + 1e-4)
         else:
             gap_cv = 0.0
-        
-        # Check size uniformity
+
         if len(widths) >= 2:
             mean_width = statistics.mean(widths)
             if mean_width <= 0:
@@ -383,25 +412,25 @@ class CombBoxDetector:
         else:
             width_cv = 0.0
         
-        # Check aspect ratio (comb boxes are roughly square, not wide)
+        # Check aspect ratio (allow narrow digital glyphs like '1', 'I', 'l')
         mean_height = statistics.mean(heights)
         mean_width = statistics.mean(widths)
         aspect_ratio = mean_width / mean_height if mean_height > 0 else 0.0
         
-        # Comb boxes have aspect ratio ~0.5 to 2.0 (square-ish)
-        aspect_ok = 0.3 <= aspect_ratio <= 2.5
+        aspect_ok = 0.10 <= aspect_ratio <= 3.0
         
-        # Pass if both spacing and size are uniform
-        spacing_ok = gap_cv <= self.spacing_uniformity_threshold
-        size_ok = width_cv <= self.size_uniformity_threshold
+        # Pass if spacing is uniform (via gap CV or center-to-center pitch CV) AND size/pitch is uniform
+        spacing_ok = (gap_cv <= self.spacing_uniformity_threshold) or (pitch_cv <= self.spacing_uniformity_threshold)
+        size_ok = (width_cv <= self.size_uniformity_threshold) or (pitch_cv <= self.spacing_uniformity_threshold)
         
         is_uniform = spacing_ok and size_ok and aspect_ok
         
         # Calculate overall uniformity score
+        effective_cv = min(width_cv, pitch_cv)
         uniformity_score = (
-            (1.0 - min(gap_cv, 1.0)) * 0.4 +  # 40% weight on spacing
-            (1.0 - min(width_cv, 1.0)) * 0.4 +  # 40% weight on size
-            (1.0 if aspect_ok else 0.0) * 0.2  # 20% weight on aspect
+            (1.0 - min(gap_cv, 1.0)) * 0.4 +
+            (1.0 - min(effective_cv, 1.0)) * 0.4 +
+            (1.0 if aspect_ok else 0.0) * 0.2
         )
         
         return is_uniform, uniformity_score
@@ -415,7 +444,8 @@ class CombBoxDetector:
         """
         Merge a sequence of elements into a single token.
         
-        Concatenates text, merges bounding boxes, averages confidence.
+        Concatenates text (inserting space if an empty comb-cell spacer was present),
+        merges bounding boxes, averages confidence.
         
         Args:
             elements: Sequence to merge (already validated as uniform)
@@ -429,8 +459,25 @@ class CombBoxDetector:
             return None
         
         try:
-            # Concatenate text
-            merged_text = "".join(elem.text.strip() for elem in elements)
+            # Concatenate text (inserting space if an empty comb-cell spacer was present)
+            char_lens = [max(1, len(e.text.strip()) if e.text else 1) for e in elements]
+            x_centers = [(e.bbox[0] + e.bbox[2]) / 2.0 for e in elements]
+            raw_pitches = [
+                (x_centers[i + 1] - x_centers[i]) / ((char_lens[i] + char_lens[i + 1]) / 2.0)
+                for i in range(len(elements) - 1)
+            ]
+            med_pitch = statistics.median(raw_pitches) if raw_pitches else 0.0
+
+            parts = []
+            for i, elem in enumerate(elements):
+                if i > 0 and med_pitch > 0:
+                    gap = elements[i].bbox[0] - elements[i - 1].bbox[2]
+                    pitch = x_centers[i] - x_centers[i - 1]
+                    # If step represents 1 or more empty comb boxes between words
+                    if pitch >= 1.55 * med_pitch or gap >= 0.85 * med_pitch:
+                        parts.append(" ")
+                parts.append(elem.text.strip())
+            merged_text = "".join(parts)
             
             # Merge bounding boxes (encompassing bbox)
             min_x = min(elem.bbox[0] for elem in elements)
@@ -438,6 +485,7 @@ class CombBoxDetector:
             max_x = max(elem.bbox[2] for elem in elements)
             max_y = max(elem.bbox[3] for elem in elements)
             merged_bbox = [min_x, min_y, max_x, max_y]
+
             
             # Average confidence
             avg_confidence = statistics.mean(elem.confidence for elem in elements)

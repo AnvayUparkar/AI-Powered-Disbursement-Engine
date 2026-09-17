@@ -205,6 +205,8 @@ class DocumentSerializer:
                                     doc_id=doc_id, page_number=pno, table=table,
                                     decision=shape_decision, synthesized_count=len(synth)
                                 )
+                                # Purge this table from table_regions so TableRegionMask won't block its constituent characters
+                                table_regions = [tr for tr in table_regions if tr.table_id != table.id]
                                 continue  # skip normal table ingestion for this table
 
                             norm_table_box = normalize_bbox(table.bbox or [0, 0, w, h], w, h)
@@ -370,78 +372,78 @@ class DocumentSerializer:
                             )
                         )
 
-                # 3. FALLBACK OCR: Ingest fallback OCR text elements if Docling produced no elements for this page
-                elif ocr_results:
-                    for ocr_res in ocr_results:
-                        if ocr_res.page_number == pno:
-                            ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
-                            ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
-                            for ocr_elem in ocr_res.elements:
-                                norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
-                                final_text = self.evaluator.clean_bilingual_label_noise(ocr_elem.text)
-                                src = "docling_ocr" if ocr_elem.source in ["ocr", "rapidocr", "docling_ocr"] else ocr_elem.source
-                                ocr_orig = ocr_elem.ocr_original
-                                conf = ocr_elem.confidence
-
-                                if ocr_elem.id in vlm_corrections:
-                                    vlm_res = vlm_corrections[ocr_elem.id]
-                                    final_text = self.evaluator.clean_bilingual_label_noise(vlm_res.text)
-                                    src = "vlm_corrected"
-                                    ocr_orig = ocr_elem.text
-                                    conf = vlm_res.confidence
-
-                                is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
-                                    rapidocr_bbox=norm_box,
-                                    table_regions=table_regions
-                                )
-
-                                if is_blocked:
-                                    logger.info(
-                                        format_doc_log(
-                                            doc_id,
-                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
-                                        )
-                                    )
-                                    continue
-
-                                if self.evaluator.is_garbled_text(final_text) and src != "vlm_corrected":
-                                    logger.info(
-                                        format_doc_log(
-                                            doc_id,
-                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_GARBLED_TEXT text='{final_text[:30]}'"
-                                        )
-                                    )
-                                    continue
-
-                                if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
-                                    logger.info(
-                                        format_doc_log(
-                                            doc_id,
-                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_DUPLICATE text='{final_text[:30]}'"
-                                        )
-                                    )
-                                    continue
-
-                                logger.info(
-                                    format_doc_log(
-                                        doc_id,
-                                        f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
-                                    )
-                                )
-
-                                page_info.elements.append(
-                                    LayoutElement(
-                                        id=ocr_elem.id or f"ocr-{pno}-{len(page_info.elements)+1}",
-                                        type=ElementType.TEXT,
-                                        text=final_text,
-                                        bbox=norm_box,
-                                        confidence=conf,
-                                        page_number=pno,
-                                        source=src,
-                                        structure_source="none",
-                                        ocr_original=ocr_orig
-                                    )
-                                )
+                # 3. FALLBACK OCR (STANDALONE RAPIDOCR): Commented out; Docling is the primary layout & text engine
+                # elif ocr_results:
+                #     for ocr_res in ocr_results:
+                #         if ocr_res.page_number == pno:
+                #             ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
+                #             ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
+                #             for ocr_elem in ocr_res.elements:
+                #                 norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
+                #                 final_text = self.evaluator.clean_bilingual_label_noise(ocr_elem.text)
+                #                 src = "docling_ocr" if ocr_elem.source in ["ocr", "rapidocr", "docling_ocr"] else ocr_elem.source
+                #                 ocr_orig = ocr_elem.ocr_original
+                #                 conf = ocr_elem.confidence
+                # 
+                #                 if ocr_elem.id in vlm_corrections:
+                #                     vlm_res = vlm_corrections[ocr_elem.id]
+                #                     final_text = self.evaluator.clean_bilingual_label_noise(vlm_res.text)
+                #                     src = "vlm_corrected"
+                #                     ocr_orig = ocr_elem.text
+                #                     conf = vlm_res.confidence
+                # 
+                #                 is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
+                #                     rapidocr_bbox=norm_box,
+                #                     table_regions=table_regions
+                #                 )
+                # 
+                #                 if is_blocked:
+                #                     logger.info(
+                #                         format_doc_log(
+                #                             doc_id,
+                #                             f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
+                #                         )
+                #                     )
+                #                     continue
+                # 
+                #                 if self.evaluator.is_garbled_text(final_text) and src != "vlm_corrected":
+                #                     logger.info(
+                #                         format_doc_log(
+                #                             doc_id,
+                #                             f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_GARBLED_TEXT text='{final_text[:30]}'"
+                #                         )
+                #                     )
+                #                     continue
+                # 
+                #                 if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
+                #                     logger.info(
+                #                         format_doc_log(
+                #                             doc_id,
+                #                             f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_DUPLICATE text='{final_text[:30]}'"
+                #                         )
+                #                     )
+                #                     continue
+                # 
+                #                 logger.info(
+                #                     format_doc_log(
+                #                         doc_id,
+                #                         f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
+                #                     )
+                #                 )
+                # 
+                #                 page_info.elements.append(
+                #                     LayoutElement(
+                #                         id=ocr_elem.id or f"ocr-{pno}-{len(page_info.elements)+1}",
+                #                         type=ElementType.TEXT,
+                #                         text=final_text,
+                #                         bbox=norm_box,
+                #                         confidence=conf,
+                #                         page_number=pno,
+                #                         source=src,
+                #                         structure_source="none",
+                #                         ocr_original=ocr_orig
+                #                     )
+                #                 )
 
                 logger.info(
                     format_doc_log(
@@ -494,7 +496,16 @@ class DocumentSerializer:
                         e.id: e.reading_order for e in p.elements if e.id is not None
                     }
 
-                    # Add merged tokens as supplementary LayoutElements
+                    # Collect all constituent element IDs to replace
+                    constituent_ids_to_remove = set()
+                    for mt in merged_tokens:
+                        constituent_ids_to_remove.update(mt.constituent_element_ids)
+
+                    # Remove constituent single-character elements so they don't remain in layout output
+                    if constituent_ids_to_remove:
+                        p.elements = [e for e in p.elements if e.id not in constituent_ids_to_remove]
+
+                    # Add merged tokens as layout elements
                     for mt in merged_tokens:
                         constituent_orders = [
                             reading_order_by_id[cid]
@@ -541,10 +552,16 @@ class DocumentSerializer:
 
                 full_text_parts.append(f"--- PAGE {pno} ---")
                 for elem in p.elements:
-                    if self._is_element_inside_tables(elem.bbox, p.tables):
+                    # PRODUCTION FIX: merged comb-box elements (source="comb_box_merged")
+                    # must NEVER be suppressed by _is_element_inside_tables(). TableFormer
+                    # frequently detects character-box grid regions as tables. Blocking
+                    # merged elements here caused unified fields (03072026, APPL00243685)
+                    # to be silently deleted from full_text while the raw per-cell character
+                    # blocks were printed instead.
+                    if elem.source != "comb_box_merged" and self._is_element_inside_tables(elem.bbox, p.tables):
                         continue
                     
-                    if elem.source == "vlm_corrected":
+                    if elem.source in ["vlm_corrected", "comb_box_merged"]:
                         clean_txt = elem.text
                     else:
                         from idp.services.ocr.text_sanitizer import clean_ocr_text
@@ -558,6 +575,12 @@ class DocumentSerializer:
                         full_text_parts.append(clean_txt)
 
                 for tbl in p.tables:
+                    # Skip printing tables that are actually comb-box character grids
+                    if tbl.cells:
+                        cand_count = sum(1 for c in tbl.cells if CombBoxDetector.is_candidate_text(c.text))
+                        if cand_count / len(tbl.cells) >= 0.5:
+                            continue
+
                     if tbl.rows_raw:
                         # Check if table actually has meaningful non-empty text
                         has_content = any(any(c.strip() for c in r if isinstance(c, str)) for r in tbl.rows_raw)
@@ -785,13 +808,27 @@ class DocumentSerializer:
         row_indices = {c.row_index for c in table.cells}
         col_indices = {c.col_index for c in table.cells}
 
-        # Comb-box grids are single-row, multi-column. A multi-row table
-        # is never ambiguous -- it's a real table, regardless of content.
-        if len(row_indices) > 1 or len(col_indices) < 2:
+        # Multi-row check: allow single-row grids OR 2-row grids where row 0 is guide headers/markers
+        is_valid_row_shape = len(row_indices) == 1
+        if len(row_indices) == 2:
+            row0_cells = [c for c in table.cells if c.row_index == min(row_indices)]
+            row1_cells = [c for c in table.cells if c.row_index == max(row_indices)]
+            if row0_cells and row1_cells:
+                row0_candidates = sum(1 for c in row0_cells if CombBoxDetector.is_candidate_text(c.text))
+                if row0_candidates / len(row0_cells) >= 0.7:
+                    is_valid_row_shape = True
+
+        if not is_valid_row_shape or len(col_indices) < 2:
             return TableShapeDecision.KEEP_AS_TABLE
 
-        candidate_cells = [c for c in table.cells if CombBoxDetector.is_candidate_text(c.text)]
-        candidate_ratio = len(candidate_cells) / len(table.cells)
+        # Calculate candidate ratio over non-empty cells so partially-filled fields
+        # (e.g., 8 digits filled in a 16-cell account number comb grid) are reclassified correctly
+        non_empty_cells = [c for c in table.cells if c.text and c.text.strip()]
+        if len(non_empty_cells) < 2:
+            return TableShapeDecision.KEEP_AS_TABLE
+
+        candidate_cells = [c for c in non_empty_cells if CombBoxDetector.is_candidate_text(c.text)]
+        candidate_ratio = len(candidate_cells) / len(non_empty_cells)
 
         if candidate_ratio >= reclassify_ratio:
             return TableShapeDecision.RECLASSIFY_AS_COMB_BOX

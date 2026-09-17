@@ -795,7 +795,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                               >
                                 {f.source === 'OPENROUTER_LLM'
                                   ? 'LLM'
-                                  : f.source === 'docling' || f.source === 'docling_ocr' || f.source === 'DOCLING'
+                                  : f.source === 'docling' || f.source === 'docling_ocr' || f.source === 'DOCLING' || f.source === 'OCR' || f.source === 'ocr'
                                     ? 'DOCLING_OCR'
                                     : f.source}
                               </span>
