@@ -56,7 +56,7 @@ class DoclingOptions(BaseModel):
     # OCR ENGINE (RapidOCR PP-OCRv6)
     # ═══════════════════════════════════════════════════════════════════════
     do_ocr: bool = True  # Enable OCR for text extraction
-    ocr_engine_name: str = "rapidocr"  # [INERT] Engine backend (RapidOCR backend is fixed)
+    ocr_engine_name: str = "docling_ocr"  # Engine backend (Docling integrated OCR)
     ocr_model_name: str = "PP-OCRv6_medium"  # Model variant (used in cache key & logging)
     
     # OCR Model Paths (optional custom models)
@@ -75,7 +75,8 @@ class DoclingOptions(BaseModel):
     # OCR Quality & Performance
     det_limit_side_len: int = 1536  # Detection input size (higher = slower, better)
     det_db_thresh: float = 0.05  # Detection threshold (lower = more boxes)
-    det_db_box_thresh: float = 0.1  # [INERT] see ocr_text_score below
+    det_db_box_thresh: float = 0.2  # [INERT] see ocr_text_score below -- kept at main's tuned
+                                     # value for reference only; never reaches RapidOcrOptions.
     rec_batch_num: int = 6  # [INERT] no equivalent on RapidOcrOptions
 
     # REAL OCR detection knobs. det_limit_side_len / det_db_thresh / det_db_box_thresh /
@@ -84,8 +85,9 @@ class DoclingOptions(BaseModel):
     #
     # ocr_text_score is the true equivalent of det_db_box_thresh: the minimum confidence a
     # detected text box needs to survive. Lower it to recover faint or low-contrast text at
-    # the cost of more false positives. Docling's own default is 0.5.
-    ocr_text_score: float = 0.5
+    # the cost of more false positives. Docling's own default is 0.5. Set to 0.2 here to carry
+    # forward the same lower-threshold intent as the (inert) det_db_box_thresh=0.2 above.
+    ocr_text_score: float = 0.01
     # Passthrough for engine-specific RapidOCR parameters Docling does not model directly.
     rapidocr_params: Dict[str, Any] = Field(default_factory=dict)
     
@@ -117,11 +119,11 @@ class DoclingOptions(BaseModel):
     # threshold shared across all region classes, not table-specific, so
     # lowering it can also let in more low-confidence text/picture regions.
     # Wired -> pipeline_options.layout_options.engine_options.score_threshold.
-    layout_detection_threshold: float = 0.1
+    layout_detection_threshold: float = 0.01
 
     # Reading Order
     detect_reading_order: bool = True  # [INERT] Determine element sequence
-    reading_order_method: str = "spatial"  # [INERT] 'spatial', 'column_aware'
+    reading_order_method: str = "column_aware"  # [INERT] 'spatial', 'column_aware'
     
     # ═══════════════════════════════════════════════════════════════════════
     # DOCUMENT PROCESSING
@@ -138,6 +140,21 @@ class DoclingOptions(BaseModel):
     # Governs the torch-based layout model and TableFormer. RapidOCR runs on ONNX Runtime
     # and only special-cases CUDA/DirectML, so OCR stays on CPU on macOS either way.
     use_gpu: bool = True  # Use GPU acceleration (if available)
-    num_threads: int = 4  # CPU threads for processing
+
+    # CPU threads. NOT just CPU bookkeeping: Docling forwards this to RapidOCR as
+    # EngineConfig.onnxruntime.intra_op_num_threads, so it governs the OCR stage --
+    # the most expensive one in this pipeline. Values above the machine's core count
+    # are clamped (see idp/services/docling/accelerator.py) because oversubscribing
+    # ONNX Runtime's intra-op pool costs time without adding parallelism.
+    num_threads: int = 4
+
+    # Directory holding locally-downloaded weights (layout / TableFormer / RapidOCR).
+    # Wired -> pipeline_options.artifacts_path, which puts Docling in fully-offline
+    # mode for ALL three model families. None (the default) resolves through
+    # $DOCLING_ARTIFACTS_PATH, then <repo>/models/docling, then -- if neither is
+    # populated -- falls back to Docling's HuggingFace cache with on-demand
+    # downloads. Populate it with: python scripts/download_models.py
+    artifacts_path: Optional[str] = None
+
     debug_mode: bool = True  # Save debug visualizations
     log_level: str = "INFO"  # Logging verbosity

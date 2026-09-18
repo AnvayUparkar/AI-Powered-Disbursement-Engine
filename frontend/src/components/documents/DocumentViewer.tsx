@@ -24,7 +24,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import type { DocumentRecord, ExtractedField, OCRToken, TableCellRecord } from '@/types';
+import type { DocumentRecord, ExtractedField, LayoutRegion, OCRToken, TableCellRecord } from '@/types';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
 
 const FIELD_PALETTE = [
@@ -159,6 +159,11 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [showFieldBoxes, setShowFieldBoxes] = useState(true);
   const [showOcrTokens, setShowOcrTokens] = useState(false);
   const [showTableCells, setShowTableCells] = useState(false);
+  // Layout model regions. 'off' hides them; 'final' shows only what survived
+  // postprocessing; 'raw' additionally shows every region the model proposed and
+  // the postprocessor discarded -- which is the view that answers "why is there
+  // no bbox here?".
+  const [layoutMode, setLayoutMode] = useState<'off' | 'final' | 'raw'>('off');
   const [showLabels, setShowLabels] = useState(true);
   const [showConfidence, setShowConfidence] = useState(true);
   // Which model's score drives the overlay colouring. Kept explicit rather than blended so
@@ -329,6 +334,23 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   );
   const stageScores = document.debug?.stage_scores;
 
+  // Layout model regions for this page. The raw set is deliberately large (the
+  // model proposes several hundred regions per page and most are dropped), so it
+  // is only materialised when the user asks for it.
+  const allLayoutRegions: LayoutRegion[] = (document.debug?.layout_regions || []).filter(
+    (r) => (r.page_number || 1) === page && r.normalized_bbox && r.normalized_bbox.length >= 4
+  );
+  const finalLayoutRegions = allLayoutRegions.filter((r) => r.stage === 'final');
+  const droppedLayoutRegions = allLayoutRegions.filter(
+    (r) => r.stage === 'raw' && !r.survived
+  );
+  const visibleLayoutRegions: LayoutRegion[] =
+    layoutMode === 'off'
+      ? []
+      : layoutMode === 'final'
+        ? finalLayoutRegions
+        : [...finalLayoutRegions, ...droppedLayoutRegions];
+
   const pageTableCells: { tableId: string; cell: TableCellRecord }[] = pageTables.flatMap((t) =>
     (t.cells || []).map((cell) => ({ tableId: t.id, cell }))
   );
@@ -475,6 +497,35 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
             >
               <Box className="h-3 w-3" />
               TableFormer Cells ({pageTableCells.length + debugTableCells.length})
+            </button>
+
+            {/* Layout model regions. Three-way rather than on/off: the raw set is
+                an order of magnitude larger than the final set and is only useful
+                when specifically diagnosing a missing box. */}
+            <button
+              onClick={() =>
+                setLayoutMode(
+                  layoutMode === 'off' ? 'final' : layoutMode === 'final' ? 'raw' : 'off'
+                )
+              }
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${layoutMode !== 'off'
+                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  : 'text-ink-500 hover:bg-ink-100'
+                }`}
+              title={
+                layoutMode === 'off'
+                  ? 'Show layout model regions that survived postprocessing'
+                  : layoutMode === 'final'
+                    ? 'Also show raw regions the postprocessor discarded'
+                    : 'Hide layout model regions'
+              }
+            >
+              <Layers className="h-3 w-3" />
+              {layoutMode === 'off'
+                ? `Layout (${finalLayoutRegions.length})`
+                : layoutMode === 'final'
+                  ? `Layout: final (${finalLayoutRegions.length})`
+                  : `Layout: +${droppedLayoutRegions.length} dropped`}
             </button>
 
             {/* Which model's score drives the overlay colouring. RapidOCR can be confident on
@@ -782,6 +833,34 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                 </div>
               )}
 
+              {/* OVERLAY LAYER 1.8: Layout model regions.
+                  Solid emerald = survived postprocessing and is what the pipeline
+                  actually used (bbox already snapped onto its RapidOCR cells).
+                  Dashed rose = the layout model proposed this region and the
+                  postprocessor threw it away, so no OCR ever ran against it.
+                  A rose box sitting over visibly real text is the signature of a
+                  postprocessing drop rather than an OCR detection miss. */}
+              {layoutMode !== 'off' && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {visibleLayoutRegions.map((r, idx) => {
+                    const style = getNormalizedStyle(r.normalized_bbox);
+                    if (!style) return null;
+                    const dropped = r.stage === 'raw';
+                    return (
+                      <div
+                        key={`layout-${r.stage}-${r.id ?? idx}-${idx}`}
+                        className={`absolute pointer-events-auto cursor-crosshair z-0 ${dropped
+                            ? 'border border-dashed border-rose-400/70 bg-rose-400/5'
+                            : 'border border-emerald-500/70 bg-emerald-400/5'
+                          }`}
+                        style={style}
+                        title={`[layout ${dropped ? 'DROPPED by postprocessing' : 'final'}] ${r.label}\nconfidence: ${pct(r.confidence)}\nOCR cells inside: ${r.cell_count}`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
               {/* OVERLAY LAYER 2: Extracted Field Bounding Boxes */}
               {showFieldBoxes && (
                 <div className="absolute inset-0 pointer-events-none">
@@ -816,7 +895,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
                               }`}
                           >
                             <span>{f.name}</span>
-                            {showConfidence && f.matchConfidence !== undefined && (
+                            {showConfidence && f.matchConfidence != null && (
                               <span className="opacity-90 font-mono text-[9px]">
                                 {Math.round(f.matchConfidence * 100)}%
                               </span>
@@ -985,13 +1064,19 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
                         <div className="mt-1 flex items-center gap-2">
                           <div className="flex-1 max-w-[120px]">
-                            <ConfidenceBar value={f.confidence} size="sm" />
+                            {f.confidence != null ? (
+                              <ConfidenceBar value={f.confidence} size="sm" />
+                            ) : (
+                              <span className="text-[10px] text-ink-400 font-mono">
+                                Confidence n/a
+                              </span>
+                            )}
                           </div>
-                          {f.matchConfidence !== undefined && (
-                            <span className="text-[10px] text-ink-500 font-mono">
-                              Match: {Math.round(f.matchConfidence * 100)}%
-                            </span>
-                          )}
+                          <span className="text-[10px] text-ink-500 font-mono">
+                            Match: {f.matchConfidence != null
+                              ? `${Math.round(f.matchConfidence * 100)}%`
+                              : 'n/a'}
+                          </span>
                         </div>
 
                         {/* Per-field model scores. Shown side by side and never averaged:

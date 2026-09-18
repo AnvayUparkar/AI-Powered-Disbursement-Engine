@@ -99,6 +99,13 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
 
     table_cells_dicts = []
     for tbl in (parsed.tables or []):
+        # The layout model's confidence for the region TableFormer built this table
+        # from -- the closest real "layout_confidence" a table cell has, since a cell
+        # belongs to the table's region, not its own individual layout Cluster.
+        # Without this, every field resolved via a table cell (source="table_cell")
+        # reported layout_confidence=None regardless of how confidently the region
+        # was actually detected.
+        tbl_layout_conf = getattr(tbl, "table_confidence", None)
         for cell in (getattr(tbl, "cells", []) or []):
             table_cells_dicts.append({
                 "id": getattr(cell, "id", None),
@@ -106,6 +113,7 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
                 "bbox": getattr(cell, "bbox", []),
                 "page_number": getattr(tbl, "page_number", 1),
                 "confidence": getattr(cell, "confidence", 1.0),
+                "layout_confidence": tbl_layout_conf,
             })
 
     resolver = FieldLocationResolver()
@@ -131,6 +139,12 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         # that fall inside a detected table, so their text reaches rawText only via the
         # [TABLE] block. Exposing the cells separately lets the debug overlay draw them.
         "table_cells": table_cells_dicts,
+        # Layout model regions for the debug overlay. Includes the RAW clusters the
+        # model proposed (stage="raw"), most of which Docling's postprocessor
+        # discards, alongside the survivors (stage="final") whose bboxes have been
+        # snapped onto their RapidOCR cells. Seeing both is what distinguishes
+        # "never detected" from "detected then dropped".
+        "layout_regions": getattr(parsed, "layout_regions", []) or [],
         # Docling's own per-stage quality scores, carried through for the debug view.
         "stage_scores": {
             "layout_score": getattr(parsed, "layout_score", None),

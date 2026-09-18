@@ -1,92 +1,81 @@
+"""Profile selection is deliberately no longer document-type-dependent.
+
+The six-profile system (identity/character-box/scanned/digital/mixed/
+high-performance) has been replaced with a single OCR_FIRST_PROFILE that
+always runs full-page OCR, regardless of document type or whether the
+preprocessor found a native text layer. See config/docling_profiles.py's
+module docstring for why: trusting a PDF's embedded text (force_full_page_ocr
+=False on the old DIGITAL_PDF_PROFILE) meant a broken font's ToUnicode
+mapping was never re-verified via OCR, which is exactly what caused digital
+PDFs to extract worse than scanned/handwritten ones.
+"""
+import pytest
+
 from config.docling_profiles import (
+    DOCLING_PROFILES,
+    OCR_FIRST_PROFILE,
+    get_profile,
     get_profile_for_document_type,
-    IDENTITY_DOCUMENT_PROFILE,
-    CHARACTER_BOX_FORMS_PROFILE,
-    SCANNED_DOCUMENTS_PROFILE,
-    DIGITAL_PDF_PROFILE,
-    MIXED_CONTENT_PROFILE,
 )
 
 
-def test_is_scanned_true_overrides_digital_doc_type_hint():
-    """A 'loan_agreement' (normally DIGITAL_PDF_PROFILE) that the preprocessor
-    actually found to be a scanned copy must get the aggressive scan profile,
-    not the native-text-only one that would skip real OCR."""
-    profile = get_profile_for_document_type("loan_agreement", is_scanned=True)
-    assert profile is SCANNED_DOCUMENTS_PROFILE
-    assert profile.force_full_page_ocr is True
+@pytest.mark.parametrize(
+    "doc_type", ["aadhaar", "pan", "application_form", "bank_statement",
+                 "loan_agreement", "sanction_letter", "kfs", "unknown_doc_type"]
+)
+@pytest.mark.parametrize("is_scanned", [True, False, None])
+def test_every_doc_type_and_scan_status_resolves_to_the_same_profile(doc_type, is_scanned):
+    """Neither argument affects routing any more -- both are accepted purely
+    for call-site compatibility with idp/services/document_processor.py."""
+    assert get_profile_for_document_type(doc_type, is_scanned=is_scanned) is OCR_FIRST_PROFILE
 
 
-def test_is_scanned_false_overrides_scanned_doc_type_hint():
-    """A 'bank_statement' (normally SCANNED_DOCUMENTS_PROFILE) that the
-    preprocessor found has a real text layer must get the native-text digital
-    profile instead of being force-rasterized and re-OCR'd."""
-    profile = get_profile_for_document_type("bank_statement", is_scanned=False)
-    assert profile is DIGITAL_PDF_PROFILE
-    assert profile.force_full_page_ocr is False
+def test_get_profile_by_name_still_works():
+    assert get_profile("ocr_first") is OCR_FIRST_PROFILE
 
 
-def test_is_scanned_none_falls_back_to_legacy_doc_type_heuristic():
-    """Callers that haven't run content inspection (is_scanned=None, the
-    default) keep the pre-existing filename/doc-type-based behavior."""
-    assert get_profile_for_document_type("bank_statement") is SCANNED_DOCUMENTS_PROFILE
-    assert get_profile_for_document_type("salary_slip") is SCANNED_DOCUMENTS_PROFILE
-    assert get_profile_for_document_type("loan_agreement") is DIGITAL_PDF_PROFILE
-    assert get_profile_for_document_type("sanction_letter") is DIGITAL_PDF_PROFILE
-    assert get_profile_for_document_type("nach_mandate") is DIGITAL_PDF_PROFILE
-    assert get_profile_for_document_type("unknown_doc_type") is MIXED_CONTENT_PROFILE
+def test_unknown_profile_name_raises_key_error():
+    with pytest.raises(KeyError):
+        get_profile("digital_pdf")  # the old name no longer exists
 
 
-def test_structural_profiles_ignore_scan_status():
-    """Identity cards and character-box forms are picked for their physical
-    layout, not their scan status, so is_scanned must never override them."""
-    for is_scanned in (True, False, None):
-        assert get_profile_for_document_type("aadhaar", is_scanned=is_scanned) is IDENTITY_DOCUMENT_PROFILE
-        assert get_profile_for_document_type("pan_card", is_scanned=is_scanned) is IDENTITY_DOCUMENT_PROFILE
-        assert get_profile_for_document_type("application_form", is_scanned=is_scanned) is CHARACTER_BOX_FORMS_PROFILE
+def test_registry_has_exactly_one_profile():
+    assert list(DOCLING_PROFILES.keys()) == ["ocr_first"]
 
 
-def test_is_scanned_true_on_unknown_doc_type_still_uses_scanned_profile():
-    """Content inspection takes precedence even for doc types with no
-    doc_type-specific branch at all (falls into the former 'default' bucket)."""
-    profile = get_profile_for_document_type("some_unrecognized_type", is_scanned=True)
-    assert profile is SCANNED_DOCUMENTS_PROFILE
+def test_ocr_first_profile_always_forces_full_page_ocr():
+    """The entire point of the collapse: no document, digital or scanned,
+    gets to skip OCR by trusting its own embedded/native text."""
+    assert OCR_FIRST_PROFILE.force_full_page_ocr is True
 
 
-def test_character_box_forms_profile_forces_full_page_ocr():
-    """
-    Regression: CHARACTER_BOX_FORMS_PROFILE used to declare
-    force_full_page_ocr=False ("use native text when available"). Docling's
-    OCR mode then stays at its library default, OcrMode.DEFAULT ->
-    PDF_AWARE_LAYOUT_REGIONS, which explicitly skips OCR for any layout
-    cluster that already contains native PDF text cells (verified against
-    the installed docling.datamodel.pipeline_options). A scanned/photographed
-    application form has no native text anywhere, so nothing gets skipped
-    and every comb-box character still gets OCR'd and merges correctly. A
-    genuinely digital PDF's comb-box grid usually DOES have some (often
-    mis-segmented, not one-token-per-cell) native text in that region, so it
-    got skipped -- CombBoxDetector then never received clean per-character
-    tokens, and fields like a name split across two printed cells failed to
-    combine. force_full_page_ocr=True forces full OCR regardless of native
-    text, making digital documents go through the same reliable per-character
-    OCR path scanned documents already use.
-    """
-    assert CHARACTER_BOX_FORMS_PROFILE.force_full_page_ocr is True
+def test_ocr_first_profile_uses_lowest_bbox_sensitivity_thresholds():
+    """Every threshold governing whether a region/box survives is pushed to
+    its most permissive value, trading precision for recall."""
+    assert OCR_FIRST_PROFILE.layout_detection_threshold <= 0.05
+    assert OCR_FIRST_PROFILE.ocr_text_score <= 0.05
+    assert OCR_FIRST_PROFILE.rapidocr_params["Det.thresh"] <= 0.05
+    assert OCR_FIRST_PROFILE.rapidocr_params["Det.box_thresh"] <= 0.1
+    assert OCR_FIRST_PROFILE.table_confidence_threshold <= 0.05
+    assert OCR_FIRST_PROFILE.table_min_rows == 1
+    assert OCR_FIRST_PROFILE.table_min_cols == 1
+
+
+def test_ocr_first_profile_uses_cell_matching_so_image_uploads_get_real_table_text():
+    """do_cell_matching=False would read table-cell text via
+    backend.get_text_in_rect(), which is hardcoded to return "" for raw image
+    uploads (no native text layer at all) -- do_cell_matching=True instead
+    reads the OCR-populated parsed_page cells, which force_full_page_ocr
+    guarantees exist for every input type, images included."""
+    assert OCR_FIRST_PROFILE.do_cell_matching is True
 
 
 def test_no_profile_declares_non_accurate_table_mode():
     """FAST mode is force-overridden to ACCURATE repo-wide
     (idp/services/docling/pipeline.py's get_cached_converter) and any
-    non-ACCURATE value triggers a misleading forced-override warning log at
-    converter-build time instead of actually running faster. IDENTITY_DOCUMENT_PROFILE
-    used to declare "FAST" (inconsistent with every other profile, and moot
-    anyway since it also sets do_table_structure=False) -- guard the whole
-    registry so no future profile reintroduces a value that's never honored."""
-    from config.docling_profiles import DOCLING_PROFILES
-
+    non-ACCURATE value triggers a misleading forced-override warning log."""
     for name, profile in DOCLING_PROFILES.items():
         assert profile.table_mode.upper() == "ACCURATE", (
             f"profile '{name}' declares table_mode={profile.table_mode!r}, but FAST "
-            "mode is disabled repo-wide -- this value is never honored and only "
-            "produces a misleading warning log"
+            "mode is disabled repo-wide -- this value is never honored"
         )

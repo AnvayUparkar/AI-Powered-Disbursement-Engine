@@ -34,10 +34,17 @@ class FieldLocation(BaseModel):
     bbox: Optional[List[float]] = None  # [x1, y1, x2, y2] normalized (0.0 to 1.0)
     bbox_pixels: Optional[List[float]] = None  # [x1, y1, x2, y2] in original image/page pixels
     matched_text: Optional[str] = None
-    confidence: float = 1.0  # OCR confidence (mirrors ocr_confidence, kept for compatibility)
+    # NOTE: these two default to None, NOT 1.0. Only the "resolved" branch of
+    # FieldLocationResolver sets them; every non-located status (unresolved,
+    # not_extracted, not_locatable, no_ocr_text) leaves them unset. A float default
+    # of 1.0 meant those fields rendered as "100%" and "Match: 100%" in the review
+    # UI -- a fabricated perfect score on a value that was never matched to anything,
+    # sitting right next to an honest "OCR n/a / Layout n/a". Unknown must read as
+    # unknown.
+    confidence: Optional[float] = None  # OCR confidence (mirrors ocr_confidence, kept for compatibility)
     ocr_confidence: Optional[float] = None  # RapidOCR recognition score of the matched token
     layout_confidence: Optional[float] = None  # Layout model score of the region it sits in
-    match_confidence: float = 1.0  # Matching score
+    match_confidence: Optional[float] = None  # Matching score
     location_status: Literal[
         "resolved",        # matched to a token/cell on the page
         "unresolved",      # a real value that could not be matched to the page

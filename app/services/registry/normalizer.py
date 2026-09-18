@@ -131,7 +131,7 @@ def parse_extracted_fields(
                 "bbox": fl_bbox,
                 "locationStatus": fl_status,
                 "matchedText": fl.get("matched_text"),
-                "matchConfidence": fl.get("match_confidence", 1.0),
+                "matchConfidence": fl.get("match_confidence"),
             "ocrConfidence": fl.get("ocr_confidence"),
             "layoutConfidence": fl.get("layout_confidence"),
                 "reason": fl.get("reason"),
@@ -266,5 +266,8 @@ def normalize_uploaded_record(
             "field_locations": field_locs if parsed_result else {},
             "ocr_tokens": (p_res.get("custom_metadata") or {}).get("ocr_tokens") or [],
             "page_dimensions": p_res.get("pages_dimensions") or [],
+            "layout_regions": p_res.get("layout_regions")
+            or (p_res.get("custom_metadata") or {}).get("layout_regions")
+            or [],
         },
     }

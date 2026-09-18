@@ -228,8 +228,14 @@ def _build_case_document_record(
         fl = field_locations.get(k) or {}
         fl_bbox = fl.get("bbox")
         fl_status = fl.get("location_status", "resolved" if fl_bbox else "unresolved")
-        raw_conf = fl.get("confidence", 0.97)
-        fl_conf = round(raw_conf * 100, 1) if raw_conf <= 1.0 else round(raw_conf, 1)
+        # No fabricated fallback: a field with no location record (or a non-located
+        # status) has no measured confidence, and must not be shown a plausible-looking
+        # number. 0.97 here previously rendered as a confident "97.0%" on values that
+        # were never matched to anything -- directly beside an honest "OCR n/a".
+        raw_conf = fl.get("confidence")
+        fl_conf = None
+        if raw_conf is not None:
+            fl_conf = round(raw_conf * 100, 1) if raw_conf <= 1.0 else round(raw_conf, 1)
         extracted_fields.append({
             "id": f"fld-{doc_id}-{k.lower().replace(' ', '_')}",
             "name": k.replace("_", " ").title(),
@@ -242,7 +248,7 @@ def _build_case_document_record(
             "bbox": fl_bbox,
             "locationStatus": fl_status,
             "matchedText": fl.get("matched_text"),
-            "matchConfidence": fl.get("match_confidence", 1.0),
+            "matchConfidence": fl.get("match_confidence"),
             "ocrConfidence": fl.get("ocr_confidence"),
             "layoutConfidence": fl.get("layout_confidence"),
             "reason": fl.get("reason"),
@@ -346,6 +352,10 @@ def _build_case_document_record(
             "field_locations": field_locations,
             "ocr_tokens": ocr_tokens,
             "page_dimensions": struct_data.get("page_dimensions", []),
+            # Layout model regions, raw and post-processed. See the overlay in
+            # DocumentViewer: the raw set is what tells you whether a region was
+            # never detected or detected and then dropped.
+            "layout_regions": struct_data.get("layout_regions") or [],
         },
         "processingSteps": [
             {

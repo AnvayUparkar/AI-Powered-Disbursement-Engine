@@ -181,6 +181,7 @@ class FieldLocationResolver:
                 "bbox_pixels": pix_bbox,
                 "page": pno,
                 "confidence": float(cell.get("confidence", 1.0)),
+                "layout_confidence": cell.get("layout_confidence"),
                 "source": "table_cell",
             }
             tokens_by_page.setdefault(pno, []).append(token_item)

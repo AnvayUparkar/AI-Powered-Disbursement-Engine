@@ -4,6 +4,11 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from idp.services.docling.pipeline import DoclingPipeline
 from idp.services.docling.options import DoclingOptions
+from idp.services.docling.layout_capture import (
+    get_raw_clusters,
+    install as install_layout_capture,
+    snapshot_cluster as _snapshot_cluster,
+)
 from idp.models.layout import LayoutElement, ElementType
 from idp.models.table import TableStructure, TableCell
 from idp.core.exceptions import DoclingProcessingError
@@ -66,6 +71,18 @@ def _overlap_ratio(inner: List[float], outer: List[float]) -> float:
     return (inter / area) if area > 0 else 0.0
 
 
+def _normalize_bbox(bbox: List[float], page_w: float, page_h: float) -> List[float]:
+    """Scale a top-left-origin [l, t, r, b] to the 0-1 space the UI overlay draws in."""
+    if page_w <= 0 or page_h <= 0 or len(bbox) < 4:
+        return [0.0, 0.0, 0.0, 0.0]
+    return [
+        round(bbox[0] / page_w, 6),
+        round(bbox[1] / page_h, 6),
+        round(bbox[2] / page_w, 6),
+        round(bbox[3] / page_h, 6),
+    ]
+
+
 class DoclingParseResult(BaseModel):
     """Output structure returned by DoclingParser."""
     elements: List[LayoutElement] = Field(default_factory=list)
@@ -79,6 +96,10 @@ class DoclingParseResult(BaseModel):
     table_score: Optional[float] = None
     parse_score: Optional[float] = None
     quality_grade: Optional[str] = None
+    # Layout model regions for the debug overlay: every raw cluster the model
+    # proposed (stage="raw", with survived=True/False) plus every cluster that
+    # survived postprocessing (stage="final", bbox snapped onto its OCR cells).
+    layout_regions: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class DoclingParser:
@@ -90,6 +111,9 @@ class DoclingParser:
 
     def parse(self, document_path: str, doc_id: str = "DOC") -> DoclingParseResult:
         logger.info(format_doc_log(doc_id, f"Parsing layout structure with Docling: {document_path}"))
+        # Idempotent; must run before convert() so the hook is in place when the
+        # layout postprocessor discards the raw predictions.
+        install_layout_capture()
         converter = self.pipeline.get_converter()
 
         if converter == "MOCK":
@@ -105,6 +129,10 @@ class DoclingParser:
             # recognition score. Previously these were thrown away and replaced by a
             # rule-based estimate that returned a near-constant value for all text.
             cluster_index: Dict[int, List[Dict[str, Any]]] = {}
+            # Debug overlay payload: every layout region, both the raw model
+            # prediction and what survived postprocessing. See layout_regions
+            # assembly below for why both are kept.
+            layout_regions: List[Dict[str, Any]] = []
             for cpage in getattr(conv_result, "pages", []) or []:
                 layout_pred = getattr(getattr(cpage, "predictions", None), "layout", None)
                 if not layout_pred:
@@ -113,6 +141,7 @@ class DoclingParser:
                 # and lines up with prov.page_no on the document items. Do not offset it.
                 pno_c = int(getattr(cpage, "page_no", 1) or 1)
                 page_h = float(getattr(getattr(cpage, "size", None), "height", 842.0) or 842.0)
+                page_w = float(getattr(getattr(cpage, "size", None), "width", 595.0) or 595.0)
                 entries: List[Dict[str, Any]] = []
                 for cl in layout_pred.clusters:
                     cell_scores = [
@@ -125,6 +154,33 @@ class DoclingParser:
                         "ocr_confidence": _finite(sum(cell_scores) / len(cell_scores)) if cell_scores else None,
                     })
                 cluster_index[pno_c] = entries
+
+                # The layout model proposes far more regions than survive:
+                # LayoutPostprocessor drops most of them and snaps the bbox of
+                # each survivor onto the RapidOCR cells it contains. Emitting
+                # only the survivors makes "this bbox is missing" ambiguous
+                # between "never detected" and "detected then discarded", so
+                # both sets are surfaced and tagged with `stage`.
+                surviving_ids = {getattr(cl, "id", None) for cl in layout_pred.clusters}
+                for raw in get_raw_clusters(cpage):
+                    layout_regions.append({
+                        **raw,
+                        "page_number": pno_c,
+                        "normalized_bbox": _normalize_bbox(raw["bbox"], page_w, page_h),
+                        "stage": "raw",
+                        "survived": raw.get("id") in surviving_ids,
+                    })
+                for cl in layout_pred.clusters:
+                    snap = _snapshot_cluster(cl, page_h)
+                    if snap is None:
+                        continue
+                    layout_regions.append({
+                        **snap,
+                        "page_number": pno_c,
+                        "normalized_bbox": _normalize_bbox(snap["bbox"], page_w, page_h),
+                        "stage": "final",
+                        "survived": True,
+                    })
 
             def _scores_for(bbox: List[float], pno_lookup: int) -> tuple[Optional[float], Optional[float]]:
                 """Best-overlapping layout cluster's scores for an element bbox."""
@@ -401,6 +457,7 @@ class DoclingParser:
                 table_score=_finite(getattr(conf_report, "table_score", None)),
                 parse_score=_finite(getattr(conf_report, "parse_score", None)),
                 quality_grade=_grade_str(grade),
+                layout_regions=layout_regions,
             )
             logger.info(format_doc_log(
                 doc_id,

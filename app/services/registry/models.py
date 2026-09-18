@@ -6,7 +6,7 @@ class ExtractedFieldRecord(TypedDict, total=False):
     id: str
     name: str
     value: str
-    confidence: float
+    confidence: Optional[float]
     sourceDocumentId: str
     page: int
     type: str

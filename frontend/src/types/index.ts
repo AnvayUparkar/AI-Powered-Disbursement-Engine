@@ -103,11 +103,36 @@ export interface DebugTableCell {
   confidence?: number | null;
 }
 
+/** One region from the layout model.
+ *
+ *  `stage` is the important field. Docling's layout stage proposes many more
+ *  regions than survive: LayoutPostprocessor drops most of them and snaps each
+ *  survivor's bbox onto the RapidOCR cells inside it. So:
+ *    - stage="raw", survived=false -> the model saw this region, postprocessing threw it away
+ *    - stage="raw", survived=true  -> the model's ORIGINAL rectangle, before OCR snapping
+ *    - stage="final"               -> what the pipeline actually used
+ *  Comparing raw-vs-final for the same region is what tells you whether a bad
+ *  bbox came from the layout model or from the OCR boxes it was snapped to. */
+export interface LayoutRegion {
+  id?: number | null;
+  label: string;
+  confidence: number;
+  /** Top-left origin [l, t, r, b] in PDF points. */
+  bbox: number[];
+  /** Same box scaled to 0-1; this is what the overlay draws. */
+  normalized_bbox: number[];
+  page_number: number;
+  cell_count: number;
+  stage: 'raw' | 'final';
+  survived: boolean;
+}
+
 export interface DocumentDebugInfo {
   field_locations?: Record<string, any>;
   ocr_tokens?: OCRToken[];
   ocr_tokens_by_page?: Record<number, OCRToken[]>;
   table_cells?: DebugTableCell[];
+  layout_regions?: LayoutRegion[];
   stage_scores?: StageScores;
 }
 
@@ -137,7 +162,9 @@ export interface ExtractedField {
   id: string;
   name: string;
   value: string | number | null;
-  confidence: number;
+  /** null when no confidence was ever measured for this field (non-located statuses).
+   *  Render as "n/a" -- never substitute a plausible-looking default. */
+  confidence: number | null;
   sourceDocumentId: string;
   page?: number;
   evidence?: Evidence[];
@@ -159,7 +186,8 @@ export interface ExtractedField {
     | 'not_locatable'
     | 'no_ocr_text';
   matchedText?: string;
-  matchConfidence?: number;
+  /** null when the field was never matched to a token/cell -- render as "n/a", never 0%. */
+  matchConfidence?: number | null;
   /** RapidOCR recognition score of the token this field matched. */
   ocrConfidence?: number | null;
   /** Layout model score for the region that token sits in. */

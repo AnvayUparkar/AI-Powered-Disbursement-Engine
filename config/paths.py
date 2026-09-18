@@ -24,6 +24,17 @@ S3_EXTRACTED_DIR = POC_DATA_DIR / "s3_extracted"
 S3_EXTRACTED_STRUCTURED_DIR = POC_DATA_DIR / "s3_extracted_structured"
 S3_RESULT_DIR = POC_DATA_DIR / "s3_result"
 
+# Trusted Root Certificates (Indian CCA & PKI)
+TRUSTED_ROOTS_DIR = BASE_DIR / "config" / "trusted_roots"
+
+# Local ML model weights (layout / TableFormer / RapidOCR), populated by
+# scripts/download_models.py. Kept inside the repo rather than ~/.cache so the
+# weights survive venv rebuilds and can be baked into a container image; see
+# idp/services/docling/model_store.py for how this is resolved at runtime.
+# NOT created by the mkdir loop below: model_store treats "directory absent"
+# as "no local weights, fall back to the HuggingFace cache".
+MODELS_DIR = BASE_DIR / "models"
+
 # Ensure canonical directory structures exist
 for d in (
     POC_DATA_DIR,
@@ -36,6 +47,7 @@ for d in (
     S3_EXTRACTED_DIR,
     S3_EXTRACTED_STRUCTURED_DIR,
     S3_RESULT_DIR,
+    TRUSTED_ROOTS_DIR,
 ):
     d.mkdir(parents=True, exist_ok=True)
 

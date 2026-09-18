@@ -38,6 +38,8 @@ def _get_options_key(options: DoclingOptions) -> str:
         # differ only by these must not share a cached instance.
         f"|{options.use_gpu}|{options.num_threads}|{options.ocr_text_score}"
         f"|{sorted((options.rapidocr_params or {}).items())}"
+        # Weights source changes which models get loaded into the converter.
+        f"|{options.artifacts_path}"
     )
 
 
@@ -71,7 +73,9 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
         try:
             from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
             from docling.datamodel.pipeline_options import OcrMode, PdfPipelineOptions
-            from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+
+            from idp.services.docling.accelerator import build_accelerator_options
+            from idp.services.docling.model_store import resolve_artifacts_path
 
             pipeline_options = PdfPipelineOptions()
 
@@ -80,19 +84,33 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
             # default of device="auto". AUTO resolves to the best available accelerator
             # (CUDA > MPS > XPU > CPU); CPU pins it explicitly.
             #
+            # Delegated to accelerator.build_accelerator_options so an operator can pin a
+            # concrete device via IDP_ACCELERATOR_DEVICE and so num_threads gets clamped to
+            # the real core count -- Docling forwards num_threads to RapidOCR as
+            # intra_op_num_threads, where oversubscription is a real cost.
+            #
             # NOTE: this governs the torch-based models -- the layout model and TableFormer.
             # RapidOCR runs on ONNX Runtime and only special-cases CUDA and DirectML, so OCR
             # stays on CPU on macOS regardless of what is set here.
-            pipeline_options.accelerator_options = AcceleratorOptions(
-                device=AcceleratorDevice.AUTO if options.use_gpu else AcceleratorDevice.CPU,
-                num_threads=options.num_threads,
+            accel_options, effective_device = build_accelerator_options(
+                use_gpu=options.use_gpu, num_threads=options.num_threads
             )
+            pipeline_options.accelerator_options = accel_options
             logger.info(
-                "[DoclingCache] Accelerator: device=%s num_threads=%s (use_gpu=%s)",
-                pipeline_options.accelerator_options.device,
-                options.num_threads,
+                "[DoclingCache] Accelerator: device=%s (effective=%s) num_threads=%s (use_gpu=%s)",
+                accel_options.device,
+                effective_device,
+                accel_options.num_threads,
                 options.use_gpu,
             )
+
+            # Local weights. When a populated artifacts directory is available, every
+            # model (layout, TableFormer AND RapidOCR) loads from disk with no network
+            # access; when it is not, this resolves to None and Docling falls back to
+            # its HuggingFace cache exactly as before.
+            artifacts_path = resolve_artifacts_path(options.artifacts_path)
+            if artifacts_path is not None:
+                pipeline_options.artifacts_path = artifacts_path
             pipeline_options.do_ocr = options.do_ocr
             pipeline_options.do_table_structure = options.do_table_structure
 
@@ -234,6 +252,12 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                 f"deskew={options.deskew}. "
                 "ONNX models are now hot and will be reused for all future documents."
             )
+        except FileNotFoundError:
+            # DOCLING_OFFLINE was demanded but the local weights are absent
+            # (raised by resolve_artifacts_path). Degrading to the MOCK converter
+            # here would turn an explicit deployment misconfiguration into
+            # silently empty extractions, so this one propagates.
+            raise
         except Exception as e:
             logger.warning(
                 f"[DoclingCache] Docling unavailable, falling back to MOCK converter: {e}"
@@ -255,7 +279,7 @@ def prewarm_docling_converters() -> None:
     logger.info("[DoclingPrewarm] Pre-warming Docling converters...")
     try:
         # 1. Prewarm identity configuration (no tables)
-        id_opts = DoclingOptions(do_table_structure=False, table_mode="FAST")
+        id_opts = DoclingOptions(do_table_structure=False, table_mode="ACCURATE")
         get_cached_converter(id_opts)
 
         # 2. Prewarm tabular configuration (TableFormer ACCURATE)

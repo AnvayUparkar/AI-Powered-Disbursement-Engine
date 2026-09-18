@@ -278,3 +278,102 @@ def test_key_value_extractor_paragraphs_keep_model_scores():
     para = paragraphs[0]
     assert para["ocr_confidence"] == pytest.approx(0.9173)
     assert para["layout_confidence"] == pytest.approx(0.5549)
+
+
+def test_table_cell_matched_field_carries_real_layout_confidence():
+    """A field resolved via a table cell must not report layout_confidence=None just
+    because a table cell has no individual layout Cluster of its own -- it inherits
+    the confidence of the table region TableFormer built it from.
+
+    Regression: table cell tokens were built with no layout_confidence key at all, so
+    every field with source="table_cell" showed layout_confidence=None regardless of
+    how confidently the table's region was actually detected.
+    """
+    from idp.services.extraction.field_location_resolver import FieldLocationResolver
+
+    table_cells = [{
+        "id": "c1", "text": "24 Months", "bbox": [0.3, 0.5, 0.5, 0.55],
+        "page_number": 1, "confidence": 1.0, "layout_confidence": 0.87,
+    }]
+    locs = FieldLocationResolver().resolve_field_locations(
+        extracted_fields={"loan_validity": "24 Months"},
+        ocr_elements=[],
+        table_cells=table_cells,
+        page_dimensions=[{"width": 600.0, "height": 800.0}],
+    )
+    loc = locs["loan_validity"]
+    assert loc.location_status == "resolved"
+    assert loc.source == "table_cell"
+    assert loc.layout_confidence == pytest.approx(0.87)
+
+
+def test_table_cell_without_a_known_table_confidence_reports_none_not_zero():
+    """Edge: if the table itself has no table_confidence (e.g. TableFormer region
+    score unavailable), the cell must report unknown, not a fabricated 0.0."""
+    from idp.services.extraction.field_location_resolver import FieldLocationResolver
+
+    table_cells = [{
+        "id": "c1", "text": "24 Months", "bbox": [0.3, 0.5, 0.5, 0.55],
+        "page_number": 1, "confidence": 1.0, "layout_confidence": None,
+    }]
+    locs = FieldLocationResolver().resolve_field_locations(
+        extracted_fields={"loan_validity": "24 Months"},
+        ocr_elements=[],
+        table_cells=table_cells,
+        page_dimensions=[{"width": 600.0, "height": 800.0}],
+    )
+    assert locs["loan_validity"].layout_confidence is None
+
+
+@pytest.mark.parametrize(
+    "fields,elements,expected_status",
+    [
+        # value exists but matches nothing on the page
+        ({"applicant_name": "DINESH KUMAR"},
+         [{"id": "e1", "text": "unrelated", "bbox": [0.1, 0.1, 0.4, 0.2], "page_number": 1,
+           "confidence": 0.9, "ocr_confidence": 0.9, "layout_confidence": 0.9}],
+         "unresolved"),
+        # nothing was extracted at all
+        ({"applicant_name": None}, [], "not_extracted"),
+    ],
+)
+def test_non_located_fields_never_fabricate_a_confidence(fields, elements, expected_status):
+    """A field that was never matched must report unknown confidence, not a perfect score.
+
+    Regression: FieldLocation.confidence/match_confidence defaulted to 1.0, so every
+    non-located field rendered as "100%" and "Match: 100%" in the review UI -- a
+    fabricated perfect score sitting directly beside an honest "OCR n/a / Layout n/a".
+    """
+    from idp.services.extraction.field_location_resolver import FieldLocationResolver
+
+    locs = FieldLocationResolver().resolve_field_locations(
+        extracted_fields=fields,
+        ocr_elements=elements,
+        page_dimensions=[{"width": 600.0, "height": 800.0}],
+    )
+    loc = locs["applicant_name"]
+    assert loc.location_status == expected_status
+    assert loc.confidence is None, "confidence must be unknown, not a fabricated 1.0"
+    assert loc.match_confidence is None, "match_confidence must be unknown, not 1.0"
+    assert loc.ocr_confidence is None
+    assert loc.layout_confidence is None
+    assert loc.reason, "a non-located field must explain why"
+
+
+def test_resolved_field_still_reports_real_measured_confidences():
+    """The fix must not blank out genuinely measured scores on a real match."""
+    from idp.services.extraction.field_location_resolver import FieldLocationResolver
+
+    locs = FieldLocationResolver().resolve_field_locations(
+        extracted_fields={"applicant_name": "DINESH KUMAR"},
+        ocr_elements=[{"id": "e1", "text": "DINESH KUMAR", "bbox": [0.1, 0.1, 0.4, 0.2],
+                       "page_number": 1, "confidence": 0.88,
+                       "ocr_confidence": 0.88, "layout_confidence": 0.93}],
+        page_dimensions=[{"width": 600.0, "height": 800.0}],
+    )
+    loc = locs["applicant_name"]
+    assert loc.location_status == "resolved"
+    assert loc.confidence == pytest.approx(0.88)
+    assert loc.ocr_confidence == pytest.approx(0.88)
+    assert loc.layout_confidence == pytest.approx(0.93)
+    assert loc.match_confidence is not None and loc.match_confidence > 0

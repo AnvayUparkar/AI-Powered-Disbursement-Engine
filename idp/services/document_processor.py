@@ -251,6 +251,10 @@ class DocumentProcessor:
                         ocr_tokens_debug = [t.model_dump() for t in resolver.extract_debug_tokens(raw_element_dicts, page_dims)]
                         parsed_doc.custom_metadata["field_locations"] = field_locs_dict
                         parsed_doc.custom_metadata["ocr_tokens"] = ocr_tokens_debug
+                        # Raw + post-processed layout regions for the debug overlay.
+                        parsed_doc.custom_metadata["layout_regions"] = (
+                            getattr(docling_result, "layout_regions", []) or []
+                        )
                     except Exception as loc_err:
                         logger.warning(format_doc_log(document_id, f"Field location resolution notice: {loc_err}"))
             except Exception as llm_err:
@@ -272,6 +276,7 @@ class DocumentProcessor:
                 "extracted_fields": llm_fields,
                 "field_locations": parsed_doc.custom_metadata.get("field_locations", {}),
                 "ocr_tokens": parsed_doc.custom_metadata.get("ocr_tokens", []),
+                "layout_regions": parsed_doc.custom_metadata.get("layout_regions", []),
             }
 
         finally:

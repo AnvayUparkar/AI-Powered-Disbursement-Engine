@@ -342,7 +342,7 @@ class DocumentSerializer:
                         # CombBoxDetector.min_sequence_length before merging was
                         # ever attempted. Only non-candidates go through dedup.
                         if not is_comb_candidate and self._is_duplicate(
-                            norm_box, page_info.elements, iou_threshold=0.50, text=final_text
+                            norm_box, page_info.elements, iou_threshold=0.30, text=final_text
                         ):
                             continue
 
@@ -743,6 +743,11 @@ class DocumentSerializer:
         """
         Check if an OCR element's bounding box spatially overlaps any existing
         element on the same page with IoU >= threshold and matching text content.
+
+        NOTE: `iou_threshold` is accepted for call-site compatibility but was never
+        actually used below -- both call sites passed 0.30/0.50 expecting to control
+        sensitivity, and neither value did anything. The real gates are the two
+        hardcoded constants immediately below.
         """
         norm_txt = text.strip().lower() if text and text.strip() else None
 
@@ -751,9 +756,14 @@ class DocumentSerializer:
             iou = DocumentSerializer._compute_iou(ocr_bbox, elem.bbox)
             overlap = DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox)
 
-            # Exact or highly similar text match with spatial overlap >= 0.20
+            # Exact or highly similar text match with spatial overlap >= 0.60 (was 0.20).
+            # 0.20 was aggressive enough to merge two DISTINCT boxes that merely share
+            # short repeated text (a comb-box grid's repeated digits, repeated checkbox
+            # marks, repeated words like "Date"/"Yes") whenever they sat even loosely
+            # near each other -- exactly the class of bbox this pipeline is now tuned to
+            # maximize recall for (see config/docling_profiles.py: OCR_FIRST_PROFILE).
             if norm_txt and elem_txt and norm_txt == elem_txt:
-                if iou >= 0.20 or overlap >= 0.20:
+                if iou >= 0.60 or overlap >= 0.60:
                     return True
 
             # Pure spatial overlap: require very high IoU (>= 0.85) if text is different,

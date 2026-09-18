@@ -95,3 +95,7 @@ docs/
 LOAN_*.json
 **/LOAN_*.json
 
+
+# Locally downloaded ML weights (layout / TableFormer / RapidOCR), ~730 MB.
+# Populate with: python scripts/download_models.py
+models/

@@ -1,316 +1,170 @@
 """
-Docling configuration profiles for different document types.
+Docling configuration -- single, unified OCR-first pipeline.
 
-Provides pre-tuned settings optimized for specific use cases:
-- Digital forms with character boxes (Indian government forms)
-- Scanned documents
-- Mixed content documents
-- Performance-optimized settings
+Previously this module shipped six document-type profiles (identity docs,
+character-box forms, scanned documents, digital PDFs, mixed content, high
+performance), each tuning Docling's OCR mode differently -- most importantly,
+several of them set `force_full_page_ocr=False`, which tells Docling to TRUST
+a PDF's own embedded text layer for any region that already contains
+characters and skip OCR there entirely (see OcrMode.DEFAULT ->
+PDF_AWARE_LAYOUT_REGIONS in the installed docling.datamodel.pipeline_options).
+
+That trust assumption is exactly what broke digital-PDF extraction: a PDF
+whose font has no ToUnicode CMap (common with custom/subsetted fonts in
+bank-statement and government PDF generators) still "has text" by Docling's
+own check -- it just decodes to glyph IDs or garbage -- and nothing ever
+re-verifies it via OCR.
+
+REPLACED WITH: one profile, ALWAYS full-page OCR, regardless of document
+type or whether the file has a native text layer. Every document goes
+through the exact same pipeline scanned/handwritten documents already used
+(the one that was working correctly), and every threshold governing whether
+a region/box survives is set to its most permissive value, trading precision
+for recall across the board.
+
+Consequence worth knowing: this is uniformly slower (every page is always
+fully re-rasterized and OCR'd, even a clean digital PDF that had a perfectly
+good text layer) and noisier (lower thresholds mean more false-positive
+boxes on scan artifacts, watermarks, and faint marks). That trade was made
+deliberately here, not accidentally.
 """
+
+from typing import Optional
 
 from idp.services.docling.options import DoclingOptions
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: IDENTITY DOCUMENTS (Aadhaar, PAN, DL, Voter ID)
-# ═══════════════════════════════════════════════════════════════════════════
-# Pure identity cards do not contain financial tables.
-# Bypasses TableFormer completely to eliminate unnecessary CPU transformer passes.
+# THE ONLY PROFILE -- applied to every document type
 # ═══════════════════════════════════════════════════════════════════════════
 
-# NOTE: use_gpu is now wired to pipeline_options.accelerator_options (it previously had no
-# effect at all). Every profile is set True so behaviour is unchanged: Docling's own default
-# was device="auto", which already resolved to the best available accelerator. Setting False
-# here now genuinely pins AcceleratorDevice.CPU and will slow layout/TableFormer down.
-
-IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
-    do_table_structure=False,
-    table_mode="FAST",
+OCR_FIRST_PROFILE = DoclingOptions(
+    # ── OCR: always full-page, never trust native PDF/embedded text ────────
     do_ocr=True,
+    # Wired -> OcrMode.FULL_PAGE. This is the whole point of this file: every
+    # region on every page is OCR'd regardless of what the PDF's own text
+    # layer (if any) claims. Nothing is ever read from PDF metadata/embedded
+    # text alone.
     force_full_page_ocr=True,
     ocr_lang=["english", "hindi"],
-    images_scale=2.0,
-    do_layout_analysis=True,
-    detect_reading_order=True,
-    reading_order_method="spatial",
-    max_num_pages=10,
-    use_gpu=True,
-    num_threads=4,
-)
 
+    # Lowest real detection-stage thresholds (verified this session to reach
+    # the actual rapidocr engine via the params passthrough in
+    # idp/services/docling/pipeline.py -- NOT det_db_thresh/det_db_box_thresh
+    # below, which are [INERT], kept only as a historical/documentation
+    # reference to what earlier profiles intended but never actually applied).
+    # rapidocr's own defaults are thresh=0.3, box_thresh=0.2; these are
+    # pushed to the floor for maximum bbox recall.
+    #
+    # max_candidates raised from the engine default (1000) as a safety margin
+    # for dense character-box/comb-box grid forms, where the number of
+    # individually-detected small regions on one page can approach that cap.
+    rapidocr_params={"Det.thresh": 0.01, "Det.box_thresh": 0.05, "Det.max_candidates": 3000},
 
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: CHARACTER BOX FORMS (e.g., Application Forms)
-# ═══════════════════════════════════════════════════════════════════════════
-# Optimized for forms where each character has a separate box.
-# TableFormer detects character boxes as individual cells.
-# Post-processing merges them using comb-box detector.
-# ═══════════════════════════════════════════════════════════════════════════
+    # Lowest recognition-confidence floor: a recognized text box is never
+    # discarded for being low-confidence. This does NOT create boxes the
+    # detector missed (see rapidocr_params above for that) -- it only stops
+    # already-detected text from being filtered out after the fact.
+    ocr_text_score=0.01,
 
-CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
-    # Table Detection (relaxed to handle fine-grained grids)
+    # [INERT] -- det_limit_side_len/det_db_thresh/det_db_box_thresh/
+    # rec_batch_num have no equivalent attribute on RapidOcrOptions in
+    # docling 2.126.0 and are silently discarded by the pipeline. Left unset
+    # here deliberately so nobody mistakes them for live knobs; use
+    # rapidocr_params above for anything the real engine needs to see.
+
+    # ── Layout: lowest region-detection gate, catch every faint region ─────
+    # Wired -> pipeline_options.layout_options.engine_options.score_threshold.
+    # This runs BEFORE OCR: it decides whether the layout model creates a
+    # region/cluster at all. If a region is never created here, no OCR
+    # threshold downstream can recover it -- this is the single most
+    # upstream "bbox sensitivity" knob in the whole pipeline.
+    layout_detection_threshold=0.01,
+
+    # Maximum rasterization resolution: the biggest lever for small/faint
+    # text regardless of source (scan or digital), since every page is now
+    # always re-rasterized and OCR'd from a raster image.
+    images_scale=3.0,
+
+    # ── Tables: keep TableFormer on for every document type (some identity
+    # documents have zero tables; the model simply reports none for those --
+    # a small amount of wasted compute traded for one uniform pipeline) ────
     do_table_structure=True,
-    table_mode="ACCURATE",
-    table_confidence_threshold=0.4,  # Lower threshold to catch character grids
-    table_min_rows=1,  # Allow single-row "tables" (character sequences)
-    table_min_cols=3,  # Min 3 chars to qualify
-    
-    # Character Box Handling
-    merge_character_boxes=True,
-    character_box_max_width=30.0,  # Typical char box width
-    character_box_gap_threshold=5.0,
-    
-    # Cell Merging (disabled to preserve individual chars for comb-box detector)
-    merge_adjacent_cells=False,  # Let comb-box detector handle merging
-    detect_cell_spans=True,
-    
-    # OCR Settings (use native text when available)
-    do_ocr=True,
-    force_full_page_ocr=False,  # Extract digital text natively
-    ocr_lang=["english", "hindi"],
-    
-    # OCR Quality (balanced)
-    det_limit_side_len=960,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.6,
-    rec_batch_num=6,
-    
-    # Image Processing
-    images_scale=2.0,
-    enhance_contrast=False,
-    denoise=False,
-    deskew=False,
-    
-    # Layout Analysis
-    do_layout_analysis=True,
-    detect_reading_order=True,
-    reading_order_method="spatial",
-    
-    # Performance
-    max_num_pages=50,
+    table_mode="ACCURATE",  # FAST is forced to ACCURATE repo-wide regardless
+                            # (see idp/services/docling/pipeline.py); stated
+                            # here to avoid the misleading forced-override
+                            # warning log that a "FAST" declaration triggers.
+
+    # Reconcile TableFormer's predicted grid against the actual OCR'd text
+    # cells (page.parsed_page, which force_full_page_ocr above populates
+    # with OCR output -- see base_ocr_model.post_process_cells) rather than
+    # the backend's own get_text_in_rect() path. For a raw image upload,
+    # get_text_in_rect() is hardcoded to return "" (idp/... image backend
+    # has no native text layer at all), so do_cell_matching=True is what
+    # keeps table-cell text coming from OCR on every input type, images
+    # included -- do_cell_matching=False would silently produce empty table
+    # cells for image uploads specifically.
+    do_cell_matching=True,
+
+    # Lowest table-survival thresholds -- a table is never dropped by the
+    # parser.py post-filter (Docling itself has no native confidence/
+    # min-rows/min-cols knobs; these are enforced there after TableFormer
+    # returns its grid).
+    table_confidence_threshold=0.01,
+    table_min_rows=1,
+    table_min_cols=1,
+
+    # ── Compute ──────────────────────────────────────────────────────────
+    # Wired -> pipeline_options.accelerator_options via
+    # idp/services/docling/accelerator.py. True requests AUTO (best available:
+    # CUDA > MPS > XPU > CPU); an operator can pin a concrete device -- including
+    # a specific GPU like "cuda:1" -- with IDP_ACCELERATOR_DEVICE, which
+    # overrides this flag.
+    #
+    # Measured on Apple silicon: the layout model and TableFormer genuinely run
+    # on MPS, but RapidOCR (~85% of per-page time) stays on ONNX Runtime's CPU
+    # execution provider, because Docling only ever sets use_cuda/use_dml for it.
+    # CoreML was benchmarked as an alternative and was ~2x SLOWER than the CPU
+    # provider, so it is deliberately not enabled. Only a CUDA host moves OCR
+    # itself onto the GPU.
     use_gpu=True,
-    num_threads=4,
+
+    # Also forwarded to RapidOCR as EngineConfig.onnxruntime.intra_op_num_threads.
+    # Clamped at runtime to the machine's real core count, so this reads as "use
+    # every core, up to 30" rather than as a literal thread count -- values above
+    # the core count would only oversubscribe the ONNX Runtime intra-op pool.
+    num_threads=30,
+
+    # Weights source. None -> $DOCLING_ARTIFACTS_PATH, else <repo>/models/docling,
+    # else Docling's HuggingFace cache with on-demand downloads. When the local
+    # directory is populated (python scripts/download_models.py) the layout model,
+    # TableFormer AND RapidOCR all load from disk with no network access. Set
+    # DOCLING_OFFLINE=true to make a missing local copy a hard startup error
+    # instead of a silent fallback to downloading.
+    artifacts_path=None,
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: SCANNED DOCUMENTS (Low Quality)
-# ═══════════════════════════════════════════════════════════════════════════
-# Aggressive OCR with image enhancement for poor quality scans.
-# ═══════════════════════════════════════════════════════════════════════════
-
-SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
-    # Table Detection (strict, avoid false positives)
-    do_table_structure=True,
-    table_mode="ACCURATE",
-    table_confidence_threshold=0.7,  # Higher threshold for scans
-    table_min_rows=2,
-    table_min_cols=2,
-    
-    # Cell Merging
-    merge_adjacent_cells=True,
-    cell_merge_threshold=0.8,
-    detect_cell_spans=True,
-    
-    # OCR Settings (aggressive for scanned images)
-    do_ocr=True,
-    force_full_page_ocr=True,  # Always run OCR on scanned docs
-    ocr_lang=["english", "hindi"],
-    
-    # OCR Quality (high quality for low-res scans)
-    det_limit_side_len=1280,  # Higher resolution
-    det_db_thresh=0.2,  # Lower threshold = more text boxes
-    det_db_box_thresh=0.5,
-    rec_batch_num=4,
-    
-    # Image Processing (enhanced)
-    images_scale=3.0,  # 3x upscaling for low-res scans
-    enhance_contrast=True,
-    denoise=True,
-    deskew=True,
-    
-    # Layout Analysis
-    do_layout_analysis=True,
-    detect_reading_order=True,
-    reading_order_method="column_aware",
-    
-    # Performance
-    max_num_pages=100,
-    use_gpu=True,
-    num_threads=4,
-)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: DIGITAL PDFS (Native Text)
-# ═══════════════════════════════════════════════════════════════════════════
-# Optimized for computer-generated PDFs with embedded text.
-# Minimal OCR, fast processing.
-# ═══════════════════════════════════════════════════════════════════════════
-
-DIGITAL_PDF_PROFILE = DoclingOptions(
-    # Table Detection (standard)
-    do_table_structure=True,
-    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
-    table_confidence_threshold=0.6,
-    table_min_rows=2,
-    table_min_cols=2,
-    
-    # Cell Merging
-    merge_adjacent_cells=True,
-    cell_merge_threshold=0.9,  # Strict merging for clean text
-    detect_cell_spans=True,
-    
-    # OCR Settings (minimal, only for images/missing text)
-    do_ocr=True,
-    force_full_page_ocr=False,  # Use native PDF text
-    ocr_on_tables_only=False,
-    ocr_lang=["english"],
-    
-    # OCR Quality (standard, rarely used)
-    det_limit_side_len=960,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.6,
-    rec_batch_num=6,
-    
-    # Image Processing (minimal)
-    images_scale=1.5,
-    enhance_contrast=False,
-    denoise=False,
-    deskew=False,
-    
-    # Layout Analysis
-    do_layout_analysis=True,
-    detect_reading_order=True,
-    reading_order_method="spatial",
-    
-    # Performance (fast)
-    max_num_pages=100,
-    use_gpu=True,
-    num_threads=6,
-)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: MIXED CONTENT (Digital + Scanned)
-# ═══════════════════════════════════════════════════════════════════════════
-# Balanced settings for documents with both native text and scanned pages.
-# ═══════════════════════════════════════════════════════════════════════════
-
-MIXED_CONTENT_PROFILE = DoclingOptions(
-    # Table Detection
-    do_table_structure=True,
-    table_mode="ACCURATE",
-    table_confidence_threshold=0.5,
-    table_min_rows=2,
-    table_min_cols=2,
-    
-    # Cell Merging
-    merge_adjacent_cells=True,
-    cell_merge_threshold=0.8,
-    detect_cell_spans=True,
-    
-    # OCR Settings (adaptive)
-    do_ocr=True,
-    force_full_page_ocr=False,  # Use native text when available
-    ocr_lang=["english", "hindi"],
-    
-    # OCR Quality (balanced)
-    det_limit_side_len=960,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.6,
-    rec_batch_num=6,
-    
-    # Image Processing (moderate)
-    images_scale=2.0,
-    enhance_contrast=False,
-    denoise=False,
-    deskew=False,
-    
-    # Layout Analysis
-    do_layout_analysis=True,
-    detect_reading_order=True,
-    reading_order_method="spatial",
-    
-    # Performance
-    max_num_pages=100,
-    use_gpu=True,
-    num_threads=4,
-)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: HIGH PERFORMANCE (Speed Optimized)
-# ═══════════════════════════════════════════════════════════════════════════
-# Fast processing for real-time/batch scenarios. Lower accuracy acceptable.
-# ═══════════════════════════════════════════════════════════════════════════
-
-HIGH_PERFORMANCE_PROFILE = DoclingOptions(
-    # Table Detection (fast mode)
-    do_table_structure=True,
-    table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide
-    table_confidence_threshold=0.6,
-    table_min_rows=2,
-    table_min_cols=2,
-    
-    # Cell Merging
-    merge_adjacent_cells=True,
-    cell_merge_threshold=0.8,
-    detect_cell_spans=False,  # Skip span detection
-    
-    # OCR Settings (fast)
-    do_ocr=True,
-    force_full_page_ocr=False,
-    ocr_lang=["english"],
-    
-    # OCR Quality (lower resolution, faster)
-    det_limit_side_len=640,  # Lower resolution
-    det_db_thresh=0.4,
-    det_db_box_thresh=0.7,
-    rec_batch_num=8,  # Larger batches
-    
-    # Image Processing (minimal)
-    images_scale=1.5,
-    enhance_contrast=False,
-    denoise=False,
-    deskew=False,
-    
-    # Layout Analysis (simplified)
-    do_layout_analysis=True,
-    detect_reading_order=False,  # Skip reading order
-    
-    # Performance (maximum speed)
-    max_num_pages=100,
-    use_gpu=True,
-    num_threads=8,
-)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PROFILE REGISTRY
-# ═══════════════════════════════════════════════════════════════════════════
-
+# Every existing call site (idp/services/document_processor.py) resolves a
+# profile through get_profile_for_document_type(doc_type, is_scanned=...).
+# Both arguments are accepted and ignored -- kept only so no caller needs to
+# change -- since there is now exactly one profile for every document type
+# and every scan-status.
 DOCLING_PROFILES = {
-    "identity_document": IDENTITY_DOCUMENT_PROFILE,
-    "character_box_forms": CHARACTER_BOX_FORMS_PROFILE,
-    "scanned_documents": SCANNED_DOCUMENTS_PROFILE,
-    "digital_pdf": DIGITAL_PDF_PROFILE,
-    "mixed_content": MIXED_CONTENT_PROFILE,
-    "high_performance": HIGH_PERFORMANCE_PROFILE,
+    "ocr_first": OCR_FIRST_PROFILE,
 }
 
 
 def get_profile(profile_name: str) -> DoclingOptions:
     """
     Get a Docling configuration profile by name.
-    
+
     Args:
         profile_name: Profile identifier
-        
+
     Returns:
         DoclingOptions instance
-        
+
     Raises:
         KeyError: If profile not found
     """
@@ -323,32 +177,20 @@ def get_profile(profile_name: str) -> DoclingOptions:
     return DOCLING_PROFILES[profile_name]
 
 
-def get_profile_for_document_type(doc_type: str) -> DoclingOptions:
+def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = None) -> DoclingOptions:
     """
-    Auto-select profile based on document type.
-    
-    Args:
-        doc_type: Document type (e.g., "application_form", "aadhaar", "kfs")
-        
-    Returns:
-        Appropriate DoclingOptions profile
-    """
-    # Pure identity cards: bypass TableFormer completely (zero tables in Aadhaar/PAN/DL/Voter ID)
-    if doc_type in ["aadhaar", "pan", "pan_card", "dl", "driving_license", "voter_id", "passport"]:
-        return IDENTITY_DOCUMENT_PROFILE
+    Return the single OCR-first profile, regardless of document type or
+    scan-status.
 
-    # Indian government forms with character boxes (e.g. application form)
-    elif doc_type in ["application_form"]:
-        return CHARACTER_BOX_FORMS_PROFILE
-    
-    # Financial documents (typically scanned)
-    elif doc_type in ["bank_statement", "salary_slip"]:
-        return SCANNED_DOCUMENTS_PROFILE
-    
-    # Legal/contract documents (typically digital)
-    elif doc_type in ["loan_agreement", "sanction_letter", "nach_mandate"]:
-        return DIGITAL_PDF_PROFILE
-    
-    # Default: mixed content
-    else:
-        return MIXED_CONTENT_PROFILE
+    Args:
+        doc_type: Ignored. Kept for call-site compatibility
+            (idp/services/document_processor.py passes it and uses it as
+            part of a parser cache key).
+        is_scanned: Ignored. Every document -- digital or scanned -- goes
+            through the same full-page OCR path now, so the preprocessor's
+            content-based text-layer inspection no longer changes routing.
+
+    Returns:
+        OCR_FIRST_PROFILE, always.
+    """
+    return OCR_FIRST_PROFILE
