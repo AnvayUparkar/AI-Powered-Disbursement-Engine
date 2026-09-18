@@ -135,7 +135,13 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
-  const totalPages = Math.max(1, document.pages || 1);
+  const maxFieldPage = (document.extractedFields || []).reduce((max, f) => Math.max(max, f.page || 1), 1);
+  const rawPages = Array.isArray(document.pages)
+    ? (document.pages as any[]).length
+    : typeof document.pages === 'number'
+    ? document.pages
+    : 1;
+  const totalPages = Math.max(1, rawPages, maxFieldPage);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(window.document.fullscreenElement === viewerRef.current);

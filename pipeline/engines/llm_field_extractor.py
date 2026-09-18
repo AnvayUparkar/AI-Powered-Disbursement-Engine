@@ -355,6 +355,7 @@ def llm_extract_fields(
         "temperature": 0,
         "max_tokens": LLM_MAX_TOKENS,
         "response_format": {"type": "json_object"},
+        "include_reasoning": False,
     }
 
     try:
@@ -370,7 +371,10 @@ def llm_extract_fields(
             response.raise_for_status()
 
         data: dict[str, Any] = response.json()
-        raw_content: str = data["choices"][0]["message"]["content"]
+        raw_content: str | None = data.get("choices", [{}])[0].get("message", {}).get("content")
+        if not raw_content:
+            logger.warning("[%s] OpenRouter response content is empty/null (doc_type=%s)", doc_id, doc_type)
+            return {}
         cleaned = _clean_json_response(raw_content)
         extracted: dict[str, Any] = json.loads(cleaned)
         result: dict[str, Any] = format_template_json(extracted)

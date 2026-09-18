@@ -120,11 +120,18 @@ class DocumentRegistry:
             }
             extracted_fields_list = parse_extracted_fields(doc_id, parsed_shim, llm_meta)
 
+            pages_count = len(result.get("pages") or []) or result.get("pages") or rec.get("pages", 1)
+            try:
+                pages_val = int(pages_count)
+            except (ValueError, TypeError):
+                pages_val = 1
+
             rec.update({
                 "status": "processed",
                 "ocrStatus": "COMPLETED",
                 "extractionStatus": "COMPLETED",
                 "confidence": 97.5,
+                "pages": max(1, pages_val),
                 "rawText": raw_txt,
                 "formattedText": fmt_txt,
                 "extractedFields": extracted_fields_list or rec.get("extractedFields", []),
