@@ -33,7 +33,7 @@ class LayoutElement(BaseModel):
     page_number: int
     reading_order: Optional[int] = None
     level: Optional[int] = None  # Heading level if applicable
-    source: str = "rapidocr"
+    source: str = "docling_ocr"
     structure_source: str = "none"
     ocr_original: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

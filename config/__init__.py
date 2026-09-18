@@ -12,6 +12,7 @@ from config.paths import (
     S3_LOS_DIR,
     S3_RAW_DIR,
     S3_RESULT_DIR,
+    TRUSTED_ROOTS_DIR,
 )
 from config.settings import (
     ADDRESS_MATCH_ALGO,
@@ -31,7 +32,9 @@ from config.settings import (
     LOAN_AMOUNT_THRESHOLD_PCT,
     MAX_DOC_WORKERS,
     NAME_MATCH_ALGO,
+    REQUIRE_TRUSTED_DIGITAL_SIGNATURE,
     SKIP_IDP,
+    USE_EQUAL_FIELD_WEIGHTS,
 )
 from config.doc_types import (
     DOC_TYPE_ALIASES,
@@ -41,12 +44,15 @@ from config.doc_types import (
 )
 from config.pipeline_checks import (
     CHECKPOINTS_SPEC,
+    EQUAL_FIELD_CRITICALITY_WEIGHTS,
     FIELD_ALIASES,
     FIELD_CRITICALITY_WEIGHTS,
     FINANCIAL_FIELD_CHECKS,
     KYC_FIELD_CHECKS,
     LOAN_APP_FIELD_CHECKS,
     NEO_LOS_FIELD_MAP,
+    TIERED_FIELD_CRITICALITY_WEIGHTS,
+    get_field_criticality_weights,
 )
 
 __all__ = [
@@ -61,6 +67,8 @@ __all__ = [
     "S3_EXTRACTED_DIR",
     "S3_EXTRACTED_STRUCTURED_DIR",
     "S3_RESULT_DIR",
+    "TRUSTED_ROOTS_DIR",
+    "REQUIRE_TRUSTED_DIGITAL_SIGNATURE",
     "IST",
     "NAME_MATCH_ALGO",
     "ADDRESS_MATCH_ALGO",
@@ -84,6 +92,10 @@ __all__ = [
     "get_display_name",
     "NEO_LOS_FIELD_MAP",
     "FIELD_CRITICALITY_WEIGHTS",
+    "TIERED_FIELD_CRITICALITY_WEIGHTS",
+    "EQUAL_FIELD_CRITICALITY_WEIGHTS",
+    "get_field_criticality_weights",
+    "USE_EQUAL_FIELD_WEIGHTS",
     "KYC_FIELD_CHECKS",
     "FINANCIAL_FIELD_CHECKS",
     "LOAN_APP_FIELD_CHECKS",

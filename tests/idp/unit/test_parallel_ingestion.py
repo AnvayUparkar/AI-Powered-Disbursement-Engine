@@ -40,15 +40,19 @@ async def test_parallel_page_ocr_ingestion(monkeypatch):
     ocr_results: List[OCRResult] = []
     doc_type_hint = "loan_application"
     
+    from idp.models.ocr import OCRElement
+
     def _process_single_page(args: Tuple[int, bytes, float, float]) -> OCRResult:
         pidx, page_bytes, img_width, img_height = args
         pno = pidx + 1
-        ocr_res = processor.ocr_router.process_page(
-            page_bytes, page_number=pno, doc_id="TEST_PARALLEL_DOC", doc_type_hint=doc_type_hint, preview_text=""
+        return OCRResult(
+            page_number=pno,
+            elements=[OCRElement(id=f"p-{pno}", text=f"PAGE {pno} TEXT DATA FOR LOAN APPLICATION", bbox=[0, 0, 10, 10], confidence=0.95, page_number=pno)],
+            average_confidence=0.95,
+            total_elements=1,
+            image_width=float(img_width),
+            image_height=float(img_height)
         )
-        ocr_res.image_width = float(img_width)
-        ocr_res.image_height = float(img_height)
-        return ocr_res
 
     from concurrent.futures import ThreadPoolExecutor
     page_tasks = [(pidx, page_bytes, w, h) for pidx, (page_bytes, w, h) in enumerate(page_data)]

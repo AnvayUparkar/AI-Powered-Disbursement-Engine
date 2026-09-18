@@ -67,6 +67,90 @@ def test_fetch_los_node(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert (s3_los_dir / f"{loan_id}.json").exists()
 
 
+def test_fetch_los_node_from_s3_los(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Test fetch_los ingests from s3_los tier when absent from LOS_LOANS_DIR and syncs to local tier."""
+    loan_id = "LOAN_TEST_S3_FETCH"
+    los_dir = tmp_path / "los" / "loans"
+    los_dir.mkdir(parents=True, exist_ok=True)
+    s3_los_dir = tmp_path / "s3_los"
+    s3_los_dir.mkdir(parents=True, exist_ok=True)
+    s3_result_dir = tmp_path / "s3_result"
+
+    los_record = {
+        "loan_id": loan_id,
+        "applicant_name": "Prakash Khatri",
+        "loan_amount": 1000000.0,
+    }
+    (s3_los_dir / f"{loan_id}.json").write_text(json.dumps(los_record))
+
+    monkeypatch.setattr("pipeline.nodes.fetch_los.LOS_LOANS_DIR", los_dir)
+    monkeypatch.setattr("pipeline.nodes.fetch_los.S3_LOS_DIR", s3_los_dir)
+    monkeypatch.setattr("pipeline.storage.S3_LOS_DIR", s3_los_dir)
+    monkeypatch.setattr("pipeline.storage.S3_RESULT_DIR", s3_result_dir)
+
+    init_state: PipelineState = {
+        "loan_id": loan_id,
+        "los_data": {},
+        "raw_doc_paths": {},
+        "extracted_data": {},
+        "extracted_structured_data": {},
+        "face_embeddings": {},
+        "dms_status": {},
+        "otp_audit": {},
+        "comparison_results": [],
+        "subnode_rollups": {},
+        "compiled_report": {},
+        "scorecard": {},
+        "errors": [],
+        "node_history": [],
+    }
+
+    out_state = fetch_los(init_state)
+    assert out_state["los_data"]["applicant_name"] == "Prakash Khatri"
+    assert out_state["los_data"]["loan_amount"] == 1000000.0
+    assert len(out_state["errors"]) == 0
+    assert "fetch_los" in out_state["node_history"]
+    # Check bidirectional synchronization
+    assert (los_dir / f"{loan_id}.json").exists()
+
+
+def test_fetch_los_node_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Test fetch_los records structured error when loan record is not found in any tier."""
+    loan_id = "LOAN_NONEXISTENT"
+    los_dir = tmp_path / "los" / "loans"
+    los_dir.mkdir(parents=True, exist_ok=True)
+    s3_los_dir = tmp_path / "s3_los"
+    s3_los_dir.mkdir(parents=True, exist_ok=True)
+    s3_result_dir = tmp_path / "s3_result"
+
+    monkeypatch.setattr("pipeline.nodes.fetch_los.LOS_LOANS_DIR", los_dir)
+    monkeypatch.setattr("pipeline.nodes.fetch_los.S3_LOS_DIR", s3_los_dir)
+    monkeypatch.setattr("pipeline.storage.S3_LOS_DIR", s3_los_dir)
+    monkeypatch.setattr("pipeline.storage.S3_RESULT_DIR", s3_result_dir)
+
+    init_state: PipelineState = {
+        "loan_id": loan_id,
+        "los_data": {},
+        "raw_doc_paths": {},
+        "extracted_data": {},
+        "extracted_structured_data": {},
+        "face_embeddings": {},
+        "dms_status": {},
+        "otp_audit": {},
+        "comparison_results": [],
+        "subnode_rollups": {},
+        "compiled_report": {},
+        "scorecard": {},
+        "errors": [],
+        "node_history": [],
+    }
+
+    out_state = fetch_los(init_state)
+    assert out_state["los_data"] == {}
+    assert len(out_state["errors"]) == 1
+    assert f"LOS loan record not found for ID: {loan_id}" in out_state["errors"][0]
+
+
 def test_fetch_dms_node(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Test fetch_dms copies files into s3_raw tier."""
     loan_id = "LOAN_TEST_DMS"
@@ -165,6 +249,7 @@ def test_check_loan_application_node(mock_state_001: PipelineState):
     state = copy.deepcopy(mock_state_001)
     state["extracted_data"]["kfs"]["application_no"] = "LOAN_001"
     state["extracted_data"]["sanction_letter"]["application_no"] = "LOAN_001"
+    state["extracted_data"]["loan_agreement"]["loan_agreement_signed"] = True
     res = check_loan_application(state)
     assert res["rollup"] == "Verified"
     assert not any(r["field"] == "application_date" for r in res["records"])

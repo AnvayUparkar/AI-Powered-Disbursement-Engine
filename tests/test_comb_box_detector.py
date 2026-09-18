@@ -246,6 +246,78 @@ class TestCombBoxDetector:
         # Should not merge (< min_sequence_length)
         assert len(merged) == 0
 
+    def test_cluster_row_with_cumulative_skew_drift_stays_together(self):
+        """Regression: a wide comb-box row (e.g. a 10-digit mobile number)
+        photographed with slight camera skew drifts in y across its width.
+        A fixed anchor pinned to the row's FIRST element would measure the
+        last digit's drift (9 * 6 = 54px) against the first digit and
+        incorrectly fracture the row once cumulative drift exceeded one
+        tolerance band (~22.5px), even though every adjacent pair is well
+        within tolerance (6px steps). The rolling anchor must keep this as
+        ONE row."""
+        detector = CombBoxDetector()
+
+        elements = [
+            LayoutElement(
+                id=f"m{i}", text=str(i % 10), bbox=[100 + i * 20, 200 + i * 6, 110 + i * 20, 214 + i * 6],
+                page_number=1, type=ElementType.TEXT, confidence=0.9,
+                source="docling_ocr", structure_source="docling", reading_order=i
+            )
+            for i in range(10)
+        ]
+
+        rows = detector._cluster_by_row(elements)
+        assert len(rows) == 1
+        assert len(rows[0]) == 10
+
+    def test_cluster_by_row_span_cap_prevents_unbounded_chain(self):
+        """Safety check for the rolling anchor above: even though each
+        individual step stays under the per-step tolerance, unbounded
+        chaining must not merge a whole page's worth of drifting elements
+        into a single "row" -- the bounded total-span cap must still split
+        it once cumulative drift grows too large."""
+        detector = CombBoxDetector()
+
+        # Each step (20px) is just under the ~22.5px per-step tolerance, but
+        # cumulative drift after 4 steps (80px) exceeds the span cap (~67.5px).
+        elements = [
+            LayoutElement(
+                id=f"s{i}", text=str(i), bbox=[100 + i * 20, 200 + i * 20, 110 + i * 20, 214 + i * 20],
+                page_number=1, type=ElementType.TEXT, confidence=0.9,
+                source="docling_ocr", structure_source="docling", reading_order=i
+            )
+            for i in range(6)
+        ]
+
+        rows = detector._cluster_by_row(elements)
+        assert len(rows) > 1
+        assert sum(len(r) for r in rows) == 6
+
+    def test_mobile_number_with_skew_drift_merges_as_one_field(self):
+        """End-to-end regression for the production bug: a 10-digit mobile
+        number comb-box row with realistic camera-skew drift (~1.5px per
+        digit, ~13.5px total across the row -- a mildly tilted phone photo)
+        must reconstruct as ONE merged field, not fragment into multiple
+        partial tokens. Before this fix, the sequence geometry gate's
+        cumulative baseline-span check (0.6 * box height = 8.4px) was
+        tighter than this realistic total drift and fragmented the run."""
+        detector = CombBoxDetector()
+
+        digits = "9876543210"
+        elements = [
+            LayoutElement(
+                id=f"mob{i}", text=ch, bbox=[100 + i * 20, 200.0 + i * 1.5, 110 + i * 20, 214.0 + i * 1.5],
+                page_number=1, type=ElementType.TEXT, confidence=0.9,
+                source="docling_ocr", structure_source="docling", reading_order=i
+            )
+            for i, ch in enumerate(digits)
+        ]
+
+        merged = detector.detect_and_merge_comb_boxes(elements, page_number=1, doc_id="TEST")
+
+        assert len(merged) == 1
+        assert merged[0].text == digits
+
     def test_reject_vertical_stack(self):
         """A vertical column of single characters (e.g. a numbered list
         "1"/"2"/"3" or stacked initials) must NOT be merged: their shared x

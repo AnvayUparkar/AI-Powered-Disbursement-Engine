@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     PARSED_DOCUMENT_PREFIX: str = "parsed-documents/"
 
     # OCR Configuration
-    OCR_ENGINE: str = "rapidocr"
+    OCR_ENGINE: str = "docling_ocr"
     OCR_MODEL: str = "PP-OCRv6_medium"
     OCR_CONFIDENCE_THRESHOLD: float = 0.70
 

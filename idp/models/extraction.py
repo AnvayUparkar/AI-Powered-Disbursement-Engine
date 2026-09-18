@@ -63,5 +63,5 @@ class OCRTokenDebug(BaseModel):
     # stage is actually uncertain (RapidOCR recognition vs the layout model's region call).
     ocr_confidence: Optional[float] = None
     layout_confidence: Optional[float] = None
-    source: str = "rapidocr"
+    source: str = "docling_ocr"
     line_number: Optional[int] = None

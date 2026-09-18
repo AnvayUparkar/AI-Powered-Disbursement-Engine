@@ -230,14 +230,14 @@ export function CreateCaseModal({
               multiple
               className="hidden"
               onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }}
-              accept=".pdf,.jpg,.jpeg,.png,.zip,.tiff,.bmp"
+              accept=".pdf,.jpg,.jpeg,.png,.zip,.tiff,.tif,.bmp,.xml,image/tiff,image/png,image/jpeg,application/pdf"
             />
             <UploadCloud className="h-10 w-10 mx-auto text-brand-500 mb-2" />
             <p className="text-sm font-semibold text-ink-800">
               {dragging ? 'Drop documents here' : 'Drag & drop loan documents or click to browse'}
             </p>
             <p className="text-xs text-ink-500 mt-1">
-              Supports Application Form, PAN, Aadhaar XML, KFS, Sanction Letter, Agreement, and Memos (PDF, JPG, PNG, ZIP)
+              Supports Application Form, PAN, Aadhaar XML, KFS, Sanction Letter, Agreement, and Memos (PDF, JPG, PNG, TIFF, XML, ZIP)
             </p>
           </div>
 

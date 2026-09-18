@@ -381,3 +381,32 @@ def test_clean_bilingual_keeps_middle_initial_and_split_option():
     assert clean("RAJESH K SHARMA") == "RAJESH K SHARMA"
     # leading isolated noise letter is still removed
     assert clean("R BAZAR DIST JAIPUR").startswith("BAZAR")
+
+
+def test_clean_bilingual_wipes_isolated_single_letter_by_design():
+    """
+    Pinning test, not a desired behavior: the lone-uppercase-letter guard above
+    only looks at what flanks the letter WITHIN THE SAME STRING. A comb-box
+    OCR element's text IS a single character by design (one printed cell per
+    LayoutElement) -- its neighbors are separate elements this function never
+    sees -- so the guard can never pass and the character is wiped to "".
+
+    This is exactly why idp/services/output/serializer.py routes comb-box
+    candidate elements (CombBoxDetector.is_candidate_text) around this
+    function entirely instead of calling it (see the "PRODUCTION FIX" comment
+    at the `final_text = ...` line there) -- fixing it here would defeat the
+    flanking-context guard this function relies on for its real job (label
+    lines like "RAJESH K SHARMA" above). Regression coverage for the actual
+    fix lives in tests/idp/unit/test_serializer.py
+    (test_comb_box_merged_tokens_stay_near_their_field_label), which proves
+    single-letter comb-box cells like "P"/"A"/"I" survive end-to-end and
+    reconstruct into full field values.
+    """
+    clean = OCRConfidenceEvaluator.clean_bilingual_label_noise
+
+    for letter in ["P", "A", "I", "K"]:
+        assert clean(letter) == "", (
+            f"clean_bilingual_label_noise({letter!r}) no longer wipes an "
+            "isolated letter -- if this changed intentionally, confirm "
+            "serializer.py's comb-candidate bypass is still necessary/correct."
+        )

@@ -1,57 +1,33 @@
 import pytest
 from idp.services.ocr.script_detector import ScriptDetector, ScriptCategory, ScriptDetectionResult
-from idp.services.ocr.ocr_model_router import OCRModelRouter, OCRRoutingDecision
 from idp.services.ocr.confidence import OCRConfidenceEvaluator
 from idp.models.ocr import OCRElement, OCRResult
 from idp.utils.masking import mask_sensitive_pii
 from idp.core.config import settings
 
 
-# 1. English-only text -> english profile
+# 1. English-only script detection
 def test_scenario_1_english_only_text():
     detector = ScriptDetector()
     res = detector.detect_script("Government of India")
     assert res.primary_script == "latin"
     assert res.is_mixed is False
 
-    router = OCRModelRouter()
-    decision = router.resolve_routing_decision(preview_text="Government of India")
-    assert decision.model_profile == "english"
 
-
-# 2. Devanagari text -> devanagari profile
+# 2. Devanagari script detection
 def test_scenario_2_devanagari_text():
     detector = ScriptDetector()
     res = detector.detect_script("भारत सरकार")
     assert res.primary_script == "devanagari"
 
-    router = OCRModelRouter()
-    decision = router.resolve_routing_decision(preview_text="भारत सरकार")
-    assert decision.model_profile == "devanagari"
 
-
-# 3. Mixed Aadhaar text -> devanagari / multilingual profile
+# 3. Mixed Aadhaar script detection
 def test_scenario_3_mixed_aadhaar_text():
     detector = ScriptDetector()
     res = detector.detect_script("भारत सरकार Government of India")
     assert res.is_mixed is True
     assert "devanagari" in res.scripts_detected
     assert "latin" in res.scripts_detected
-
-    router = OCRModelRouter()
-    decision = router.resolve_routing_decision(preview_text="भारत सरकार Government of India")
-    assert decision.model_profile in ["devanagari", "multilingual"]
-
-
-# 4. English bank statement -> English profile remains selected
-def test_scenario_4_english_bank_statement():
-    router = OCRModelRouter()
-    decision = router.resolve_routing_decision(
-        doc_type_hint="bank_statement",
-        preview_text="HDFC BANK STATEMENT ACCOUNT BALANCE SUMMARY DEBIT CREDIT"
-    )
-    assert decision.model_profile == "english"
-    assert decision.routing_reason == "english_latin_default"
 
 
 # 5. Garbled text -> flagged for fallback

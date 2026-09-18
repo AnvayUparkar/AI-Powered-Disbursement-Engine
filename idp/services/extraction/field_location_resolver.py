@@ -621,7 +621,7 @@ class FieldLocationResolver:
                 confidence=round(float(elem.get("confidence", 1.0)), 3),
                 ocr_confidence=elem.get("ocr_confidence"),
                 layout_confidence=elem.get("layout_confidence"),
-                source=elem.get("source", "ocr"),
+                source=elem.get("source", "docling_ocr"),
                 line_number=elem.get("line_number")
             ))
         return tokens

@@ -1,11 +1,10 @@
-﻿import io
+import io
 import numpy as np
 from PIL import Image, ImageFilter
 from unittest.mock import MagicMock
 
 from idp.models.ocr import OCRResult, OCRElement
 from idp.services.ocr.preprocessing import OCRImagePreprocessor
-from idp.services.ocr.ocr_model_router import OCRModelRouter
 from idp.services.ocr.confidence import OCRConfidenceEvaluator
 from idp.services.vlm.router import ConfidenceRouter
 
@@ -65,29 +64,6 @@ def test_preprocessing_assess_quality():
     assert degraded_quality["is_sharp"] is False
     assert degraded_quality["is_well_contrasted"] is False
     assert degraded_quality["needs_preprocessing"] is True
-
-
-def test_ocr_model_router_no_longer_skips_from_filename_hint():
-    """(b) Router does not skip preprocessing for degraded images even with English doc_type_hint."""
-    router = OCRModelRouter()
-    mock_engine = MagicMock()
-    mock_engine.process.return_value = OCRResult(page_number=1, elements=[])
-    router.default_engine = mock_engine
-
-    degraded_bytes = _create_synthetic_image(sharp=False, high_contrast=False)
-
-    # Pass an English hint that previously skipped preprocessing unconditionally
-    router.process_page(
-        image_input=degraded_bytes,
-        page_number=1,
-        doc_id="TEST-DEGRADED-HINT",
-        doc_type_hint="bank_statement"
-    )
-
-    assert mock_engine.process.called
-    call_kwargs = mock_engine.process.call_args.kwargs
-    # Must NOT skip preprocessing on degraded image
-    assert call_kwargs.get("skip_preprocessing") is False
 
 
 def test_confidence_evaluator_flags_empty_ocr_result():

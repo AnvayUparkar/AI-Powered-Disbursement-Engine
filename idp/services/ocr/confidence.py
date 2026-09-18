@@ -391,7 +391,7 @@ class OCRConfidenceEvaluator:
                         break
             
             # Flag if it has generic label and no clear OCR provenance
-            if label_is_generic and source != "rapidocr" and "ocr" not in ocr_engine:
+            if label_is_generic and source not in ["rapidocr", "ocr", "docling_ocr"] and "ocr" not in ocr_engine:
                 return True
 
             return False

@@ -91,3 +91,7 @@ poc_data/idp_temp/**/*
 CODE_REVIEW_FINDINGS.md
 docs/
 
+# Loan JSON outputs
+LOAN_*.json
+**/LOAN_*.json
+

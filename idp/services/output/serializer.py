@@ -221,7 +221,10 @@ class DocumentSerializer:
                                 if cell_key in vlm_corrections:
                                     cell.text = vlm_corrections[cell_key].text
 
-                                cell.text = self.evaluator.clean_bilingual_label_noise(cell.text)
+                                if CombBoxDetector.is_candidate_text(cell.text):
+                                    cell.text = (cell.text or "").strip()
+                                else:
+                                    cell.text = self.evaluator.clean_bilingual_label_noise(cell.text)
 
                                 if cell.row_index not in rows_dict:
                                     rows_dict[cell.row_index] = []
@@ -277,7 +280,17 @@ class DocumentSerializer:
                                 )
                                 continue
 
-                        final_text = self.evaluator.clean_bilingual_label_noise(elem.text)
+                        # PRODUCTION FIX: clean_bilingual_label_noise() rule 7 strips a
+                        # "lone uppercase letter" UNLESS it sees word characters flanking
+                        # it in the SAME string ("RAJESH K SHARMA" keeps its "K"). A
+                        # comb-box element's text IS a single character by design -- its
+                        # neighbors are separate elements the function never sees -- so
+                        # that guard can never pass and every plain single-letter cell
+                        # ("P", "A", "I", ...) was silently wiped to "", dropped by the
+                        # `not final_text` check below, and never reached CombBoxDetector.
+                        # Comb candidates skip this label-noise cleanup entirely: it exists
+                        # for full label/line text, not isolated per-cell characters.
+                        final_text = elem.text.strip() if is_comb_candidate else self.evaluator.clean_bilingual_label_noise(elem.text)
 
                         retained_meta: Dict[str, Any] = {}
                         if not is_comb_candidate:
@@ -363,80 +376,78 @@ class DocumentSerializer:
                             )
                         )
 
-                # # 3. RAPIDOCR FALLBACK: Ingest RapidOCR text elements ONLY if Docling produced no elements for this page
-                # elif ocr_results:
-                #     for ocr_res in ocr_results:
-                #         if ocr_res.page_number == pno:
-                #             ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
-                #             ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
-                #             for ocr_elem in ocr_res.elements:
-                #                 norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
-                #                 final_text = self.evaluator.clean_bilingual_label_noise(ocr_elem.text)
-                #                 src = "RAPIDOCR" if ocr_elem.source in ["ocr", "rapidocr"] else ocr_elem.source
-                #                 ocr_orig = ocr_elem.ocr_original
-                #                 conf = ocr_elem.confidence
-                # 
-                #                 if ocr_elem.id in vlm_corrections:
-                #                     vlm_res = vlm_corrections[ocr_elem.id]
-                #                     final_text = self.evaluator.clean_bilingual_label_noise(vlm_res.text)
-                #                     src = "vlm_corrected"
-                #                     ocr_orig = ocr_elem.text
-                #                     conf = vlm_res.confidence
-                # 
-                #                 # RapidOCR Non-Table Filtering against Docling Table Regions
-                #                 is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
-                #                     rapidocr_bbox=norm_box,
-                #                     table_regions=table_regions
-                #                 )
-                # 
-                #                 if is_blocked:
-                #                     logger.info(
-                #                         format_doc_log(
-                #                             doc_id,
-                #                             f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
-                #                         )
-                #                     )
-                #                     continue
-                # 
-                #                 if self.evaluator.is_garbled_text(final_text) and src != "vlm_corrected":
-                #                     logger.info(
-                #                         format_doc_log(
-                #                             doc_id,
-                #                             f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_GARBLED_TEXT text='{final_text[:30]}'"
-                #                         )
-                #                     )
-                #                     continue
-                # 
-                #                 # Secondary page-scoped deduplication
-                #                 if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
-                #                     logger.info(
-                #                         format_doc_log(
-                #                             doc_id,
-                #                             f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_DUPLICATE text='{final_text[:30]}'"
-                #                         )
-                #                     )
-                #                     continue
-                # 
-                #                 logger.info(
-                #                     format_doc_log(
-                #                         doc_id,
-                #                         f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
-                #                     )
-                #                 )
-                # 
-                #                 page_info.elements.append(
-                #                     LayoutElement(
-                #                         id=ocr_elem.id or f"ocr-{pno}-{len(page_info.elements)+1}",
-                #                         type=ElementType.TEXT,
-                #                         text=final_text,
-                #                         bbox=norm_box,
-                #                         confidence=conf,
-                #                         page_number=pno,
-                #                         source=src,
-                #                         structure_source="none",
-                #                         ocr_original=ocr_orig
-                #                     )
-                #                 )
+                # 3. FALLBACK OCR: Ingest fallback OCR text elements if Docling produced no elements for this page
+                elif ocr_results:
+                    for ocr_res in ocr_results:
+                        if ocr_res.page_number == pno:
+                            ocr_img_w = ocr_res.image_width if ocr_res.image_width > 0 else w
+                            ocr_img_h = ocr_res.image_height if ocr_res.image_height > 0 else h
+                            for ocr_elem in ocr_res.elements:
+                                norm_box = normalize_bbox(ocr_elem.bbox, ocr_img_w, ocr_img_h)
+                                final_text = self.evaluator.clean_bilingual_label_noise(ocr_elem.text)
+                                src = "docling_ocr" if ocr_elem.source in ["ocr", "rapidocr", "docling_ocr"] else ocr_elem.source
+                                ocr_orig = ocr_elem.ocr_original
+                                conf = ocr_elem.confidence
+
+                                if ocr_elem.id in vlm_corrections:
+                                    vlm_res = vlm_corrections[ocr_elem.id]
+                                    final_text = self.evaluator.clean_bilingual_label_noise(vlm_res.text)
+                                    src = "vlm_corrected"
+                                    ocr_orig = ocr_elem.text
+                                    conf = vlm_res.confidence
+
+                                is_blocked, decision = TableRegionMask.is_inside_or_overlapping_table(
+                                    rapidocr_bbox=norm_box,
+                                    table_regions=table_regions
+                                )
+
+                                if is_blocked:
+                                    logger.info(
+                                        format_doc_log(
+                                            doc_id,
+                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
+                                        )
+                                    )
+                                    continue
+
+                                if self.evaluator.is_garbled_text(final_text) and src != "vlm_corrected":
+                                    logger.info(
+                                        format_doc_log(
+                                            doc_id,
+                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_GARBLED_TEXT text='{final_text[:30]}'"
+                                        )
+                                    )
+                                    continue
+
+                                if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
+                                    logger.info(
+                                        format_doc_log(
+                                            doc_id,
+                                            f"ocr_region_decision page={pno} elem={ocr_elem.id} decision=SKIPPED_DUPLICATE text='{final_text[:30]}'"
+                                        )
+                                    )
+                                    continue
+
+                                logger.info(
+                                    format_doc_log(
+                                        doc_id,
+                                        f"ocr_region_decision page={pno} elem={ocr_elem.id} decision={decision} text='{final_text[:30]}'"
+                                    )
+                                )
+
+                                page_info.elements.append(
+                                    LayoutElement(
+                                        id=ocr_elem.id or f"ocr-{pno}-{len(page_info.elements)+1}",
+                                        type=ElementType.TEXT,
+                                        text=final_text,
+                                        bbox=norm_box,
+                                        confidence=conf,
+                                        page_number=pno,
+                                        source=src,
+                                        structure_source="none",
+                                        ocr_original=ocr_orig
+                                    )
+                                )
 
                 logger.info(
                     format_doc_log(
@@ -459,19 +470,45 @@ class DocumentSerializer:
             if comb_box_enabled:
                 comb_detector = CombBoxDetector()
                 total_merged = 0
-                
+
                 for pno in sorted(pages_map.keys()):
                     p = pages_map[pno]
-                    
+
                     # Detect and merge comb-box sequences
                     merged_tokens = comb_detector.detect_and_merge_comb_boxes(
                         elements=p.elements,
                         page_number=pno,
                         doc_id=doc_id
                     )
-                    
+                    if not merged_tokens:
+                        continue
+
+                    # PRODUCTION FIX: merged tokens used to get a hardcoded
+                    # reading_order=9999, dumping EVERY comb-box field value
+                    # on the page (name, father's/mother's name, mobile
+                    # number, PAN, ...) into one undifferentiated block at
+                    # the very end of the page's text, disconnected from any
+                    # field label. That starved the downstream LLM field
+                    # extractor of the label-proximity context it needs --
+                    # e.g. to tell "Applicant Name" from "Father's Name"
+                    # apart when both end in the same surname -- which
+                    # surfaced as fields resolving to the wrong or only a
+                    # fragment of their value. Inheriting the EARLIEST
+                    # constituent character's reading_order instead keeps
+                    # the clean merged value next to its label.
+                    reading_order_by_id = {
+                        e.id: e.reading_order for e in p.elements if e.id is not None
+                    }
+
                     # Add merged tokens as supplementary LayoutElements
                     for mt in merged_tokens:
+                        constituent_orders = [
+                            reading_order_by_id[cid]
+                            for cid in mt.constituent_element_ids
+                            if reading_order_by_id.get(cid) is not None
+                        ]
+                        merged_reading_order = min(constituent_orders) if constituent_orders else 9999
+
                         merged_elem = LayoutElement(
                             id=mt.id,
                             text=mt.text,
@@ -480,7 +517,7 @@ class DocumentSerializer:
                             confidence=mt.confidence,
                             source="comb_box_merged",
                             type=ElementType.TEXT,
-                            reading_order=9999,  # Place after regular elements
+                            reading_order=merged_reading_order,
                             structure_source="spatial_clustering",
                             metadata={
                                 "merge_method": mt.merge_method,
@@ -491,6 +528,11 @@ class DocumentSerializer:
                         )
                         p.elements.append(merged_elem)
                         total_merged += 1
+
+                    # Re-sort: merged tokens were appended above (out of
+                    # list order), so restore spatial reading order before
+                    # full_text_parts is built from p.elements below.
+                    p.elements.sort(key=lambda e: (e.reading_order if e.reading_order is not None else 9999, round(e.bbox[1] if e.bbox else 0.0, 2), e.bbox[0] if e.bbox else 0.0))
 
                 if total_merged > 0:
                     logger.info(
@@ -894,6 +936,14 @@ class DocumentSerializer:
 
             _traverse(root)
 
+            # Extract masked UID from UIDAI UidData element (uid attribute, e.g. "xxxxxxxx1407").
+            # _traverse only captures element text; XML attributes are never emitted into text_lines.
+            aadhaar_uid: Optional[str] = None
+            for elem in root.iter():
+                if elem.tag.split("}")[-1] == "UidData" and elem.get("uid"):
+                    aadhaar_uid = elem.get("uid")
+                    break
+
             full_text = "\n".join(text_lines)
             file_size = os.path.getsize(file_path)
 
@@ -931,7 +981,8 @@ class DocumentSerializer:
                 tables=[],
                 elements=elements,
                 text=full_text,
-                processing=proc_meta
+                processing=proc_meta,
+                custom_metadata={"aadhaar_uid": aadhaar_uid} if aadhaar_uid else {},
             )
 
         except Exception as e:

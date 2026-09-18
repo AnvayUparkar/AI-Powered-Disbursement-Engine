@@ -157,51 +157,75 @@ class CombBoxDetector:
 
         return merged_tokens
     
+    # A wide comb-box row (e.g. a 10-digit mobile number) photographed with
+    # even slight camera skew drifts in y across its width. Bounding that
+    # drift by a multiple of the per-step tolerance (rather than leaving it
+    # unbounded) still lets one physical row cluster together while stopping
+    # the rolling anchor below from chaining genuinely different rows.
+    _ROW_SPAN_TOLERANCE_MULTIPLIER = 3.0
+
     def _cluster_by_row(
         self,
         elements: List[LayoutElement]
     ) -> List[List[LayoutElement]]:
         """
         Group elements into horizontal rows based on y-coordinate alignment.
-        
+
         Uses y_tolerance to handle slight vertical misalignment from OCR.
-        
+
         Args:
             elements: Elements to cluster
-            
+
         Returns:
             List of rows, each containing horizontally-aligned elements
         """
         if not elements:
             return []
-        
+
         # Sort by vertical position (top to bottom)
         sorted_elements = sorted(elements, key=lambda e: e.bbox[1])
-        
+
         rows = []
         current_row = [sorted_elements[0]]
         current_y = sorted_elements[0].bbox[1]
-        
+        row_min_y = current_y
+        row_max_y = current_y
+
         # Adaptive y_tolerance based on coordinate space (normalized <= 1.5 vs pixels > 1.5)
         sample_y = sorted_elements[0].bbox[1]
         effective_tolerance = self.y_tolerance if sample_y <= 1.5 else max(15.0, self.y_tolerance * 500.0)
+        span_cap = effective_tolerance * self._ROW_SPAN_TOLERANCE_MULTIPLIER
 
         for elem in sorted_elements[1:]:
             elem_y = elem.bbox[1]
-            
-            # Check if within tolerance of current row
-            if abs(elem_y - current_y) <= effective_tolerance:
+
+            # Local step: compare against the LAST accepted element, not the
+            # row's first element. A fixed anchor lets cumulative skew drift
+            # across a wide row (e.g. digit 1 to digit 10 of a mobile number)
+            # exceed one tolerance band even though each adjacent pair is
+            # well within it, silently fracturing the row into fragments.
+            within_step = abs(elem_y - current_y) <= effective_tolerance
+            # Total span guard: still cap how far the row can drift overall,
+            # so the rolling anchor can't chain together unrelated rows.
+            within_span = (max(row_max_y, elem_y) - min(row_min_y, elem_y)) <= span_cap
+
+            if within_step and within_span:
                 current_row.append(elem)
+                current_y = elem_y
+                row_min_y = min(row_min_y, elem_y)
+                row_max_y = max(row_max_y, elem_y)
             else:
                 # Start new row
                 rows.append(current_row)
                 current_row = [elem]
                 current_y = elem_y
-        
+                row_min_y = elem_y
+                row_max_y = elem_y
+
         # Add last row
         if current_row:
             rows.append(current_row)
-        
+
         return rows
     
     def _find_comb_box_sequences(
@@ -306,10 +330,24 @@ class CombBoxDetector:
         if min(origin_advances) < med_w * 0.25:
             return False, 0.0
 
-        # 1b. All cell centres must lie on one baseline. A stacked row is
-        #     offset by a whole line (>= med_h); page-scan skew stays well
-        #     inside this band.
-        if max(centre_ys) - min(centre_ys) > med_h * 0.6:
+        # 1b. All cell centres must lie on one baseline, checked as a PER-STEP
+        #     difference rather than the total span of the whole sequence.
+        #     A cumulative-span check dilutes to near-zero tolerance per
+        #     character as a sequence grows, so it silently caps how long any
+        #     comb-box run can ever be -- fragmenting exactly the long fields
+        #     (10-digit mobile numbers, 12-digit Aadhaar numbers) that
+        #     legitimately need many cells, even when a mild, uniform camera
+        #     skew is well within a normal printed-row baseline. A vertical
+        #     stack is already rejected by gate 1a's origin-advance check
+        #     above (its consecutive-centre step would be near med_h anyway),
+        #     so this can stay generous per step.
+        centre_y_steps = [abs(centre_ys[i + 1] - centre_ys[i]) for i in range(len(centre_ys) - 1)]
+        if max(centre_y_steps) > med_h * 0.6:
+            return False, 0.0
+        # Bounded total-drift safety net: even smooth per-step skew shouldn't
+        # let the whole row wander more than a couple of glyph heights
+        # top-to-bottom.
+        if max(centre_ys) - min(centre_ys) > med_h * 1.5:
             return False, 0.0
 
         # 2.  No single step may be a whole-field jump instead of a cell pitch

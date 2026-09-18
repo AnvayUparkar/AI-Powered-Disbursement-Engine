@@ -164,7 +164,7 @@ class KeyValueExtractor:
                             "confidence": item["element"].get("confidence", 1.0),
                             "ocr_confidence": item["element"].get("ocr_confidence"),
                             "layout_confidence": item["element"].get("layout_confidence"),
-                            "source": item["element"].get("source", "ocr"),
+                            "source": item["element"].get("source", "docling_ocr"),
                             "classification": item["classification"].value
                         })
 
