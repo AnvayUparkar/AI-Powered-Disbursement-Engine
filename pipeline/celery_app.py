@@ -134,6 +134,12 @@ def process_document_task(self, doc_id: str, file_path: str, case_id: str | None
                 except Exception as save_err:
                     logger.warning("Failed writing IDP scan extraction to S3 tier for case %s: %s", resolved_case_id, save_err)
 
+        try:
+            from app.services.registry.case_scanner import invalidate_case_cache
+            invalidate_case_cache()
+        except Exception as cache_err:
+            logger.debug("Cache invalidation note: %s", cache_err)
+
         logger.info("process_document_task %s completed for doc: %s", self.request.id, doc_id)
         return {"doc_id": doc_id, "status": "completed", "result": result}
 

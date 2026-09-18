@@ -65,6 +65,16 @@ class DocumentRegistry:
                 parsed_result=parsed_result,
             )
 
+            # If a dynamic record already exists for this case and filename, supersede it to avoid unbounded duplicates
+            if assoc_case and assoc_case != "GENERAL":
+                for existing_id, existing_rec in list(self._dynamic_docs.items()):
+                    if (
+                        existing_id != doc_id
+                        and existing_rec.get("caseId") == assoc_case
+                        and existing_rec.get("name") == filename
+                    ):
+                        del self._dynamic_docs[existing_id]
+
             self._dynamic_docs[doc_id] = record
 
             # Map filename-based ID alias without polluting _dynamic_docs with duplicate records
@@ -148,6 +158,12 @@ class DocumentRegistry:
         """
         with self._lock:
             self._scan_idp_parsed_storage()
+
+            # Dynamic reconciliation: Sync any pending/processing upload if parsed JSON is ready on disk
+            for d_id, d_rec in list(self._dynamic_docs.items()):
+                if d_rec.get("ocrStatus") == "PROCESSING" or d_rec.get("extractionStatus") == "PROCESSING":
+                    self._sync_parsed_doc_from_disk(d_id)
+
             dynamic_list = list(self._dynamic_docs.values())
             case_docs = self._get_case_documents()
 
