@@ -50,6 +50,8 @@ class DocumentRegistry:
         case_id: Optional[str] = None,
         file_size_bytes: int = 0,
         parsed_result: Optional[Dict[str, Any]] = None,
+        uploaded_at: Optional[str] = None,
+        uploaded_timestamp: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Register a newly uploaded and processed document in the registry."""
         with self._lock:
@@ -63,6 +65,8 @@ class DocumentRegistry:
                 assoc_case=assoc_case,
                 file_size_bytes=file_size_bytes,
                 parsed_result=parsed_result,
+                uploaded_at=uploaded_at,
+                uploaded_timestamp=uploaded_timestamp,
             )
 
             # If a dynamic record already exists for this case and filename, supersede it to avoid unbounded duplicates

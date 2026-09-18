@@ -205,11 +205,13 @@ def normalize_uploaded_record(
     assoc_case: str,
     file_size_bytes: int = 0,
     parsed_result: Optional[Dict[str, Any]] = None,
+    uploaded_at: Optional[str] = None,
+    uploaded_timestamp: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Create normalized DocumentRecord from uploaded data and parsing output."""
     now_ist = datetime.now(IST)
-    upload_date = now_ist.strftime("%Y-%m-%d %H:%M IST")
-    upload_timestamp = time.time()
+    upload_date = uploaded_at or now_ist.strftime("%Y-%m-%d %H:%M IST")
+    upload_timestamp = uploaded_timestamp if uploaded_timestamp is not None else time.time()
     processing_steps = build_default_processing_steps(doc_id)
 
     pages_count = 1

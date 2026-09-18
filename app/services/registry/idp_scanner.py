@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, Set
 
+from datetime import datetime
+from config import IST
 from idp.core.config import settings as idp_settings
 
 logger = logging.getLogger("disbursement_pipeline.document_registry.idp_scanner")
@@ -53,12 +55,17 @@ def scan_idp_parsed_storage(
                         else:
                             inferred_case = "GENERAL"
 
+                    mtime = json_file.stat().st_mtime
+                    up_at = datetime.fromtimestamp(mtime, tz=IST).strftime("%Y-%m-%d %H:%M IST")
+
                     register_func(
                         doc_id=doc_id,
                         filename=filename,
                         case_id=inferred_case,
                         parsed_result=data,
                         file_size_bytes=data.get("processing", {}).get("file_size_bytes", 150000),
+                        uploaded_at=up_at,
+                        uploaded_timestamp=mtime,
                     )
                     known_doc_ids.add(doc_id)
                 except Exception as e:
@@ -86,8 +93,12 @@ def scan_idp_parsed_storage(
 
                 try:
                     size_bytes = raw_file.stat().st_size
+                    mtime = raw_file.stat().st_mtime
+                    up_at = datetime.fromtimestamp(mtime, tz=IST).strftime("%Y-%m-%d %H:%M IST")
                 except OSError:
                     size_bytes = 0
+                    mtime = None
+                    up_at = None
 
                 try:
                     register_func(
@@ -96,6 +107,8 @@ def scan_idp_parsed_storage(
                         case_id=inferred_case,
                         parsed_result=None,
                         file_size_bytes=size_bytes,
+                        uploaded_at=up_at,
+                        uploaded_timestamp=mtime,
                     )
                     known_doc_ids.add(doc_id)
                 except Exception as e:
