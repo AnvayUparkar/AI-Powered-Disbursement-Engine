@@ -1,6 +1,7 @@
 """LLM Adjudicator — Adjudicates borderline/fuzzy match results using Gemini."""
 import json
 import logging
+import os
 import re
 from functools import lru_cache
 from typing import Any, Dict, Optional
@@ -14,22 +15,24 @@ from pipeline.audit import append_audit_entry
 logger = logging.getLogger("disbursement_pipeline.llm_adjudicator")
 
 
-@lru_cache(maxsize=1)
-def _get_gemini_client() -> Optional[ChatGoogleGenerativeAI]:
-    """Returns a cached singleton instance of the Gemini chat client."""
-    if not GEMINI_API_KEY:
-        return None
+def _get_gemini_client() -> tuple[Optional[ChatGoogleGenerativeAI], str]:
+    """Returns an instance of the Gemini chat client and active model name."""
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("LLM_API_KEY") or GEMINI_API_KEY
+    model = os.getenv("GEMINI_MODEL") or os.getenv("LLM_MODEL") or GEMINI_MODEL
+    if not api_key:
+        return None, model
     try:
-        return ChatGoogleGenerativeAI(
-            model=GEMINI_MODEL,
-            google_api_key=GEMINI_API_KEY,
+        client = ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=api_key,
             temperature=GEMINI_TEMPERATURE,
             max_retries=3,
             timeout=30.0,
         )
+        return client, model
     except Exception as e:  # noqa: BLE001
         logger.error("Failed to initialize ChatGoogleGenerativeAI: %s", e)
-        return None
+        return None, model
 
 
 def _extract_text(content: Any) -> str:
@@ -69,7 +72,7 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
     str_a = str(value_a) if value_a is not None else ""
     str_b = str(value_b) if value_b is not None else ""
 
-    client = _get_gemini_client()
+    client, active_model = _get_gemini_client()
 
     if not client:
         logger.warning(
@@ -148,18 +151,19 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
         }
 
         logger.info(
-            "Gemini adjudicated %s for loan %s: %s (confidence=%.2f)",
+            "Gemini adjudicated %s for loan %s: %s (confidence=%.2f, model=%s)",
             field_type,
             loan_id,
             status,
             confidence,
+            active_model,
         )
 
         append_audit_entry(
             loan_id,
             {
                 "type": "llm_adjudication",
-                "model": GEMINI_MODEL,
+                "model": active_model,
                 "field_type": field_type,
                 "value_a": str_a,
                 "value_b": str_b,

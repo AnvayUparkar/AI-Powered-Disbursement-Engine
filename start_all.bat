@@ -14,9 +14,33 @@ set "PYTHON_EXE=%ROOT_DIR%venv\Scripts\python.exe"
 set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
 
 :: -----------------------------------------------------------------------------
-:: 1. Pre-flight Dependency Checks
+:: 1. Clean Up Any Stale Previous Instances (Ports & Worker Windows)
 :: -----------------------------------------------------------------------------
-echo [1/5] Checking environment dependencies...
+echo [1/6] Cleaning up any previous running instances...
+powershell -NoProfile -Command ^
+    "$ports = @(8000, 8001, 5173); " ^
+    "foreach ($port in $ports) { " ^
+    "    $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue; " ^
+    "    foreach ($conn in $conns) { " ^
+    "        if ($conn.OwningProcess -gt 0) { " ^
+    "            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue " ^
+    "        } " ^
+    "    } " ^
+    "}"
+powershell -NoProfile -Command ^
+    "Get-CimInstance Win32_Process | Where-Object { " ^
+    "    ($_.Name -match 'python' -and ($_.CommandLine -match 'celery' -or $_.CommandLine -match 'watchfiles' -or $_.CommandLine -match 'uvicorn')) " ^
+    "} | ForEach-Object { " ^
+    "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue " ^
+    "}"
+taskkill /F /FI "WINDOWTITLE eq Disbursement Scorecard*" 2>nul
+echo   [OK] Clean state prepared.
+
+:: -----------------------------------------------------------------------------
+:: 2. Pre-flight Dependency Checks
+:: -----------------------------------------------------------------------------
+echo.
+echo [2/6] Checking environment dependencies...
 
 :: Check Python venv
 if not exist "%PYTHON_EXE%" (
@@ -85,10 +109,10 @@ if not exist "%ROOT_DIR%.env" (
 )
 
 :: -----------------------------------------------------------------------------
-:: 2. Check WSL and Start Redis with Keep-Alive
+:: 3. Check WSL and Start Redis with Keep-Alive
 :: -----------------------------------------------------------------------------
 echo.
-echo [2/5] Checking WSL and Redis Server...
+echo [3/6] Checking WSL and Redis Server...
 
 where wsl >nul 2>&1
 if %errorlevel% neq 0 (
@@ -99,43 +123,60 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Start Redis inside WSL
-echo   Starting Redis server inside WSL...
-wsl -u root service redis-server start >nul 2>&1
-wsl redis-server --daemonize yes >nul 2>&1
-
-:: Verify Redis is responding
-wsl redis-cli ping | findstr /i "PONG" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo   [OK] Redis server is running [PONG received].
-) else (
-    echo   [WARN] Redis ping failed. Please verify Redis is installed inside your WSL distro.
-)
-
 :: Keep WSL active in the background so it doesn't auto-terminate on idle
 start "Disbursement Scorecard - WSL Keepalive" /min wsl sleep infinity
 echo   [OK] WSL keep-alive process spawned.
 
+:: Start Redis inside WSL
+echo   Starting Redis server inside WSL...
+wsl -u root service redis-server start >nul 2>&1
+wsl redis-server --daemonize yes --protected-mode no >nul 2>&1
+
+:: Verify Redis is responding with a short retry loop for WSL port-forwarding
+set "REDIS_READY=0"
+for /L %%i in (1,1,6) do (
+    wsl redis-cli ping 2>nul | findstr /i "PONG" >nul 2>&1
+    if not errorlevel 1 (
+        set "REDIS_READY=1"
+        goto :redis_ok
+    )
+    timeout /t 1 /nobreak >nul
+)
+:redis_ok
+if "%REDIS_READY%"=="1" (
+    echo   [OK] Redis server is running and accepting connections [PONG received].
+) else (
+    echo   [WARN] Redis ping timed out. Please verify Redis is installed inside your WSL distro.
+)
+
 :: -----------------------------------------------------------------------------
-:: 3. Launch Application Services in Dedicated Windows
+:: 4. Launch FastAPI Core Backend (Port 8000)
 :: -----------------------------------------------------------------------------
 echo.
-echo [3/5] Launching FastAPI Core Backend (Port 8000)...
-start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+echo [4/6] Launching FastAPI Core Backend (Port 8000)...
+start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.env"
 
-echo [4/5] Launching IDP Engine Microservice (Port 8001)...
-start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload"
+:: -----------------------------------------------------------------------------
+:: 5. Launch IDP Engine Microservice (Port 8001)
+:: -----------------------------------------------------------------------------
+echo.
+echo [5/6] Launching IDP Engine Microservice (Port 8001)...
+start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
 
 echo   Waiting 45 seconds for backend microservices to initialize...
 timeout /t 45 /nobreak >nul
 
-echo [5/5] Launching Celery Worker (with Auto-Reload) and Frontend UI...
-start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m watchfiles --filter python "venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info -P threads" pipeline app config idp"
+:: -----------------------------------------------------------------------------
+:: 6. Launch Celery Worker (with Auto-Reload) and Frontend UI
+:: -----------------------------------------------------------------------------
+echo.
+echo [6/6] Launching Celery Worker (with Auto-Reload) and Frontend UI...
+start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m watchfiles "venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info -P threads" pipeline app config idp .env"
 
 start "Disbursement Scorecard - Vite Frontend (5173)" cmd /k "cd /d "%~dp0frontend" && color 03 && npm run dev"
 
 :: -----------------------------------------------------------------------------
-:: 4. Summary & Status Dashboard
+:: 7. Summary & Status Dashboard
 :: -----------------------------------------------------------------------------
 echo.
 echo ===============================================================================

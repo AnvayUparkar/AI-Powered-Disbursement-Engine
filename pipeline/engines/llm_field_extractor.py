@@ -319,8 +319,9 @@ def llm_extract_fields(
         fields not found in the document).  Returns ``{}`` on any failure so
         the caller can proceed gracefully without a crash.
     """
-    effective_api_key = LLM_API_KEY
-    effective_model = LLM_MODEL
+    from pipeline.engines import llm_field_extractor
+    effective_api_key = llm_field_extractor.LLM_API_KEY
+    effective_model = llm_field_extractor.LLM_MODEL
 
     if not effective_api_key:
         logger.warning("[%s] LLM_API_KEY not set — skipping LLM field extraction", doc_id)

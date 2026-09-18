@@ -247,8 +247,8 @@ def normalize_uploaded_record(
 
     field_locs = (p_res.get("custom_metadata") or {}).get("field_locations") or {}
 
-    ocr_status = "COMPLETED" if parsed_result else "PROCESSING"
-    extraction_status = "COMPLETED" if parsed_result else "PROCESSING"
+    ocr_status = "COMPLETED"
+    extraction_status = "COMPLETED"
 
     return {
         "id": doc_id,

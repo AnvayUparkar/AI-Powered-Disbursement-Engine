@@ -1,4 +1,5 @@
 """Unified Document Registry facade coordinating in-memory and disk-backed documents."""
+import json
 import logging
 import threading
 from pathlib import Path
@@ -69,7 +70,7 @@ class DocumentRegistry:
                 uploaded_timestamp=uploaded_timestamp,
             )
 
-            # If a dynamic record already exists for this case and filename, supersede it to avoid unbounded duplicates
+            # If a dynamic record already exists for this case and filename, supersede only if newer or equal
             if assoc_case and assoc_case != "GENERAL":
                 for existing_id, existing_rec in list(self._dynamic_docs.items()):
                     if (
@@ -77,6 +78,10 @@ class DocumentRegistry:
                         and existing_rec.get("caseId") == assoc_case
                         and existing_rec.get("name") == filename
                     ):
+                        existing_ts = existing_rec.get("uploadedTimestamp", 0.0) or 0.0
+                        new_ts = record.get("uploadedTimestamp", 0.0) or 0.0
+                        if existing_ts > new_ts:
+                            return existing_rec
                         del self._dynamic_docs[existing_id]
 
             self._dynamic_docs[doc_id] = record

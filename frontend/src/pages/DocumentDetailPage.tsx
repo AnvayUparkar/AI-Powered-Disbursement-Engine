@@ -24,6 +24,18 @@ export default function DocumentDetailPage() {
 
   useEffect(load, [documentId]);
 
+  // Auto-poll while OCR or extraction is actively processing
+  useEffect(() => {
+    if (!doc || (doc.ocrStatus !== 'PROCESSING' && doc.extractionStatus !== 'PROCESSING')) return;
+    const interval = setInterval(() => {
+      if (!documentId) return;
+      documentsService.getById(documentId).then((updated) => {
+        if (updated) setDoc(updated);
+      }).catch(() => {});
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [doc?.ocrStatus, doc?.extractionStatus, documentId]);
+
   if (loading) {
     return (
       <div>
