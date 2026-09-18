@@ -131,6 +131,17 @@ def run_pipeline(loan_id: str) -> dict:
     return final_state
 
 
+def run_ocr_pipeline(loan_id: str) -> dict:
+    """Synchronously executes only document fetch, IDP OCR scan, and LLM structuring nodes."""
+    initial_state = create_initial_state(loan_id)
+    logger.info("Triggering OCR + Structuring pipeline for loan: %s", loan_id)
+    state = fetch_documents(initial_state)
+    state = idp_scan(state)
+    state = llm_structure(state)
+    logger.info("OCR + Structuring pipeline completed for loan: %s", loan_id)
+    return state
+
+
 def stream_pipeline(loan_id: str) -> Iterator[dict]:
     """Yields progress events as each node in the verification pipeline executes."""
     initial_state = create_initial_state(loan_id)

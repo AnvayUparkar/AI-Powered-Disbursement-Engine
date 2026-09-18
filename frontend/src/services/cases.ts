@@ -159,6 +159,10 @@ export const casesService = {
     return await apiClient.post<{ status: string; case: Case }>(`/cases/${id}/run`);
   },
 
+  async runOcr(id: string): Promise<{ status: string; scannedDocuments: number; case: Case }> {
+    return await apiClient.post<{ status: string; scannedDocuments: number; case: Case }>(`/cases/${id}/run-ocr`);
+  },
+
   async getStatus(id: string): Promise<any> {
     return await apiClient.get<any>(`/cases/${id}/status`);
   },

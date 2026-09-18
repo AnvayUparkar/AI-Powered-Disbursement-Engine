@@ -24,8 +24,6 @@ from typing import Any
 import httpx
 
 from config.settings import (
-    GEMINI_API_KEY,
-    GEMINI_MODEL,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MAX_TOKENS,
@@ -251,11 +249,7 @@ def _extract_with_gemini(
         from langchain_core.messages import HumanMessage, SystemMessage
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        model_name = model
-        if model_name in ("gemini-2.5-flash-lite", "google/gemini-2.5-flash-lite"):
-            model_name = "gemini-3.5-flash-lite"
-        elif "/" in model_name and "gemini" in model_name.lower():
-            model_name = model_name.split("/")[-1]
+        model_name = model.split("/")[-1] if "/" in model else model
 
         client = ChatGoogleGenerativeAI(
             model=model_name,
@@ -392,19 +386,14 @@ def llm_extract_fields(
 
     except httpx.HTTPStatusError as e:
         logger.error(
-            "[%s] OpenRouter HTTP %s: %s",
+            "[%s] LLM Provider HTTP %s (%s): %s",
             doc_id,
             e.response.status_code,
+            effective_model,
             e.response.text[:500],
         )
-        if GEMINI_API_KEY:
-            logger.info("[%s] Falling back to Gemini direct extraction...", doc_id)
-            return _extract_with_gemini(user_content, GEMINI_API_KEY, GEMINI_MODEL, doc_id, doc_type)
     except httpx.TimeoutException:
-        logger.error("[%s] OpenRouter request timed out (doc_type=%s)", doc_id, doc_type)
-        if GEMINI_API_KEY:
-            logger.info("[%s] Falling back to Gemini direct extraction after OpenRouter timeout...", doc_id)
-            return _extract_with_gemini(user_content, GEMINI_API_KEY, GEMINI_MODEL, doc_id, doc_type)
+        logger.error("[%s] LLM request timed out (doc_type=%s, model=%s)", doc_id, doc_type, effective_model)
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         logger.error("[%s] Failed to parse LLM JSON response: %s", doc_id, e)
     except Exception as e:  # noqa: BLE001 — defensive boundary, always return {}

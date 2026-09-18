@@ -46,14 +46,19 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     presence_conf = resolve_field_confidence(doc=agree_doc, field_name="presence", record=r6_presence) if has_agree else 0.0
 
     if has_agree and is_signed:
-        status = "VERIFIED"
+        if not ctx.has_verification_run and not agree_records:
+            status = "INDETERMINATE"
+            notes = "Loan agreement uploaded; signature verification pending."
+            val = {"left": "Uploaded", "right": "Mandatory Signed Agreement", "result": "INCONCLUSIVE", "leftSource": "loan_agreement", "rightSource": "mandatory"}
+        else:
+            status = "VERIFIED"
+            notes = r6_sig.get("notes") if (r6_sig and r6_sig.get("notes")) else "Loan agreement present and digitally signed."
+            val = {"left": "Present & Signed", "right": "Mandatory Signed Agreement", "result": "MATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
         fields = [
             build_field("Loan Agreement Presence", "Present", presence_conf, f"doc-{ctx.loan_id}-agreement"),
-            build_field("Loan Agreement Signature", "Signed", sig_conf, f"doc-{ctx.loan_id}-agreement"),
+            build_field("Loan Agreement Signature", "Signed" if status == "VERIFIED" else "Pending Verification", sig_conf, f"doc-{ctx.loan_id}-agreement"),
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Agreement Signature")]
-        val = {"left": "Present & Signed", "right": "Mandatory Signed Agreement", "result": "MATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
-        notes = r6_sig.get("notes") if (r6_sig and r6_sig.get("notes")) else "Loan agreement present and digitally signed."
     elif has_agree and not is_signed:
         status = "DISCREPANCY"
         fields = [

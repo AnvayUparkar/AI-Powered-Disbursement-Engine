@@ -13,6 +13,8 @@ import {
   Sparkles,
   Printer,
   Trash2,
+  AlertTriangle,
+  ScanLine,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
@@ -35,6 +37,7 @@ export default function CaseDetailPage() {
   const [c, setC] = useState<Case | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [runningOcr, setRunningOcr] = useState(false);
   const [pipelineVisible, setPipelineVisible] = useState(false);
   const [currentStage, setCurrentStage] = useState<PipelineStage>('fetch');
   const [completedStages, setCompletedStages] = useState<string[]>([]);
@@ -63,6 +66,23 @@ export default function CaseDetailPage() {
       console.error('Failed to delete case:', err);
       window.alert('Failed to delete case. Check the console/backend logs for details.');
       setDeleting(false);
+    }
+  };
+
+  const handleRunOcr = async () => {
+    if (!caseId) return;
+    try {
+      setRunningOcr(true);
+      const res = await casesService.runOcr(caseId);
+      if (res && res.case) {
+        setC(res.case);
+      }
+      load();
+    } catch (err) {
+      console.error('Failed to run OCR engine:', err);
+      window.alert('Failed to run OCR engine. Check backend logs for details.');
+    } finally {
+      setRunningOcr(false);
     }
   };
 
@@ -191,6 +211,18 @@ export default function CaseDetailPage() {
         <ArrowLeft className="h-4 w-4" /> Back to Cases
       </Link>
 
+      {/* Missing LOS Banner */}
+      {c.hasLosData === false && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-amber-900 shadow-sm flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="text-sm font-semibold text-amber-900">LOS Record Not Found</h4>
+            <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+              No Loan Origination System (LOS) record was found for case <strong className="font-semibold">{c.id}</strong>. Checkpoints comparing documents against LOS will remain indeterminate until an LOS record is provided.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="card p-5 mb-5">
@@ -200,8 +232,24 @@ export default function CaseDetailPage() {
               <h1 className="text-2xl font-semibold text-ink-900 tracking-tight">{c.id}</h1>
               <StatusBadge status={c.status} size="md" />
               <button
+                onClick={handleRunOcr}
+                disabled={running || runningOcr}
+                className="btn btn-secondary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all"
+                title="Run Document OCR (Docling/PaddleOCR) and LLM field extraction only"
+              >
+                {runningOcr ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Running OCR Engine...
+                  </>
+                ) : (
+                  <>
+                    <ScanLine className="h-3.5 w-3.5" /> Run OCR Engine
+                  </>
+                )}
+              </button>
+              <button
                 onClick={startPipelineStream}
-                disabled={running}
+                disabled={running || runningOcr}
                 className="btn btn-primary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all"
               >
                 {running ? (

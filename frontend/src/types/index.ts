@@ -207,6 +207,7 @@ export interface Case {
   documentIds: string[];
   processingSteps: ProcessingStep[];
   comparisonResults?: ComparisonResult[];
+  hasLosData?: boolean;
 }
 
 export interface ReviewItem {

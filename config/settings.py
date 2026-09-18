@@ -29,9 +29,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.0"))
 
-# LLM Field Extraction Configuration (OpenRouter / Gemini)
-LLM_API_KEY = os.getenv("LLM_API_KEY") or GEMINI_API_KEY
-LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.5-flash-lite")
+# LLM Field Extraction Configuration (OpenRouter / OpenAI / Gemini)
+LLM_API_KEY = os.getenv("LLM_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek/deepseek-v4-flash-0731:free")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2048"))
 

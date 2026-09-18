@@ -254,6 +254,7 @@ def resolve_checkpoint_validation(
     """Resolves a validation block enforcing production invariants:
     - If status == 'DISCREPANCY', bind left/right to the primary failing check's values & sources.
     - Identity invariant: left == right NEVER produces result == 'MISMATCH'.
+    - Asymmetric missing invariant: if one side is N/A / Missing and the other is a concrete value, result is NEVER 'MATCH'.
     - Symmetrical missing states (N/A vs N/A) are mapped to semantic indicators or INCONCLUSIVE.
     """
     mismatched_check = None
@@ -284,7 +285,16 @@ def resolve_checkpoint_validation(
             val_block["rightSource"] = right_src
         return val_block
 
-    if status == "VERIFIED" or status == "NOT_APPLICABLE":
+    missing_tokens = {"n/a", "missing", "none", "null", ""}
+    is_left_missing = default_left.strip().lower() in missing_tokens
+    is_right_missing = default_right.strip().lower() in missing_tokens
+
+    if is_left_missing and is_right_missing:
+        result = "MATCH" if status == "NOT_APPLICABLE" else "INCONCLUSIVE"
+    elif is_left_missing != is_right_missing:
+        # Asymmetric missing: one has concrete value, one is missing. It can NEVER be MATCH.
+        result = "INCONCLUSIVE" if status == "INDETERMINATE" else "MISMATCH"
+    elif status == "VERIFIED" or status == "NOT_APPLICABLE":
         result = "MATCH"
     elif status == "DISCREPANCY":
         # Ensure identity invariant: if left == right, do not display MISMATCH
@@ -292,8 +302,6 @@ def resolve_checkpoint_validation(
     else:  # INDETERMINATE
         if fallback_result is not None:
             result = fallback_result
-        elif default_left in ("N/A", "Missing") and default_right in ("N/A", "Missing"):
-            result = "INCONCLUSIVE"
         elif default_left == default_right:
             result = "MATCH"
         else:
@@ -422,6 +430,24 @@ class CaseContext:
     extracted_dir: Path
     extracted_structured_dir: Path
     result_dir: Path
+
+    @property
+    def has_los_data(self) -> bool:
+        """Indicates whether an authentic LOS record exists for this case."""
+        if not self.los_data:
+            return False
+        return bool(self.los_data.get("applicant_name") or self.los_data.get("funding_amount") or self.los_data.get("application_id"))
+
+    @property
+    def has_verification_run(self) -> bool:
+        """Indicates whether comparison or scorecard verification has executed."""
+        if bool(self.records):
+            return True
+        if self.status_data.get("status") in ("COMPLETED", "DONE") or self.status_data.get("current_node") == "done":
+            return True
+        if bool(self.scorecard_data):
+            return True
+        return False
 
     def get_check_record(self, *candidate_ids: str, field: str | None = None) -> dict[str, Any] | None:
         """Finds a comparison record by matching check IDs or field name."""
