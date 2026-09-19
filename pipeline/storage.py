@@ -123,38 +123,15 @@ def update_status(
 
 
 def list_loan_ids() -> list[str]:
-    """Lists all available loan IDs in LOS loans directory, loans.db, S3 LOS directory, S3 raw directories, and DMS."""
+    """Lists all active loan IDs from S3 LOS directory and S3 raw directories."""
     loan_ids = set()
-    if LOS_LOANS_DIR.exists():
-        for f in LOS_LOANS_DIR.glob("*.json"):
-            loan_ids.add(f.stem)
-        db_path = LOS_LOANS_DIR / "loans.db"
-        if db_path.exists():
-            try:
-                import sqlite3
-                conn = sqlite3.connect(db_path)
-                cur = conn.cursor()
-                cur.execute("SELECT loan_id FROM loan_applications")
-                for (lid,) in cur.fetchall():
-                    if lid:
-                        loan_ids.add(lid)
-                conn.close()
-            except Exception:
-                pass
     if S3_LOS_DIR.exists():
         for f in S3_LOS_DIR.glob("*.json"):
-            loan_ids.add(f.stem)
+            if not f.name.startswith("."):
+                loan_ids.add(f.stem)
     if S3_RAW_DIR.exists():
         for d in S3_RAW_DIR.iterdir():
-            if d.is_dir() and not d.name.startswith("."):
-                loan_ids.add(d.name)
-    if DMS_DIR.exists():
-        for d in DMS_DIR.iterdir():
-            if d.is_dir() and not d.name.startswith("."):
-                loan_ids.add(d.name)
-    if S3_RESULT_DIR.exists():
-        for d in S3_RESULT_DIR.iterdir():
-            if d.is_dir() and not d.name.startswith("."):
+            if d.is_dir() and not d.name.startswith(".") and not d.name.startswith("_") and d.name != "GENERAL":
                 loan_ids.add(d.name)
     return sorted(loan_ids)
 

@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.serializers.case_serializer import serialize_all_cases, serialize_case
-from config import LOS_LOANS_DIR, S3_RAW_DIR, S3_RESULT_DIR
+from config import LOS_LOANS_DIR, S3_LOS_DIR, S3_RAW_DIR, S3_RESULT_DIR
 from pipeline.graph import run_pipeline, stream_pipeline
 from pipeline.storage import list_loan_ids, read_json, write_json
 
@@ -46,10 +46,12 @@ def get_next_case_id():
 def create_case(payload: CreateCaseRequest):
     case_id = payload.case_id or _get_next_loan_id()
     LOS_LOANS_DIR.mkdir(parents=True, exist_ok=True)
+    S3_LOS_DIR.mkdir(parents=True, exist_ok=True)
     raw_dir = S3_RAW_DIR / case_id
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     los_file = LOS_LOANS_DIR / f"{case_id}.json"
+    s3_los_file = S3_LOS_DIR / f"{case_id}.json"
     los_data = {
         "loan_id": case_id,
         "application_id": f"APP-{case_id}",
@@ -62,6 +64,7 @@ def create_case(payload: CreateCaseRequest):
         "status": "DRAFT",
     }
     write_json(los_file, los_data)
+    write_json(s3_los_file, los_data)
     logger.info("Created new case %s", case_id)
     return {
         "caseId": case_id,

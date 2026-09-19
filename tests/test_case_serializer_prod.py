@@ -746,8 +746,9 @@ def test_appl00343265_field_and_comparison_surfacing_invariants():
             )
 
 
-def test_list_loan_ids_discovers_raw_and_dms_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Validates that list_loan_ids discovers cases present in S3_RAW_DIR, DMS_DIR, and S3_LOS_DIR."""
+def test_list_loan_ids_discovers_s3_los_and_s3_raw_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Validates that list_loan_ids discovers cases present strictly in S3_LOS_DIR and S3_RAW_DIR,
+    while ignoring GENERAL, hidden folders, and extraneous test result/dms directories."""
     from pipeline.storage import list_loan_ids
 
     raw_dir = tmp_path / "s3_raw"
@@ -762,16 +763,21 @@ def test_list_loan_ids_discovers_raw_and_dms_cases(tmp_path: Path, monkeypatch: 
     res_dir.mkdir()
     loans_dir.mkdir()
 
-    # Case 1: in S3_LOS
-    (los_dir / "CASE_LOS_01.json").write_text(json.dumps({"loan_id": "CASE_LOS_01"}))
-    # Case 2: in S3_RAW (e.g. uploaded via Documents tab)
-    (raw_dir / "CASE_RAW_02").mkdir()
-    (raw_dir / "CASE_RAW_02" / "Aadhaar.pdf").write_bytes(b"%PDF-mock")
-    # Case 3: in DMS
-    (dms_dir / "CASE_DMS_03").mkdir()
-    (dms_dir / "CASE_DMS_03" / "PAN.pdf").write_bytes(b"%PDF-mock")
-    # Case 4: hidden directory in RAW (should be ignored)
+    # Valid Case 1: in S3_LOS
+    (los_dir / "APPL00388856.json").write_text(json.dumps({"loan_id": "APPL00388856"}))
+    # Valid Case 2: in S3_RAW (e.g. uploaded via Documents tab)
+    (raw_dir / "APPL00388871").mkdir()
+    (raw_dir / "APPL00388871" / "Aadhaar.pdf").write_bytes(b"%PDF-mock")
+
+    # Excluded 1: GENERAL upload folder (not a case)
+    (raw_dir / "GENERAL").mkdir()
+    # Excluded 2: hidden directory in RAW (should be ignored)
     (raw_dir / ".hidden_folder").mkdir()
+    # Excluded 3: DMS test directory (should be ignored)
+    (dms_dir / "MOCK_DMS_CASE").mkdir()
+    # Excluded 4: S3_RESULT test fixture directory (e.g. LOAN_NO_CLIENT, LOAN_OCR_BYPASS_TEST)
+    (res_dir / "LOAN_NO_CLIENT").mkdir()
+    (res_dir / "LOAN_OCR_BYPASS_TEST").mkdir()
 
     monkeypatch.setattr("pipeline.storage.S3_RAW_DIR", raw_dir)
     monkeypatch.setattr("pipeline.storage.DMS_DIR", dms_dir)
@@ -780,11 +786,14 @@ def test_list_loan_ids_discovers_raw_and_dms_cases(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr("pipeline.storage.LOS_LOANS_DIR", loans_dir)
 
     loan_ids = list_loan_ids()
-    assert "CASE_LOS_01" in loan_ids
-    assert "CASE_RAW_02" in loan_ids
-    assert "CASE_DMS_03" in loan_ids
+    assert "APPL00388856" in loan_ids
+    assert "APPL00388871" in loan_ids
+    assert "GENERAL" not in loan_ids
     assert ".hidden_folder" not in loan_ids
-    assert len(loan_ids) == 3
+    assert "MOCK_DMS_CASE" not in loan_ids
+    assert "LOAN_NO_CLIENT" not in loan_ids
+    assert "LOAN_OCR_BYPASS_TEST" not in loan_ids
+    assert len(loan_ids) == 2
 
 
 
