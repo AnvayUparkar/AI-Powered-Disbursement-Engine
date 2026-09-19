@@ -171,9 +171,8 @@ class DocumentProcessor:
 
                     cropped_bytes = crop_image_region(
                         image_bytes=page_bytes,
-                        bbox=elem.bbox,
-                        page_width=img_w,
-                        page_height=img_h
+                        bbox=elem.bbox
+                        
                     )
 
                     vlm_res = await self.vlm_client.analyze_region(
