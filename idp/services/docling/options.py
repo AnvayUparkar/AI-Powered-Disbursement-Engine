@@ -58,7 +58,7 @@ class DoclingOptions(BaseModel):
     cls_model_path: Optional[str] = None  # Classification model (orientation)
     
     # OCR Language & Script
-    ocr_lang: List[str] = ["english"]  # Languages: ["english", "hindi", "mixed"]
+    ocr_lang: List[str] = ["en"]  # Languages: ["en", "hindi", "mixed"]
     
     # OCR Mode
     force_full_page_ocr: bool = False  # False = use native text when available

@@ -13,7 +13,7 @@ langchain-google-genai>=4.3.4
 # ── Document Processing (Node 2 IDP) ──────────────────────────
 docling>=2.124.0
 rapidocr-onnxruntime==1.2.3
-onnxruntime>=1.29.0
+onnxruntime-gpu==1.27.1
 opencv-python-headless>=5.0.0.93
 pillow>=12.3.0
 PyMuPDF>=1.28.2

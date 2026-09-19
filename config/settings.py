@@ -60,4 +60,9 @@ IDP_SERVICE_URL = os.getenv("IDP_SERVICE_URL", "http://127.0.0.1:8001")
 IDP_REQUEST_TIMEOUT = float(os.getenv("IDP_REQUEST_TIMEOUT", "300"))  # seconds; Docling can be slow
 USE_REMOTE_IDP = os.getenv("USE_REMOTE_IDP", "true").lower() in ("true", "1", "yes")
 
+# Pixel-level preprocessing for scanned documents (deskew, CLAHE, denoising, adaptive binarisation)
+# before Docling ingestion.  Set to "false" in .env to revert to the pre-fix behaviour without a
+# code revert (e.g. if binarisation is too aggressive for a specific document class in staging).
+ENABLE_SCAN_PREPROCESSING = os.getenv("ENABLE_SCAN_PREPROCESSING", "true").lower() in ("true", "1", "yes")
+
 

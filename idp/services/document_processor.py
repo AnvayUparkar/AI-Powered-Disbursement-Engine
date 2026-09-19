@@ -19,6 +19,7 @@ from idp.utils.file_utils import create_temp_dir, cleanup_temp_dir
 from idp.utils.image_utils import crop_image_region
 from idp.core.config import settings
 from idp.core.logging import logger, format_doc_log
+from idp.services.ocr.scan_preprocessor import preprocess_scanned_document
 
 
 class DocumentProcessor:
@@ -133,12 +134,59 @@ class DocumentProcessor:
             # Step 3: Docling layout + integrated OCR parsing (runs on all document types),
             # using the DoclingOptions profile tuned for this document's canonical type
             # (character-box KYC forms, scanned bank statements, digital PDFs, etc.)
+
+            # Step 3a: For scanned documents, apply pixel-level cleanup (deskew, CLAHE,
+            # denoising, adaptive binarisation) before Docling ingestion.  The digital PDF
+            # path is never entered here — the gate is prep_doc.is_scanned_pdf which is set
+            # only when the text-layer inspection in DocumentPreprocessor detects < 50 chars/page.
+            docling_input_path = local_file_path  # default: pass raw file unchanged
+            # Build the primary parser for this document type.  For scanned docs we may
+            # swap it below to one using images_scale=1.0 (see note in scan branch).
+            docling_profile = self._get_docling_parser(doc_type_hint, is_scanned=prep_doc.is_scanned_pdf)
+
+            if prep_doc.is_scanned_pdf and settings.ENABLE_SCAN_PREPROCESSING:
+                try:
+                    # Use the actual profile that will be applied to this document so
+                    # the rasterisation scale matches what Docling would have used.
+                    # (e.g. application_form -> CHARACTER_BOX_FORMS_PROFILE.images_scale=2.0,
+                    #  not SCANNED_DOCUMENTS_PROFILE.images_scale=3.0)
+                    raster_scale = docling_profile.options.images_scale
+                    scan_result = await asyncio.to_thread(
+                        preprocess_scanned_document,
+                        local_file_path,
+                        prep_doc.file_category,
+                        raster_scale,
+                        document_id,
+                        temp_dir,
+                    )
+                    docling_input_path = scan_result.processed_path
+                    logger.info(format_doc_log(
+                        document_id,
+                        f"Scan preprocessing done: {scan_result.pages_processed} page(s) "
+                        f"cleaned at scale={raster_scale}x -> {scan_result.processed_path}"
+                    ))
+                    # CRITICAL: the preprocessed PDF is already rasterised at raster_scale.
+                    # Passing it to Docling with the same images_scale would upscale it
+                    # a second time, blurring pixels and degrading OCR accuracy.
+                    # Use a separate parser instance with images_scale=1.0 ("read as-is").
+                    preprocessed_options = docling_profile.options.model_copy(
+                        update={"images_scale": 1.0}
+                    )
+                    docling_profile = DoclingParser(preprocessed_options)
+                except Exception as scan_err:
+                    # Non-fatal: log and fall back to the original file so the pipeline
+                    # continues rather than failing the whole document.
+                    logger.warning(format_doc_log(
+                        document_id,
+                        f"Scan preprocessing failed (non-fatal), using original file: {scan_err}"
+                    ))
+                    docling_input_path = local_file_path
+
             docling_start = time.time()
             docling_result: Optional[DoclingParseResult] = None
             try:
-                docling_parser = self._get_docling_parser(doc_type_hint, is_scanned=prep_doc.is_scanned_pdf)
                 docling_result = await asyncio.to_thread(
-                    docling_parser.parse, local_file_path, doc_id=document_id
+                    docling_profile.parse, docling_input_path, doc_id=document_id
                 )
             except Exception as e:
                 logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
