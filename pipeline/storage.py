@@ -123,7 +123,7 @@ def update_status(
 
 
 def list_loan_ids() -> list[str]:
-    """Lists all available loan IDs in LOS loans directory, loans.db, or S3 LOS directory."""
+    """Lists all available loan IDs in LOS loans directory, loans.db, S3 LOS directory, S3 raw directories, and DMS."""
     loan_ids = set()
     if LOS_LOANS_DIR.exists():
         for f in LOS_LOANS_DIR.glob("*.json"):
@@ -144,6 +144,18 @@ def list_loan_ids() -> list[str]:
     if S3_LOS_DIR.exists():
         for f in S3_LOS_DIR.glob("*.json"):
             loan_ids.add(f.stem)
+    if S3_RAW_DIR.exists():
+        for d in S3_RAW_DIR.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                loan_ids.add(d.name)
+    if DMS_DIR.exists():
+        for d in DMS_DIR.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                loan_ids.add(d.name)
+    if S3_RESULT_DIR.exists():
+        for d in S3_RESULT_DIR.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                loan_ids.add(d.name)
     return sorted(loan_ids)
 
 

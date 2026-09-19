@@ -746,3 +746,45 @@ def test_appl00343265_field_and_comparison_surfacing_invariants():
             )
 
 
+def test_list_loan_ids_discovers_raw_and_dms_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Validates that list_loan_ids discovers cases present in S3_RAW_DIR, DMS_DIR, and S3_LOS_DIR."""
+    from pipeline.storage import list_loan_ids
+
+    raw_dir = tmp_path / "s3_raw"
+    dms_dir = tmp_path / "dms"
+    los_dir = tmp_path / "s3_los"
+    res_dir = tmp_path / "s3_result"
+    loans_dir = tmp_path / "loans_los"
+
+    raw_dir.mkdir()
+    dms_dir.mkdir()
+    los_dir.mkdir()
+    res_dir.mkdir()
+    loans_dir.mkdir()
+
+    # Case 1: in S3_LOS
+    (los_dir / "CASE_LOS_01.json").write_text(json.dumps({"loan_id": "CASE_LOS_01"}))
+    # Case 2: in S3_RAW (e.g. uploaded via Documents tab)
+    (raw_dir / "CASE_RAW_02").mkdir()
+    (raw_dir / "CASE_RAW_02" / "Aadhaar.pdf").write_bytes(b"%PDF-mock")
+    # Case 3: in DMS
+    (dms_dir / "CASE_DMS_03").mkdir()
+    (dms_dir / "CASE_DMS_03" / "PAN.pdf").write_bytes(b"%PDF-mock")
+    # Case 4: hidden directory in RAW (should be ignored)
+    (raw_dir / ".hidden_folder").mkdir()
+
+    monkeypatch.setattr("pipeline.storage.S3_RAW_DIR", raw_dir)
+    monkeypatch.setattr("pipeline.storage.DMS_DIR", dms_dir)
+    monkeypatch.setattr("pipeline.storage.S3_LOS_DIR", los_dir)
+    monkeypatch.setattr("pipeline.storage.S3_RESULT_DIR", res_dir)
+    monkeypatch.setattr("pipeline.storage.LOS_LOANS_DIR", loans_dir)
+
+    loan_ids = list_loan_ids()
+    assert "CASE_LOS_01" in loan_ids
+    assert "CASE_RAW_02" in loan_ids
+    assert "CASE_DMS_03" in loan_ids
+    assert ".hidden_folder" not in loan_ids
+    assert len(loan_ids) == 3
+
+
+

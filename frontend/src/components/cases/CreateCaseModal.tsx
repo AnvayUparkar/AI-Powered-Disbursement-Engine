@@ -192,18 +192,20 @@ export function CreateCaseModal({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* Auto-assigned Case ID Card */}
-          <div className="rounded-lg border border-brand-200 bg-brand-50/40 p-3.5 flex items-center justify-between">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-brand-700">Auto-Assigned Case ID</span>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="font-mono text-lg font-bold text-ink-900">{loadingNextId ? 'Generating...' : caseId}</span>
-                <span className="chip bg-brand-100 text-brand-800 text-[11px] font-medium">Auto-Sequenced</span>
-              </div>
-            </div>
-            <div className="text-right text-xs text-ink-500 max-w-[240px]">
-              Applicant, loan amount, and tenure will be extracted automatically from uploaded documents.
-            </div>
+          {/* Case ID input */}
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              Case ID / Application ID <span className="text-rose-500">*</span>
+            </label>
+            <input
+              value={caseId}
+              onChange={(e) => setCaseId(e.target.value)}
+              placeholder="Enter case ID (e.g. APPL00388856)"
+              className="input font-mono"
+            />
+            <p className="text-xs text-ink-500 mt-1">
+              Enter your custom Case ID or keep the suggested ID. Uploaded documents will be linked to this case for verification.
+            </p>
           </div>
 
           {/* Drop Zone */}
