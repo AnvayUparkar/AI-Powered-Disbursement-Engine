@@ -170,7 +170,7 @@ class DocumentProcessor:
                     # a second time, blurring pixels and degrading OCR accuracy.
                     # Use a separate parser instance with images_scale=1.0 ("read as-is").
                     preprocessed_options = docling_profile.options.model_copy(
-                        update={"images_scale": 1.0}
+                        update={"images_scale": raster_scale}
                     )
                     docling_profile = DoclingParser(preprocessed_options)
                 except Exception as scan_err:
