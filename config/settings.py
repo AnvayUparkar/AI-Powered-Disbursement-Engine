@@ -5,7 +5,7 @@ from config.paths import BASE_DIR
 
 # Load local environment if present
 ENV_PATH = BASE_DIR / ".env"
-load_dotenv(dotenv_path=ENV_PATH)
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
 # Verification Algorithms & Fuzzy Match Thresholds
 NAME_MATCH_ALGO = "jaro_winkler"
@@ -24,15 +24,11 @@ BROKEN_PERIOD_INTEREST_TOLERANCE_PCT = float(os.getenv("BROKEN_PERIOD_INTEREST_T
 FUNDING_AMOUNT_SOURCE_FIELD = "funding_amount"
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 
-# Gemini LLM Adjudication Configuration
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.0"))
-
-# LLM Field Extraction Configuration (OpenRouter / OpenAI / Gemini)
+# Unified LLM Configuration (Gemini / OpenRouter / Groq / OpenAI)
 LLM_API_KEY = os.getenv("LLM_API_KEY")
-LLM_MODEL = os.getenv("LLM_MODEL", "deepseek/deepseek-v4-flash-0731:free")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+LLM_MODEL = os.getenv("LLM_MODEL")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL")
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2048"))
 
 # Max workers for document & node processing

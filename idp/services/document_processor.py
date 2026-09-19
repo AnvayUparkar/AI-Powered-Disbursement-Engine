@@ -130,22 +130,6 @@ class DocumentProcessor:
                     "extracted_fields": (parsed_doc.custom_metadata or {}).get("llm_extracted_fields", {}),
                 }
 
-            # Step 2.5: Scanned/photographed input only (never digital PDFs --
-            # see is_scanned_pdf/file_category gate below). Mobile-captured
-            # form photos (this doc set embeds a geotag + timestamp overlay
-            # per page, i.e. field-agent phone capture, not a flatbed scan)
-            # are rarely perfectly flat. Residual skew makes Docling's line
-            # clustering drift a handwritten answer into the next printed
-            # row's bounding band, welding it onto the wrong label (e.g. a
-            # value meant for "Father's Name" gets merged into "Spouse Name"
-            # instead). Correcting orientation/skew before OCR runs fixes
-            # the row assignment at the source instead of downstream.
-            input_file_path = local_file_path
-            if prep_doc.is_scanned_pdf or prep_doc.file_category == "image":
-                input_file_path = await asyncio.to_thread(
-                    self._apply_scan_correction, local_file_path, prep_doc, temp_dir, document_id
-                )
-
             # Step 3: Docling layout + integrated OCR parsing (runs on all document types),
             # using the DoclingOptions profile tuned for this document's canonical type
             # (character-box KYC forms, scanned bank statements, digital PDFs, etc.)
@@ -154,14 +138,14 @@ class DocumentProcessor:
             try:
                 docling_parser = self._get_docling_parser(doc_type_hint, is_scanned=prep_doc.is_scanned_pdf)
                 docling_result = await asyncio.to_thread(
-                    docling_parser.parse, input_file_path, doc_id=document_id
+                    docling_parser.parse, local_file_path, doc_id=document_id
                 )
             except Exception as e:
                 logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
             metrics.docling_processing_time = round(time.time() - docling_start, 3)
 
             # Step 4: Capture page images for VLM region cropping (no standalone OCR)
-            page_image_data = await self._get_page_images(input_file_path, prep_doc)
+            page_image_data = await self._get_page_images(local_file_path, prep_doc)
             page_images: List[bytes] = [item[0] for item in page_image_data]
             ocr_results: List[OCRResult] = []
 
@@ -179,15 +163,16 @@ class DocumentProcessor:
                 for elem in flagged_elements:
                     pno = elem.page_number
                     page_bytes = page_images[pno - 1] if pno <= len(page_images) else b""
+                    img_w = 595.0
+                    img_h = 842.0
+                    if pno <= len(docling_result.pages_dimensions):
+                        img_w = docling_result.pages_dimensions[pno - 1].get("width", 595.0)
+                        img_h = docling_result.pages_dimensions[pno - 1].get("height", 842.0)
 
-                    # crop_image_region reads pixel dimensions from page_bytes
-                    # itself -- docling_result.pages_dimensions is PDF point-space
-                    # (e.g. 595x842) while page_bytes is rendered at 150 DPI
-                    # (e.g. ~1240x1754), so passing that page-point size here
-                    # would silently crop the wrong region (see its docstring).
                     cropped_bytes = crop_image_region(
                         image_bytes=page_bytes,
-                        bbox=elem.bbox,
+                        bbox=elem.bbox
+                        
                     )
 
                     vlm_res = await self.vlm_client.analyze_region(
@@ -369,87 +354,6 @@ class DocumentProcessor:
             return float(img.width), float(img.height)
         except Exception:
             return 595.0, 842.0  # Fallback to A4 doc units
-
-    def _apply_scan_correction(
-        self,
-        file_path: str,
-        prep_doc: PreprocessedDocument,
-        temp_dir: str,
-        doc_id: str,
-    ) -> str:
-        """
-        Corrects page orientation/skew on scanned or photographed input before
-        Docling OCR runs, using OCRImagePreprocessor's Hough-line/minAreaRect
-        deskew. Only geometric correction (coarse 90/180/270 orientation +
-        fine-angle deskew) gates whether the corrected file is kept -- an
-        incidental contrast/denoise pass with no rotation applied is discarded
-        so this stays scoped to the row-drift defect it targets, not a general
-        image-quality pass.
-
-        Only called for scanned/photographed input (see call site) -- never
-        touches digital PDFs. Fails open: any error, or a page that needs no
-        correction, returns file_path unchanged.
-        """
-        from idp.services.ocr.preprocessing import OCRImagePreprocessor
-        preprocessor = OCRImagePreprocessor()
-
-        try:
-            if prep_doc.file_category == "image":
-                with open(file_path, "rb") as f:
-                    raw_bytes = f.read()
-                corrected_bytes, meta = preprocessor.preprocess_image(raw_bytes, doc_id=doc_id)
-                if not (meta.get("rotation_applied") or meta.get("contrast_enhanced") or meta.get("denoised") or meta.get("blur_corrected")):
-                    return file_path
-
-                corrected_path = os.path.join(temp_dir, f"corrected_{os.path.basename(file_path)}")
-                with open(corrected_path, "wb") as f:
-                    f.write(corrected_bytes)
-                logger.info(format_doc_log(doc_id, f"Applied scan correction to image: {meta}"))
-                return corrected_path
-
-            if prep_doc.file_category == "pdf":
-                import fitz
-                from PIL import Image
-                import io
-
-                render_dpi = 150
-                src = fitz.open(file_path)
-                corrected_pages: List[Tuple[bytes, int, int]] = []
-                any_correction = False
-
-                for page in src:
-                    pix = page.get_pixmap(dpi=render_dpi)
-                    img_bytes = pix.tobytes("png")
-                    corrected_bytes, meta = preprocessor.preprocess_image(img_bytes, doc_id=doc_id)
-                    if meta.get("rotation_applied") or meta.get("contrast_enhanced") or meta.get("denoised") or meta.get("blur_corrected"):
-                        any_correction = True
-                    with Image.open(io.BytesIO(corrected_bytes)) as im:
-                        px_w, px_h = im.size
-                    corrected_pages.append((corrected_bytes, px_w, px_h))
-                src.close()
-
-                if not any_correction:
-                    return file_path
-
-                out = fitz.open()
-                for img_bytes, px_w, px_h in corrected_pages:
-                    pt_w = px_w * 72.0 / render_dpi
-                    pt_h = px_h * 72.0 / render_dpi
-                    new_page = out.new_page(width=pt_w, height=pt_h)
-                    new_page.insert_image(fitz.Rect(0, 0, pt_w, pt_h), stream=img_bytes)
-
-                corrected_path = os.path.join(temp_dir, f"corrected_{os.path.basename(file_path)}")
-                out.save(corrected_path)
-                out.close()
-                logger.info(format_doc_log(
-                    doc_id, f"Applied scan correction across {len(corrected_pages)} page(s)"
-                ))
-                return corrected_path
-
-        except Exception as e:
-            logger.warning(format_doc_log(doc_id, f"Scan correction skipped (non-fatal): {e}"))
-
-        return file_path
 
     def _recover_comb_grids(
         self,

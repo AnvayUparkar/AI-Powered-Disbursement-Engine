@@ -12,29 +12,13 @@ echo.
 :: 1. Terminate processes listening on active ports (8000, 8001, 5173)
 :: -----------------------------------------------------------------------------
 echo [1/4] Terminating Port Listeners (8000, 8001, 5173)...
-powershell -NoProfile -Command ^
-    "$ports = @(8000, 8001, 5173); " ^
-    "foreach ($port in $ports) { " ^
-    "    $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue; " ^
-    "    foreach ($conn in $conns) { " ^
-    "        if ($conn.OwningProcess -gt 0) { " ^
-    "            Write-Host ('  Stopping PID ' + $conn.OwningProcess + ' on port ' + $port); " ^
-    "            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue " ^
-    "        } " ^
-    "    } " ^
-    "}"
+powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 
 :: -----------------------------------------------------------------------------
 :: 2. Terminate background Celery workers, watchfiles, and uvicorn processes
 :: -----------------------------------------------------------------------------
 echo [2/4] Terminating Celery and Python Worker Processes...
-powershell -NoProfile -Command ^
-    "Get-CimInstance Win32_Process | Where-Object { " ^
-    "    ($_.Name -match 'python' -and ($_.CommandLine -match 'celery' -or $_.CommandLine -match 'watchfiles' -or $_.CommandLine -match 'uvicorn')) " ^
-    "} | ForEach-Object { " ^
-    "    Write-Host ('  Stopping ' + $_.Name + ' (PID ' + $_.ProcessId + ')'); " ^
-    "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue " ^
-    "}"
+powershell -NoProfile -Command "Get-Process python, uvicorn, celery, node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 
 :: -----------------------------------------------------------------------------
 :: 3. Close titled command prompt windows spawned by start_all.bat

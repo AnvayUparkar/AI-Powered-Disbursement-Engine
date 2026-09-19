@@ -17,22 +17,8 @@ set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
 :: 1. Clean Up Any Stale Previous Instances (Ports & Worker Windows)
 :: -----------------------------------------------------------------------------
 echo [1/6] Cleaning up any previous running instances...
-powershell -NoProfile -Command ^
-    "$ports = @(8000, 8001, 5173); " ^
-    "foreach ($port in $ports) { " ^
-    "    $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue; " ^
-    "    foreach ($conn in $conns) { " ^
-    "        if ($conn.OwningProcess -gt 0) { " ^
-    "            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue " ^
-    "        } " ^
-    "    } " ^
-    "}"
-powershell -NoProfile -Command ^
-    "Get-CimInstance Win32_Process | Where-Object { " ^
-    "    ($_.Name -match 'python' -and ($_.CommandLine -match 'celery' -or $_.CommandLine -match 'watchfiles' -or $_.CommandLine -match 'uvicorn')) " ^
-    "} | ForEach-Object { " ^
-    "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue " ^
-    "}"
+powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
+powershell -NoProfile -Command "Get-Process python, uvicorn, celery, node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 taskkill /F /FI "WINDOWTITLE eq Disbursement Scorecard*" 2>nul
 echo   [OK] Clean state prepared.
 
@@ -163,8 +149,8 @@ echo.
 echo [5/6] Launching IDP Engine Microservice (Port 8001)...
 start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
 
-echo   Waiting 45 seconds for backend microservices to initialize...
-timeout /t 45 /nobreak >nul
+echo   Waiting 30 seconds for backend microservices to initialize...
+timeout /t 30 /nobreak >nul
 
 :: -----------------------------------------------------------------------------
 :: 6. Launch Celery Worker (with Auto-Reload) and Frontend UI
