@@ -177,7 +177,7 @@ export interface ComparisonResult {
   sources: string[];
   values: (string | number | null)[];
   match_type: string;
-  match_status: 'MATCH' | 'MISMATCH' | 'REVIEW';
+  match_status: 'MATCH' | 'MISMATCH' | 'REVIEW' | 'NOT_FOUND' | 'PARTIAL' | string;
   confidence: number;
   method: string;
   llm_used?: boolean;

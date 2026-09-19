@@ -25,15 +25,18 @@ const formatCurrency = (val: number | null | undefined) => {
   return '₹' + Number(val).toLocaleString('en-IN');
 };
 
-const formatMethod = (method: string, matchType: string) => {
-  if (!method && !matchType) return 'Direct Check';
-  const m = (method || matchType).toLowerCase();
+const formatMethod = (method?: string | null, matchType?: string | null) => {
+  const raw = method || matchType || '';
+  if (!raw) return 'Direct Check';
+  const m = raw.toLowerCase();
   if (m.includes('jaro_winkler')) return 'Jaro-Winkler (Fuzzy)';
-  if (m.includes('equality') || m.includes('exact_string')) return 'Exact String Equality';
+  if (m.includes('equality') || m.includes('exact_string') || m === 'exact') return 'Exact String Equality';
   if (m.includes('numeric') || m.includes('exact_numeric')) return 'Exact Numeric Match';
   if (m.includes('presence')) return 'Document Presence';
   if (m.includes('token_sort')) return 'Token Sort Ratio';
-  return method.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  if (m.includes('tenure')) return 'Tenure Comparison';
+  if (m.includes('masked')) return 'Masked ID Compare';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
 const formatSourceName = (src: string) => {
@@ -258,10 +261,15 @@ function ScorecardReportContent({ caseData, displayedComparisons, idPrefix = 'pr
             </thead>
             <tbody className="divide-y divide-slate-200">
               {displayedComparisons.map((c, idx) => {
-                const srcA = formatSourceName(c.sources?.[0] || '');
-                const srcB = formatSourceName(c.sources?.[1] || '');
-                const valA = c.values?.[0] !== undefined && c.values?.[0] !== null ? String(c.values[0]) : '—';
-                const valB = c.values?.[1] !== undefined && c.values?.[1] !== null ? String(c.values[1]) : '—';
+                const anyC = c as any;
+                const srcA = formatSourceName(c.sources?.[0] || anyC.doc_type || 'Document');
+                const srcB = formatSourceName(c.sources?.[1] || (anyC.los_field ? 'los' : ''));
+                const valA = c.values?.[0] !== undefined && c.values?.[0] !== null
+                  ? String(c.values[0])
+                  : (anyC.doc_value !== undefined && anyC.doc_value !== null ? String(anyC.doc_value) : '—');
+                const valB = c.values?.[1] !== undefined && c.values?.[1] !== null
+                  ? String(c.values[1])
+                  : (anyC.los_value !== undefined && anyC.los_value !== null ? String(anyC.los_value) : '—');
 
                 return (
                   <tr key={c.check_id || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
@@ -323,47 +331,15 @@ function ScorecardReportContent({ caseData, displayedComparisons, idPrefix = 'pr
 
 export function PrintScorecardModal({ isOpen, onClose, caseData }: PrintScorecardModalProps) {
   const [filterMismatchOnly, setFilterMismatchOnly] = useState(false);
-  const [downloading, setDownloading] = useState(false);
 
   if (!isOpen) return null;
 
   const comparisonList: ComparisonResult[] = caseData.comparisonResults || [];
   const displayedComparisons = filterMismatchOnly
-    ? comparisonList.filter((c) => c.match_status === 'MISMATCH' || c.match_status === 'REVIEW')
+    ? comparisonList.filter((c) => c.match_status === 'MISMATCH' || c.match_status === 'REVIEW' || c.match_status === 'NOT_FOUND')
     : comparisonList;
 
   const pdfFilename = `${caseData.applicationId || caseData.id}_scorecard.pdf`;
-
-  const handleDownloadPdf = async () => {
-    setDownloading(true);
-    const element = document.getElementById('preview-scorecard-content');
-    if (!element) {
-      setDownloading(false);
-      handlePrint();
-      return;
-    }
-
-    const opt = {
-      margin: [8, 8, 8, 8] as [number, number, number, number],
-      filename: pdfFilename,
-      image: { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-    };
-
-    try {
-      // @ts-ignore
-      const html2pdfModule = await import('html2pdf.js');
-      const html2pdf = html2pdfModule.default || html2pdfModule;
-      await html2pdf().set(opt).from(element).save();
-    } catch (err) {
-      console.error('Direct PDF export error, falling back to window.print:', err);
-      handlePrint();
-    } finally {
-      setDownloading(false);
-    }
-  };
 
   const handlePrint = () => {
     const originalTitle = document.title;
@@ -371,7 +347,7 @@ export function PrintScorecardModal({ isOpen, onClose, caseData }: PrintScorecar
     window.print();
     setTimeout(() => {
       document.title = originalTitle;
-    }, 1500);
+    }, 1000);
   };
 
   return (
@@ -403,27 +379,11 @@ export function PrintScorecardModal({ isOpen, onClose, caseData }: PrintScorecar
                 Show Discrepancies Only
               </label>
               <button
-                onClick={handleDownloadPdf}
-                disabled={downloading}
-                className="btn btn-primary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-4 rounded-lg shadow-sm hover:shadow transition-all"
-                title={`Directly download ${pdfFilename}`}
-              >
-                {downloading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Generating PDF...
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4" /> Download PDF
-                  </>
-                )}
-              </button>
-              <button
                 onClick={handlePrint}
-                className="btn btn-secondary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all"
-                title="Open system print dialog with pre-filled filename"
+                className="btn btn-primary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-4 rounded-lg shadow-sm hover:shadow transition-all"
+                title="Print or Save as PDF with pre-set filename"
               >
-                <Printer className="h-4 w-4" /> Print Dialog
+                <Printer className="h-4 w-4" /> Print / Save as PDF
               </button>
               <button
                 onClick={onClose}
