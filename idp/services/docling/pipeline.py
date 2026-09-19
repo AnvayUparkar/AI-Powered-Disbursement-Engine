@@ -35,6 +35,7 @@ def _get_options_key(options: DoclingOptions) -> str:
         f"|{options.images_scale}|{options.det_db_thresh}|{options.det_db_box_thresh}"
         f"|{options.det_limit_side_len}|{options.enhance_contrast}|{options.deskew}"
         f"|{options.denoise}|{options.force_full_page_ocr}"
+        f"|{options.use_gpu}|{options.num_threads}"
     )
 
 
@@ -73,6 +74,37 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
             pipeline_options.do_ocr = options.do_ocr
             pipeline_options.do_table_structure = options.do_table_structure
 
+            # Wire AcceleratorOptions (GPU / CPU acceleration with graceful fallback)
+            try:
+                from docling.datamodel.pipeline_options import (
+                    AcceleratorOptions,
+                    AcceleratorDevice,
+                )
+                try:
+                    import torch
+                    has_cuda = bool(torch.cuda.is_available())
+                except Exception:
+                    has_cuda = False
+
+                if options.use_gpu and has_cuda:
+                    device = AcceleratorDevice.CUDA
+                elif options.use_gpu:
+                    device = AcceleratorDevice.AUTO
+                else:
+                    device = AcceleratorDevice.CPU
+
+                num_threads = max(1, int(options.num_threads or 4))
+                pipeline_options.accelerator_options = AcceleratorOptions(
+                    num_threads=num_threads,
+                    device=device,
+                )
+                logger.info(
+                    f"[DoclingCache] Configured AcceleratorOptions: device={device}, "
+                    f"num_threads={num_threads}, use_gpu={options.use_gpu} (CUDA torch={has_cuda})"
+                )
+            except Exception as acc_err:
+                logger.warning(f"[DoclingCache] AcceleratorOptions config skipped: {acc_err}")
+
             # Page rasterization scale used as input to OCR + TableFormer. This is
             # the single highest-leverage knob for faint/low-res table text: at the
             # default 1.0 Docling renders pages at native PDF point resolution
@@ -99,10 +131,10 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
             # Configure Docling-managed OCR engine (RapidOCR PP-OCRv6)
             if options.do_ocr:
                 try:
-                    from docling.datamodel.pipeline_options import RapidOcrOptions
+                    from docling.datamodel.pipeline_options import RapidOcrOptions, OcrMode
                     ocr_opts = RapidOcrOptions(
                         backend="onnxruntime",
-                        force_full_page_ocr=options.force_full_page_ocr,
+                        mode=OcrMode.FULL_PAGE if options.force_full_page_ocr else OcrMode.DEFAULT,
                         lang=options.ocr_lang
                     )
                     
@@ -195,8 +227,15 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
             converter = DocumentConverter(format_options=format_options)
             logger.info(
                 "[DoclingCache] DocumentConverter built and cached. "
-                f"images_scale={options.images_scale}, enhance_contrast={options.enhance_contrast}, "
-                f"deskew={options.deskew}. "
+                f"images_scale={options.images_scale}. "
+                # enhance_contrast/deskew are intentionally omitted here: the
+                # installed Docling has no do_image_enhancement/do_deskew hook
+                # on PdfPipelineOptions (see the hasattr guards above), so
+                # these DoclingOptions fields never affect this converter --
+                # logging them next to real wired options implied otherwise.
+                # Actual scan deskew now runs pre-Docling in
+                # DocumentProcessor._apply_scan_correction (see its own
+                # "Applied scan correction" log line for per-document status).
                 "ONNX models are now hot and will be reused for all future documents."
             )
         except Exception as e:
