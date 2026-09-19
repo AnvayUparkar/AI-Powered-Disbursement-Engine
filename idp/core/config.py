@@ -55,11 +55,11 @@ class Settings(BaseSettings):
     CHINESE_OCR_ENABLED: bool = False
     KOREAN_OCR_ENABLED: bool = False
     LATIN_MULTILINGUAL_OCR_ENABLED: bool = False
-    DEFAULT_OCR_ROUTE: str = "english"
+    DEFAULT_OCR_ROUTE: str = "en"
 
     # Script Routing & Profile Controls
     OCR_SCRIPT_ROUTING_ENABLED: bool = True
-    OCR_DEFAULT_PROFILE: str = "english"
+    OCR_DEFAULT_PROFILE: str = "en"
     OCR_PREVIEW_ROUTING_ENABLED: bool = True
     OCR_REGION_FALLBACK_ENABLED: bool = True
 
@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_SIZE_MB: int = 50
     TEMP_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "poc_data", "idp_temp")
     IDP_PORT: int = 8001
+
+    # Pixel-level preprocessing for scanned documents (deskew, CLAHE, denoising, adaptive
+    # binarisation) applied before Docling ingestion.  Set ENABLE_SCAN_PREPROCESSING=false
+    # in .env to revert to pre-fix behaviour without a code revert (e.g. if binarisation
+    # is too aggressive for a specific document class in staging).
+    ENABLE_SCAN_PREPROCESSING: bool = True
 
 
 settings = Settings()
