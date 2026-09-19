@@ -196,6 +196,23 @@ def run_case_verification(case_id: str, async_mode: bool = Query(False, alias="a
         raise HTTPException(status_code=500, detail="Pipeline run failed") from None
 
 
+@router.post("/{case_id}/run-ocr", summary="Trigger OCR scan and field structuring only")
+def run_case_ocr(case_id: str):
+    try:
+        from pipeline.graph import run_ocr_pipeline
+        result_state = run_ocr_pipeline(case_id)
+        scanned_docs = len(result_state.get("extracted_data") or {})
+        updated_case = serialize_case(case_id)
+        return {
+            "status": "completed",
+            "scannedDocuments": scanned_docs,
+            "case": updated_case,
+        }
+    except Exception:
+        logger.exception("OCR pipeline run error for %s", case_id)
+        raise HTTPException(status_code=500, detail="OCR scan failed") from None
+
+
 @router.get("/{case_id}/stream", summary="Stream live pipeline execution events via SSE")
 def stream_case_verification(case_id: str):
     def event_generator():

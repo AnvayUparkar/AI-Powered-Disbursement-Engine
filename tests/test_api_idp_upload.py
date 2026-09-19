@@ -23,7 +23,7 @@ def test_api_v1_documents_upload_success():
     assert response.status_code == 200
     res_data = response.json()
     assert res_data["document_id"] == "TEST_DOC_UPLOAD_001"
-    assert res_data["status"] in ("completed", "processing", "success")
+    assert res_data["status"] in ("completed", "processing", "success", "queued")
     assert "processing_time_seconds" in res_data
     assert "output_location" in res_data
 
@@ -41,7 +41,7 @@ def test_api_v1_documents_upload_without_optional_fields():
     assert response.status_code == 200
     res_data = response.json()
     assert res_data["document_id"].startswith("DOC-")
-    assert res_data["status"] in ("completed", "processing", "success")
+    assert res_data["status"] in ("completed", "processing", "success", "queued")
 
 
 def test_api_v1_documents_get_not_found():

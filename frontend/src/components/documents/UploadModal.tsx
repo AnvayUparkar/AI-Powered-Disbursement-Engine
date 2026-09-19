@@ -113,7 +113,7 @@ export function UploadModal({
         let newDoc: DocumentRecord;
 
         if (resultDoc) {
-          newDoc = adaptNode2DocumentToRecord(resultDoc, selectedCase || 'HDB-2026-001245');
+          newDoc = adaptNode2DocumentToRecord(resultDoc, selectedCase || 'GENERAL');
           newDoc.name = qf.file.name;
           newDoc.type = qf.docType;
         } else {
@@ -129,7 +129,7 @@ export function UploadModal({
             confidence: 96.5,
             vlmUsed: vlmUsed,
             uploadedAt: new Date().toISOString().split('T')[0],
-            caseId: selectedCase || 'HDB-2026-001245',
+            caseId: selectedCase || 'GENERAL',
             sizeKb: Math.round(qf.file.size / 1024),
             extractedFields: [
               { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: docId, page: 1 },

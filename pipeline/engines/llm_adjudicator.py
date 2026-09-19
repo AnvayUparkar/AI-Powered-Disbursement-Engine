@@ -1,67 +1,24 @@
-"""LLM Adjudicator — Adjudicates borderline/fuzzy match results using Gemini."""
+"""LLM Adjudicator — Adjudicates borderline/fuzzy match results using configured LLM provider."""
 import json
 import logging
+import os
 import re
-from functools import lru_cache
 from typing import Any, Dict, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from config import GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TEMPERATURE
+from config.settings import (
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
+    LLM_TEMPERATURE,
+)
 from pipeline.audit import append_audit_entry
+from pipeline.engines.llm_client import invoke_llm_json
 
 logger = logging.getLogger("disbursement_pipeline.llm_adjudicator")
 
 
-@lru_cache(maxsize=1)
-def _get_gemini_client() -> Optional[ChatGoogleGenerativeAI]:
-    """Returns a cached singleton instance of the Gemini chat client."""
-    if not GEMINI_API_KEY:
-        return None
-    try:
-        return ChatGoogleGenerativeAI(
-            model=GEMINI_MODEL,
-            google_api_key=GEMINI_API_KEY,
-            temperature=GEMINI_TEMPERATURE,
-            max_retries=3,
-            timeout=30.0,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error("Failed to initialize ChatGoogleGenerativeAI: %s", e)
-        return None
-
-
-def _extract_text(content: Any) -> str:
-    """Safely extracts plain text from LangChain message content."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        texts = []
-        for item in content:
-            if isinstance(item, dict) and "text" in item:
-                texts.append(str(item["text"]))
-            elif isinstance(item, str):
-                texts.append(item)
-            elif hasattr(item, "text"):
-                texts.append(str(item.text))
-        return "\n".join(texts)
-    return str(content)
-
-
-def _clean_json_text(text: str) -> str:
-    """Extracts JSON substring if wrapped in markdown code blocks or text."""
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if match:
-        return match.group(1)
-    match_braces = re.search(r"(\{.*\})", text, re.DOTALL)
-    if match_braces:
-        return match_braces.group(1)
-    return text.strip()
-
-
 def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) -> dict:
-    """Calls Google Gemini to adjudicate PARTIAL-band fuzzy matches.
+    """Calls configured LLM provider to adjudicate PARTIAL-band fuzzy matches.
 
     (names via Jaro-Winkler, addresses via TF-IDF cosine).
     Falls back gracefully to PARTIAL/manual review if API key is not configured or on failure.
@@ -69,11 +26,14 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
     str_a = str(value_a) if value_a is not None else ""
     str_b = str(value_b) if value_b is not None else ""
 
-    client = _get_gemini_client()
+    api_key = os.getenv("LLM_API_KEY") or LLM_API_KEY
+    model = os.getenv("LLM_MODEL") or LLM_MODEL
+    base_url = os.getenv("LLM_BASE_URL") or LLM_BASE_URL
+    temperature = float(os.getenv("LLM_TEMPERATURE", str(LLM_TEMPERATURE)))
 
-    if not client:
+    if not api_key:
         logger.warning(
-            "[FALLBACK] Gemini API key not configured — fallback for %s: '%s' vs '%s'",
+            "[FALLBACK] LLM API key not configured — fallback for %s: '%s' vs '%s'",
             field_type,
             str_a,
             str_b,
@@ -81,7 +41,7 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
         fallback_res = {
             "match_status": "PARTIAL",
             "confidence": 0.5,
-            "reason": "Gemini API key not configured. Flagged for manual review.",
+            "reason": "LLM API key not configured. Flagged for manual review.",
             "llm_used": False,
         }
         append_audit_entry(
@@ -124,21 +84,23 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
     )
 
     try:
-        response = client.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=human_prompt),
-        ])
-
-        raw_content = _extract_text(response.content)
-        cleaned_json = _clean_json_text(raw_content)
-        parsed = json.loads(cleaned_json)
+        parsed = invoke_llm_json(
+            system_prompt=system_prompt,
+            user_prompt=human_prompt,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temperature,
+            max_tokens=1024,
+            timeout=30.0,
+        )
 
         status = parsed.get("match_status", "PARTIAL").upper()
         if status not in ("MATCH", "MISMATCH", "PARTIAL"):
             status = "PARTIAL"
 
         confidence = float(parsed.get("confidence", 0.9))
-        reason = parsed.get("reason", "Gemini adjudication completed.")
+        reason = parsed.get("reason", "LLM adjudication completed.")
 
         result = {
             "match_status": status,
@@ -148,18 +110,19 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
         }
 
         logger.info(
-            "Gemini adjudicated %s for loan %s: %s (confidence=%.2f)",
+            "LLM adjudicated %s for loan %s: %s (confidence=%.2f, model=%s)",
             field_type,
             loan_id,
             status,
             confidence,
+            model,
         )
 
         append_audit_entry(
             loan_id,
             {
                 "type": "llm_adjudication",
-                "model": GEMINI_MODEL,
+                "model": model,
                 "field_type": field_type,
                 "value_a": str_a,
                 "value_b": str_b,
@@ -172,11 +135,11 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
         return result
 
     except Exception as e:  # noqa: BLE001 - Fallback on any unexpected LLM failure
-        logger.error("Gemini adjudication failed for %s (loan %s): %s", field_type, loan_id, e)
+        logger.error("LLM adjudication failed for %s (loan %s): %s", field_type, loan_id, e)
         fallback_res = {
             "match_status": "PARTIAL",
             "confidence": 0.5,
-            "reason": "Gemini adjudication encountered a service error. Flagged for manual review.",
+            "reason": f"LLM adjudication encountered a service error ({e}). Flagged for manual review.",
             "llm_used": False,
         }
         append_audit_entry(

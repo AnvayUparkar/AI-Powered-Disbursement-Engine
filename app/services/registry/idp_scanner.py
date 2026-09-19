@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, Set
 
+from datetime import datetime
+from config import IST
 from idp.core.config import settings as idp_settings
 
 logger = logging.getLogger("disbursement_pipeline.document_registry.idp_scanner")
@@ -38,9 +40,23 @@ def scan_idp_parsed_storage(
                     s3_key = data.get("source", {}).get("s3_key") or ""
                     inferred_case = None
 
+                    from config import DMS_DIR, S3_RAW_DIR
                     m = re.search(r"(LOAN_\d+|HDB-[A-Za-z0-9\-]+|APPL\d+)", f"{doc_id}_{filename}_{s3_key}")
                     if m:
-                        inferred_case = m.group(1)
+                        cand_case = m.group(1)
+                        # Only associate with case if the raw physical document exists for this case
+                        case_raw_exists = (
+                            (S3_RAW_DIR / cand_case / filename).exists()
+                            or (DMS_DIR / cand_case / filename).exists()
+                            or (raw_dir / f"{doc_id}_{filename}").exists()
+                        )
+                        if case_raw_exists or cand_case.startswith("LOAN_"):
+                            inferred_case = cand_case
+                        else:
+                            inferred_case = "GENERAL"
+
+                    mtime = json_file.stat().st_mtime
+                    up_at = datetime.fromtimestamp(mtime, tz=IST).strftime("%Y-%m-%d %H:%M IST")
 
                     register_func(
                         doc_id=doc_id,
@@ -48,6 +64,8 @@ def scan_idp_parsed_storage(
                         case_id=inferred_case,
                         parsed_result=data,
                         file_size_bytes=data.get("processing", {}).get("file_size_bytes", 150000),
+                        uploaded_at=up_at,
+                        uploaded_timestamp=mtime,
                     )
                     known_doc_ids.add(doc_id)
                 except Exception as e:
@@ -75,8 +93,12 @@ def scan_idp_parsed_storage(
 
                 try:
                     size_bytes = raw_file.stat().st_size
+                    mtime = raw_file.stat().st_mtime
+                    up_at = datetime.fromtimestamp(mtime, tz=IST).strftime("%Y-%m-%d %H:%M IST")
                 except OSError:
                     size_bytes = 0
+                    mtime = None
+                    up_at = None
 
                 try:
                     register_func(
@@ -85,6 +107,8 @@ def scan_idp_parsed_storage(
                         case_id=inferred_case,
                         parsed_result=None,
                         file_size_bytes=size_bytes,
+                        uploaded_at=up_at,
+                        uploaded_timestamp=mtime,
                     )
                     known_doc_ids.add(doc_id)
                 except Exception as e:

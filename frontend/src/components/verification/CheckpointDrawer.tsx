@@ -1,4 +1,4 @@
-import { X, FileText, ExternalLink, ShieldCheck } from 'lucide-react';
+import { X, FileText, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Checkpoint } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -191,20 +191,19 @@ export function CheckpointDrawer({
             ) : (
               <div className="space-y-2">
                 {cp.evidence.map((e) => (
-                  <div key={e.id} className="card p-3 flex items-start gap-3">
-                    <FileText className="h-4.5 w-4.5 text-ink-400 shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-ink-800 truncate">{e.label}</p>
+                  <div key={e.id} className="card p-3 flex items-start gap-3 hover:bg-ink-50/50 transition-colors">
+                    <FileText className="h-4.5 w-4.5 text-brand-500 shrink-0 mt-0.5" />
+                    <Link
+                      to={`/documents/${e.documentId}`}
+                      className="flex-1 min-w-0 group"
+                    >
+                      <p className="text-sm font-medium text-brand-600 group-hover:text-brand-700 group-hover:underline truncate">
+                        {e.label}
+                      </p>
                       <p className="text-xs text-ink-500 mt-0.5">
                         {e.documentName} · Page {e.page}
                         {e.field ? ` · ${e.field}` : ''}
                       </p>
-                    </div>
-                    <Link
-                      to={`/documents/${e.documentId}`}
-                      className="btn-ghost px-2 py-1 text-xs text-brand-600"
-                    >
-                      View <ExternalLink className="h-3 w-3" />
                     </Link>
                   </div>
                 ))}

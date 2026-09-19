@@ -178,6 +178,17 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status = "INDETERMINATE"
         notes = f"Application form fields pending manual verification ({matched_field_count}/{total_field_count} verified, {match_score}% match fidelity)."
         val = {"left": left_app_name, "right": right_los_name, "result": "MATCH" if left_app_name == right_los_name else "MISMATCH", "leftSource": "application_form", "rightSource": "los"}
+    elif not ctx.has_verification_run and not app_form_checks:
+        status = "INDETERMINATE"
+        notes = "Application Form uploaded; verification pipeline has not been executed yet."
+        val = resolve_checkpoint_validation(
+            status,
+            default_left=left_app_name,
+            default_right=right_los_name,
+            records=app_form_checks,
+            default_left_source="application_form",
+            default_right_source="los",
+        )
     else:
         status = "VERIFIED"
         notes = f"Application Form verified against LOS records for '{app_name_val or 'Applicant'}' ({matched_field_count}/{total_field_count} fields verified, {match_score}% match fidelity)."
@@ -284,7 +295,7 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status = "INDETERMINATE"
     elif not has_pan_doc or not has_addr_doc:
         status = "INDETERMINATE"
-    elif any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") or r.get("result") in ("PARTIAL", "NOT_FOUND") for r in [r4_pan, r4_name_pan, r4_name_aadhaar, r4_addr] if r is not None):
+    elif not ctx.has_verification_run and not any([r4_pan, r4_name_pan, r4_name_aadhaar, r4_addr]):
         status = "INDETERMINATE"
     else:
         status = "VERIFIED"

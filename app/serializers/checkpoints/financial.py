@@ -70,6 +70,9 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         fields = [build_field("Loan Amount", "Not Available", 0.0, f"doc-{ctx.loan_id}")]
         status = "INDETERMINATE"
         notes = "No loan documents available for amount verification."
+    elif not ctx.has_verification_run and not amount_records:
+        status = "INDETERMINATE"
+        notes = "Verification pipeline has not been executed yet."
     elif has_amt_mismatch:
         status = "DISCREPANCY"
         notes = (primary_record.get("notes") if primary_record else "") or "Loan amount discrepancy across documents."
@@ -177,6 +180,9 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         fields.append(build_field("Tenure", "Not Available", 0.0, f"doc-{ctx.loan_id}"))
         status = "INDETERMINATE"
         notes = "Tenure documents not uploaded."
+    elif not ctx.has_verification_run and not tenure_records:
+        status = "INDETERMINATE"
+        notes = "Verification pipeline has not been executed yet."
     else:
         status = "DISCREPANCY" if has_validity_mismatch else "VERIFIED"
         if not has_validity_mismatch and primary_tenure and primary_tenure.get("match_status") in ("PARTIAL", "NOT_FOUND"):
@@ -300,9 +306,9 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 default_left_source=srcs[0] if len(srcs) > 0 else "kfs",
                 default_right_source=srcs[1] if len(srcs) > 1 else "los",
             )
-        elif has_partial:
+        elif has_partial or (not ctx.has_verification_run and not kfs_records):
             status = "INDETERMINATE"
-            notes = "KFS terms pending verification."
+            notes = "KFS terms pending verification." if has_partial else "KFS uploaded; verification pipeline has not been executed yet."
             val_block = resolve_checkpoint_validation(
                 status,
                 default_left=inr_format(ctx.loan_amount) if ctx.loan_amount > 0 else "N/A",
@@ -448,13 +454,13 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 default_left_source=left_src,
                 default_right_source=right_src,
             )
-        elif has_partial:
+        elif has_partial or (not ctx.has_verification_run and not sanction_records):
             status = "INDETERMINATE"
-            notes = "Sanction letter terms pending manual verification."
+            notes = "Sanction letter terms pending manual verification." if has_partial else "Sanction letter uploaded; verification pipeline has not been executed yet."
             val_block = resolve_checkpoint_validation(
                 status,
                 default_left=sanc_amt_str,
-                default_right=inr_format(ctx.loan_amount),
+                default_right=inr_format(ctx.loan_amount) if ctx.has_los_data and ctx.loan_amount > 0 else "N/A",
                 records=sanction_records,
                 default_left_source="sanction_letter",
                 default_right_source="los",
@@ -606,7 +612,9 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     if has_memo:
         status = "VERIFIED"
-        if (
+        if not ctx.has_verification_run and not memo_records:
+            status = "INDETERMINATE"
+        elif (
             (r11_amt and r11_amt.get("match_status") == "MISMATCH")
             or (r11_no and r11_no.get("match_status") == "MISMATCH")
             or (r11_acct_no and r11_acct_no.get("match_status") == "MISMATCH")

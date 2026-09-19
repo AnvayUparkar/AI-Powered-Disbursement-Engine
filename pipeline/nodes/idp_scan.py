@@ -32,6 +32,7 @@ from idp.models.document import ParsedDocument
 from idp.services.extraction.field_location_resolver import FieldLocationResolver
 from idp.services.output.serializer import DocumentSerializer
 from pipeline.engines.llm_field_extractor import format_template_json, llm_extract_fields
+from pipeline.utils.image_normalizer import ensure_png_for_idp
 
 logger = logging.getLogger("disbursement_pipeline.idp_scan")
 
@@ -159,6 +160,9 @@ def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Opti
     
     Port 8000 NEVER runs local Docling, OCR, or heavy DL models.
     """
+    # Normalize .tif/.tiff images to standard RGB PNG to prevent ONNX OCR memory crashes
+    file_path = ensure_png_for_idp(file_path)
+
     # XML fast-path runs locally on 8000 (pure deterministic XML tree parsing, zero heavy ML models)
     if file_path.suffix.lower() == ".xml" or doc_key == "aadhaar_xml":
         try:

@@ -320,7 +320,14 @@ def _build_case_document_record(
     elif not formatted_text:
         formatted_text = ""
 
-    mtime = fpath.stat().st_mtime if (source_kind != "extracted" and fpath.exists()) else time.time()
+    if fpath.exists():
+        mtime = fpath.stat().st_mtime
+    elif ext_file and ext_file.exists():
+        mtime = ext_file.stat().st_mtime
+    elif struct_file and struct_file.exists():
+        mtime = struct_file.stat().st_mtime
+    else:
+        mtime = time.time()
     uploaded_at = datetime.fromtimestamp(mtime, tz=IST).strftime("%Y-%m-%d %H:%M IST")
 
     return {
@@ -378,30 +385,13 @@ def scan_case_documents(dynamic_doc_ids: Optional[Set[str]] = None, use_cache: b
         case_ext_dir = S3_EXTRACTED_DIR / c_id
 
         candidates = _collect_case_candidates(c_id, case_s3_dir, case_dms_dir, case_ext_dir)
-        if not candidates and c_id.startswith("LOAN_"):
-            default_types = [
-                ("application_form", "APPLICATION FORM.pdf"),
-                ("pan", "PAN.pdf"),
-                ("aadhaar", "Aadhaar.pdf"),
-                ("kfs", "kfs.pdf"),
-                ("sanction", "sanction_letter.pdf"),
-                ("loan_agreement", "loan_agreement.pdf"),
-                ("disbursal_memo", "disbursal_memo.pdf"),
-            ]
-            for slug, d_name in default_types:
-                d_id = f"doc-{c_id}-{slug}"
-                if d_id not in dynamic_set:
-                    fake_path = case_s3_dir / d_name
-                    doc_rec = _build_case_document_record(c_id, d_name, fake_path, "synthetic", case_ext_dir)
-                    docs.append(doc_rec)
-        else:
-            for doc_filename, fpath, source_kind in candidates:
-                doc_id = f"doc-{c_id}-{Path(doc_filename).stem.lower().replace(' ', '_')}"
-                if doc_id in dynamic_set:
-                    continue
+        for doc_filename, fpath, source_kind in candidates:
+            doc_id = f"doc-{c_id}-{Path(doc_filename).stem.lower().replace(' ', '_')}"
+            if doc_id in dynamic_set:
+                continue
 
-                doc_record = _build_case_document_record(c_id, doc_filename, fpath, source_kind, case_ext_dir)
-                docs.append(doc_record)
+            doc_record = _build_case_document_record(c_id, doc_filename, fpath, source_kind, case_ext_dir)
+            docs.append(doc_record)
 
     _CASE_DOCS_CACHE = docs
     _CACHE_TIMESTAMP = now

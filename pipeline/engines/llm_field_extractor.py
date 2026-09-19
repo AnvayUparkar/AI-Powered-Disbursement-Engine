@@ -24,8 +24,6 @@ from typing import Any
 import httpx
 
 from config.settings import (
-    GEMINI_API_KEY,
-    GEMINI_MODEL,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MAX_TOKENS,
@@ -175,28 +173,14 @@ _SYSTEM_PROMPT: str = (
     "- customer_consent        : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
 )
 
-_OPENROUTER_URL: str = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
 
-_OPENROUTER_HEADERS: dict[str, str] = {
-    "Content-Type": "application/json",
-    "HTTP-Referer": "https://disbursement-scorecard",
-    "X-Title": "Disbursement Scorecard - OCR Field Extraction",
-}
 
+from pipeline.engines.llm_client import clean_json_response
+
+_clean_json_response = clean_json_response
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
-
-def _clean_json_response(text: str) -> str:
-    """Strips markdown code fences if the LLM wraps its JSON output."""
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if match:
-        return match.group(1)
-    match = re.search(r"(\{.*\})", text, re.DOTALL)
-    if match:
-        return match.group(1)
-    return text.strip()
-
 
 def _build_user_content(doc_type: str, raw_text: str) -> str:
     """Returns the user-message content for the LLM.
@@ -239,73 +223,6 @@ def _build_user_content(doc_type: str, raw_text: str) -> str:
         return raw_text
 
 
-def _extract_with_gemini(
-    user_content: str,
-    api_key: str,
-    model: str,
-    doc_id: str,
-    doc_type: str,
-) -> dict[str, Any]:
-    """Extracts structured fields using Google Gemini direct API."""
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        model_name = model
-        if model_name in ("gemini-2.5-flash-lite", "google/gemini-2.5-flash-lite"):
-            model_name = "gemini-3.5-flash-lite"
-        elif "/" in model_name and "gemini" in model_name.lower():
-            model_name = model_name.split("/")[-1]
-
-        client = ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=api_key,
-            temperature=0.0,
-            max_output_tokens=LLM_MAX_TOKENS,
-            max_retries=2,
-            timeout=45.0,
-        )
-        messages = [
-            SystemMessage(content=_SYSTEM_PROMPT),
-            HumanMessage(content=user_content),
-        ]
-        ai_msg = client.invoke(messages)
-
-        raw_content = ""
-        if isinstance(ai_msg.content, str):
-            raw_content = ai_msg.content
-        elif isinstance(ai_msg.content, list):
-            texts = []
-            for item in ai_msg.content:
-                if isinstance(item, dict) and "text" in item:
-                    texts.append(str(item["text"]))
-                elif isinstance(item, str):
-                    texts.append(item)
-                elif hasattr(item, "text"):
-                    texts.append(str(item.text))
-            raw_content = "\n".join(texts)
-        else:
-            raw_content = str(ai_msg.content)
-
-        cleaned = _clean_json_response(raw_content)
-        extracted: dict[str, Any] = json.loads(cleaned)
-        result: dict[str, Any] = format_template_json(extracted)
-
-        non_null = sum(1 for v in result.values() if v is not None and v is not False)
-        logger.info(
-            "[%s] Gemini direct extracted %d/%d non-null fields (doc_type=%s, model=%s)",
-            doc_id,
-            non_null,
-            len(TEMPLATE_FIELDS),
-            doc_type,
-            model_name,
-        )
-        return result
-    except Exception as e:
-        logger.error("[%s] Direct Gemini extraction failed: %s", doc_id, e)
-        return {}
-
-
 # ── Public API ─────────────────────────────────────────────────────────────
 
 def llm_extract_fields(
@@ -313,7 +230,7 @@ def llm_extract_fields(
     raw_text: str,
     doc_id: str,
 ) -> dict[str, Any]:
-    """Sends raw OCR text to OpenRouter and returns a structured field dict.
+    """Sends raw OCR text to the configured LLM and returns a structured field dict.
 
     Args:
         doc_type: Canonical document type key (e.g. ``"aadhaar"``, ``"kfs"``).
@@ -322,11 +239,14 @@ def llm_extract_fields(
 
     Returns:
         Dict mapping canonical field names -> extracted values (``None`` for
-        fields not found in the document).  Returns ``{}`` on any failure so
+        fields not found in the document). Returns ``{}`` on any failure so
         the caller can proceed gracefully without a crash.
     """
-    effective_api_key = LLM_API_KEY
-    effective_model = LLM_MODEL
+    from pipeline.engines import llm_field_extractor
+    effective_api_key = getattr(llm_field_extractor, "LLM_API_KEY", None)
+    effective_model = getattr(llm_field_extractor, "LLM_MODEL", None)
+    effective_base_url = getattr(llm_field_extractor, "LLM_BASE_URL", None)
+    effective_temperature = getattr(llm_field_extractor, "LLM_TEMPERATURE", 0.0)
 
     if not effective_api_key:
         logger.warning("[%s] LLM_API_KEY not set — skipping LLM field extraction", doc_id)
@@ -338,43 +258,23 @@ def llm_extract_fields(
 
     user_content = _build_user_content(doc_type, raw_text)
 
-    is_gemini = (
-        effective_api_key.startswith("AQ.")
-        or effective_api_key.startswith("AIza")
-        or "gemini" in str(effective_model).lower()
-    )
-    if is_gemini:
-        return _extract_with_gemini(user_content, effective_api_key, effective_model, doc_id, doc_type)
-
-    payload: dict[str, Any] = {
-        "model": effective_model,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        "temperature": 0,
-        "max_tokens": LLM_MAX_TOKENS,
-        "response_format": {"type": "json_object"},
-    }
-
     try:
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(
-                _OPENROUTER_URL,
-                headers={
-                    **_OPENROUTER_HEADERS,
-                    "Authorization": f"Bearer {effective_api_key}",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
+        from pipeline.engines.llm_client import invoke_llm_json
+        extracted = invoke_llm_json(
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=user_content,
+            model=effective_model,
+            api_key=effective_api_key,
+            base_url=effective_base_url,
+            temperature=effective_temperature,
+            max_tokens=LLM_MAX_TOKENS,
+            timeout=60.0,
+        )
+        if not extracted or not isinstance(extracted, dict):
+            logger.warning("[%s] LLM extraction response empty or invalid (doc_type=%s)", doc_id, doc_type)
+            return {}
 
-        data: dict[str, Any] = response.json()
-        raw_content: str = data["choices"][0]["message"]["content"]
-        cleaned = _clean_json_response(raw_content)
-        extracted: dict[str, Any] = json.loads(cleaned)
         result: dict[str, Any] = format_template_json(extracted)
-
         non_null = sum(1 for v in result.values() if v is not None and v is not False)
         logger.info(
             "[%s] LLM extracted %d/%d non-null fields (doc_type=%s, model=%s)",
@@ -388,19 +288,14 @@ def llm_extract_fields(
 
     except httpx.HTTPStatusError as e:
         logger.error(
-            "[%s] OpenRouter HTTP %s: %s",
+            "[%s] LLM Provider HTTP %s (%s): %s",
             doc_id,
             e.response.status_code,
+            effective_model,
             e.response.text[:500],
         )
-        if GEMINI_API_KEY:
-            logger.info("[%s] Falling back to Gemini direct extraction...", doc_id)
-            return _extract_with_gemini(user_content, GEMINI_API_KEY, GEMINI_MODEL, doc_id, doc_type)
     except httpx.TimeoutException:
-        logger.error("[%s] OpenRouter request timed out (doc_type=%s)", doc_id, doc_type)
-        if GEMINI_API_KEY:
-            logger.info("[%s] Falling back to Gemini direct extraction after OpenRouter timeout...", doc_id)
-            return _extract_with_gemini(user_content, GEMINI_API_KEY, GEMINI_MODEL, doc_id, doc_type)
+        logger.error("[%s] LLM request timed out (doc_type=%s, model=%s)", doc_id, doc_type, effective_model)
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         logger.error("[%s] Failed to parse LLM JSON response: %s", doc_id, e)
     except Exception as e:  # noqa: BLE001 — defensive boundary, always return {}

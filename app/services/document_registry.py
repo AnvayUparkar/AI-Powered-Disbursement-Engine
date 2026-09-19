@@ -1,4 +1,5 @@
 """Unified Document Registry facade coordinating in-memory and disk-backed documents."""
+import json
 import logging
 import threading
 from pathlib import Path
@@ -50,6 +51,8 @@ class DocumentRegistry:
         case_id: Optional[str] = None,
         file_size_bytes: int = 0,
         parsed_result: Optional[Dict[str, Any]] = None,
+        uploaded_at: Optional[str] = None,
+        uploaded_timestamp: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Register a newly uploaded and processed document in the registry."""
         with self._lock:
@@ -63,7 +66,23 @@ class DocumentRegistry:
                 assoc_case=assoc_case,
                 file_size_bytes=file_size_bytes,
                 parsed_result=parsed_result,
+                uploaded_at=uploaded_at,
+                uploaded_timestamp=uploaded_timestamp,
             )
+
+            # If a dynamic record already exists for this case and filename, supersede only if newer or equal
+            if assoc_case and assoc_case != "GENERAL":
+                for existing_id, existing_rec in list(self._dynamic_docs.items()):
+                    if (
+                        existing_id != doc_id
+                        and existing_rec.get("caseId") == assoc_case
+                        and existing_rec.get("name") == filename
+                    ):
+                        existing_ts = existing_rec.get("uploadedTimestamp", 0.0) or 0.0
+                        new_ts = record.get("uploadedTimestamp", 0.0) or 0.0
+                        if existing_ts > new_ts:
+                            return existing_rec
+                        del self._dynamic_docs[existing_id]
 
             self._dynamic_docs[doc_id] = record
 
@@ -82,41 +101,52 @@ class DocumentRegistry:
     def update_extracted_result(self, doc_id: str, result: dict) -> None:
         """Merge IDP extracted result into an existing registry record."""
         with self._lock:
-            if doc_id in self._dynamic_docs:
-                rec = self._dynamic_docs[doc_id]
-                raw_txt = result.get("raw_text", "") or rec.get("rawText", "")
-                fmt_txt = result.get("formatted_text", "") or rec.get("formattedText", "")
-                ext_fields_raw = result.get("extracted_fields") or {}
-                field_locs = result.get("field_locations") or {}
-                ocr_tokens = result.get("ocr_tokens") or []
+            if doc_id not in self._dynamic_docs:
+                filename = result.get("filename") or (result.get("source") or {}).get("filename") or f"{doc_id}.pdf"
+                case_id = result.get("case_id") or result.get("caseId")
+                self.register_uploaded_document(doc_id=doc_id, filename=filename, case_id=case_id)
 
-                from .registry.normalizer import parse_extracted_fields
-                llm_meta = ext_fields_raw if isinstance(ext_fields_raw, dict) else {}
-                parsed_shim = {
-                    "custom_metadata": {
-                        "field_locations": field_locs,
-                        "ocr_tokens": ocr_tokens,
-                    },
-                    "elements": result.get("elements", []),
-                    "tables": result.get("tables", []),
-                }
-                extracted_fields_list = parse_extracted_fields(doc_id, parsed_shim, llm_meta)
+            rec = self._dynamic_docs[doc_id]
+            raw_txt = result.get("raw_text", "") or rec.get("rawText", "")
+            fmt_txt = result.get("formatted_text", "") or rec.get("formattedText", "")
+            ext_fields_raw = result.get("extracted_fields") or {}
+            field_locs = result.get("field_locations") or {}
+            ocr_tokens = result.get("ocr_tokens") or []
 
-                rec.update({
-                    "status": "processed",
-                    "ocrStatus": "COMPLETED",
-                    "extractionStatus": "COMPLETED",
-                    "confidence": 97.5,
-                    "rawText": raw_txt,
-                    "formattedText": fmt_txt,
-                    "extractedFields": extracted_fields_list or rec.get("extractedFields", []),
-                    "debug": {
-                        "field_locations": field_locs,
-                        "ocr_tokens": ocr_tokens,
-                        "page_dimensions": result.get("page_dimensions", []),
-                    },
-                })
-                logger.info("Updated extracted result for doc %s", doc_id)
+            from .registry.normalizer import parse_extracted_fields
+            llm_meta = ext_fields_raw if isinstance(ext_fields_raw, dict) else {}
+            parsed_shim = {
+                "custom_metadata": {
+                    "field_locations": field_locs,
+                    "ocr_tokens": ocr_tokens,
+                },
+                "elements": result.get("elements", []),
+                "tables": result.get("tables", []),
+            }
+            extracted_fields_list = parse_extracted_fields(doc_id, parsed_shim, llm_meta)
+
+            pages_count = len(result.get("pages") or []) or result.get("pages") or rec.get("pages", 1)
+            try:
+                pages_val = int(pages_count)
+            except (ValueError, TypeError):
+                pages_val = 1
+
+            rec.update({
+                "status": "processed",
+                "ocrStatus": "COMPLETED",
+                "extractionStatus": "COMPLETED",
+                "confidence": 97.5,
+                "pages": max(1, pages_val),
+                "rawText": raw_txt,
+                "formattedText": fmt_txt,
+                "extractedFields": extracted_fields_list or rec.get("extractedFields", []),
+                "debug": {
+                    "field_locations": field_locs,
+                    "ocr_tokens": ocr_tokens,
+                    "page_dimensions": result.get("page_dimensions", []),
+                },
+            })
+            logger.info("Updated extracted result for doc %s", doc_id)
 
     def _scan_idp_parsed_storage(self) -> None:
         """Scan disk storage for any existing parsed documents in IDP store."""
@@ -144,16 +174,44 @@ class DocumentRegistry:
         """
         with self._lock:
             self._scan_idp_parsed_storage()
+
+            # Dynamic reconciliation: Sync any pending/processing upload if parsed JSON is ready on disk
+            for d_id, d_rec in list(self._dynamic_docs.items()):
+                if d_rec.get("ocrStatus") == "PROCESSING" or d_rec.get("extractionStatus") == "PROCESSING":
+                    self._sync_parsed_doc_from_disk(d_id)
+
             dynamic_list = list(self._dynamic_docs.values())
             case_docs = self._get_case_documents()
 
             all_docs = merge_and_deduplicate(dynamic_list, case_docs)
             return filter_documents(all_docs, case_id=case_id, doc_type=doc_type, query=query)
 
+    def _sync_parsed_doc_from_disk(self, doc_id: str) -> None:
+        """Check if a freshly parsed JSON for doc_id exists on disk in mock S3 storage and update registry."""
+        try:
+            from idp.core.config import settings as idp_settings
+            base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
+            parsed_path = base_dir / idp_settings.PARSED_DOCUMENT_PREFIX / f"{doc_id}.json"
+            if parsed_path.exists() and parsed_path.is_file():
+                with open(parsed_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                filename = data.get("source", {}).get("filename")
+                case_val = self._dynamic_docs.get(doc_id, {}).get("caseId")
+                self.register_uploaded_document(
+                    doc_id=doc_id,
+                    filename=filename or f"{doc_id}.pdf",
+                    case_id=case_val,
+                    parsed_result=data,
+                    file_size_bytes=data.get("processing", {}).get("file_size_bytes", 0),
+                )
+        except Exception as e:
+            logger.debug("Disk sync note for %s: %s", doc_id, e)
+
     def get_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve full document record with extracted fields by ID."""
         with self._lock:
             self._scan_idp_parsed_storage()
+            self._sync_parsed_doc_from_disk(doc_id)
 
             if doc_id in self._dynamic_docs:
                 doc = self._dynamic_docs[doc_id]
@@ -236,28 +294,7 @@ class DocumentRegistry:
                 except OSError as e:
                     logger.warning("Failed deleting raw upload %s: %s", raw_path, e)
 
-    def update_extracted_result(self, doc_id: str, result: Dict[str, Any]) -> None:
-        """Merge IDP extracted result into an existing registry record.
-
-        Called by pipeline.celery_app.process_document_task after 8001 returns
-        the full extracted payload so 8000 can serve it immediately via GET /api/documents/{doc_id}.
-        """
-        with self._lock:
-            if doc_id in self._dynamic_docs:
-                self._dynamic_docs[doc_id].update({
-                    "status": "processed",
-                    "rawText": result.get("raw_text", ""),
-                    "formattedText": result.get("formatted_text", ""),
-                    "extractedFields": result.get("extracted_fields", {}),
-                    "fieldLocations": result.get("field_locations", {}),
-                    "ocrTokens": result.get("ocr_tokens", []),
-                })
-                logger.info("Updated extracted result for doc %s", doc_id)
-            else:
-                logger.warning("update_extracted_result: doc_id %s not found in registry", doc_id)
-
     def get_distinct_types(self) -> List[str]:
-
         """Return distinct document types currently present in the registry or supported by default."""
         with self._lock:
             dynamic_types = {d.get("type") for d in self._dynamic_docs.values() if d.get("type")}

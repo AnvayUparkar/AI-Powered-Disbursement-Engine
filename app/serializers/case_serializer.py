@@ -320,6 +320,11 @@ def _resolve_case_status_and_score(
             if scorecard_score is not None
             else max(25.0, 100.0 - (discrepancy_count * 25.0 + review_count * 10.0))
         )
+    elif not records and not scorecard_data:
+        # Verification pipeline has not been executed yet
+        overall_status = "INDETERMINATE"
+        risk_level = "LOW"
+        dgcl_score = 0.0
     elif review_count > 0 and (
         status_data.get("status") == "PROCESSING" or (not records and not docs)
     ):
@@ -506,6 +511,7 @@ def serialize_case(loan_id: str) -> dict[str, Any]:
         "lastUpdated": formatted_last_updated,
         "balanceTransfer": 1 if ctx.is_bt else 0,
         "isBalanceTransfer": ctx.is_bt,
+        "hasLosData": ctx.has_los_data,
         "checkpoints": checkpoints,
         "documentIds": ctx.doc_ids,
         "processingSteps": proc_steps,

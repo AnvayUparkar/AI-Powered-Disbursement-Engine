@@ -73,14 +73,14 @@ class Settings(BaseSettings):
 
 
     # VLM Configuration
-    VLM_ENABLED: bool = True
+    VLM_ENABLED: bool = False
     VLM_PROVIDER: str = "mock"  # 'openai', 'gemini', 'mock'
     VLM_MODEL: str = "gpt-4o-mini"
     VLM_API_KEY: Optional[str] = None
 
     # Parallel Worker Concurrency
-    MAX_PAGE_WORKERS: int = 4
-    MAX_DOC_WORKERS: int = 4
+    MAX_PAGE_WORKERS: int = 2
+    MAX_DOC_WORKERS: int = 2
 
     # Processing Limits
     MAX_DOCUMENT_SIZE_MB: int = 50

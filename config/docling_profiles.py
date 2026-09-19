@@ -36,7 +36,7 @@ IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
     reading_order_method="column_aware",
     max_num_pages=10,
     use_gpu=True,
-    num_threads=6,
+    num_threads=2,
 )
 
 
@@ -106,7 +106,7 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     # Performance
     max_num_pages=50,
     use_gpu= True,
-    num_threads=6,
+    num_threads=2,
 )
 
 
@@ -154,7 +154,7 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     # Performance
     max_num_pages=100,
     use_gpu=True,
-    num_threads=6,
+    num_threads=2,
 )
 
 
@@ -222,7 +222,7 @@ DIGITAL_PDF_PROFILE = DoclingOptions(
     # Performance (fast)
     max_num_pages=100,
     use_gpu=True,
-    num_threads=6,
+    num_threads=2,
 )
 
 
@@ -270,7 +270,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     # Performance
     max_num_pages=100,
     use_gpu=True,
-    num_threads=6,
+    num_threads=2,
 )
 
 

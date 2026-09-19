@@ -22,13 +22,36 @@ function guessDocType(filename?: string): DocumentRecord['type'] {
 
 export function adaptNode2DocumentToRecord(
   parsed: Node2ParsedDocument,
-  caseId: string = 'HDB-2026-001245'
+  caseId?: string
 ): DocumentRecord {
   const docId = parsed.document_id;
-  const pageCount = parsed.pages?.length || 1;
+  const pageCount = Array.isArray(parsed.pages)
+    ? parsed.pages.length
+    : typeof parsed.pages === 'number'
+    ? parsed.pages
+    : typeof (parsed as any).page_count === 'number'
+    ? (parsed as any).page_count
+    : (parsed.extractedFields || (parsed as any).elements || []).reduce(
+        (max: number, el: any) => Math.max(max, el.page || el.page_number || 1),
+        1
+      );
   const elements = parsed.elements || [];
   const tables = parsed.tables || [];
   const vlmUsed = parsed.processing?.vlm_used || false;
+
+  // Dynamically resolve caseId from source path or metadata if not explicitly provided
+  let resolvedCaseId = caseId;
+  if (!resolvedCaseId) {
+    const s3Path = parsed.source?.s3_key || (parsed.source as any)?.s3_path || '';
+    const match =
+      s3Path.match(/(?:s3_raw|s3_extracted|raw-documents|parsed-documents)[\\/]([^\\/]+)/i) ||
+      s3Path.match(/(LOAN_\d+|HDB-[A-Za-z0-9\-]+|APPL\d+)/i);
+    if (match && match[1]) {
+      resolvedCaseId = match[1];
+    } else {
+      resolvedCaseId = (parsed as any).case_id || (parsed as any).caseId || '';
+    }
+  }
 
   const extractedFields: ExtractedField[] = [];
 
@@ -133,7 +156,7 @@ export function adaptNode2DocumentToRecord(
     confidence: vlmUsed ? 91.0 : 96.5,
     vlmUsed: vlmUsed,
     uploadedAt: new Date().toISOString().split('T')[0],
-    caseId: caseId,
+    caseId: resolvedCaseId || 'Unassigned',
     sizeKb: Math.round((parsed.processing?.file_size_bytes || 240000) / 1024),
     extractedFields: extractedFields,
     processingSteps: [
@@ -227,40 +250,30 @@ export const documentsService = {
   },
 
   async getById(id: string): Promise<DocumentRecord | null> {
-    let node2Record: DocumentRecord | null = null;
-    // 1. Try fetching real extracted document from Node 2 FastAPI Backend
+    // 1. Try orchestrator API first (Port 8000), which reads disk-backed s3_extracted/case registry with correct caseId & formattedText
+    try {
+      const orchRecord = await apiClient.get<DocumentRecord>(`/documents/${id}`);
+      if (orchRecord) {
+        return orchRecord;
+      }
+    } catch {
+      // Orchestrator not responding or document not found; try Node 2 IDP API
+    }
+
+    // 2. Try fetching extracted document from Node 2 FastAPI Backend (Port 8001)
     try {
       const parsed = await node2Api.getDocument(id);
       if (parsed) {
         if ('extractedFields' in parsed) {
-          node2Record = parsed as unknown as DocumentRecord;
-        } else {
-          node2Record = adaptNode2DocumentToRecord(parsed);
+          return parsed as unknown as DocumentRecord;
         }
+        return adaptNode2DocumentToRecord(parsed);
       }
     } catch {
-      // Backend not running or document not found in backend store; fallback to orchestrator API or mock
+      // Fallback to mock
     }
 
-    // If node2Record already has populated canonical formattedText, return immediately
-    if (node2Record && node2Record.formattedText && node2Record.formattedText.trim().startsWith('{')) {
-      return node2Record;
-    }
-
-    // 2. Try orchestrator API (which checks on-disk s3_extracted)
-    try {
-      const orchRecord = await apiClient.get<DocumentRecord>(`/documents/${id}`);
-      if (orchRecord) {
-        if (orchRecord.formattedText && orchRecord.formattedText.trim().startsWith('{')) {
-          return orchRecord;
-        }
-        return node2Record || orchRecord;
-      }
-    } catch (e) {
-      console.warn(`API get document ${id} failed, falling back to mock:`, e);
-    }
-
-    return node2Record || (mockDocs.find((d) => d.id === id || d.id.toLowerCase() === id.toLowerCase()) ?? null);
+    return mockDocs.find((d) => d.id === id || d.id.toLowerCase() === id.toLowerCase()) ?? null;
   },
 
   async getByCaseId(caseId: string): Promise<DocumentRecord[]> {
