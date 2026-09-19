@@ -1,5 +1,18 @@
+import os
 import threading
 from typing import Any, Dict, Optional
+
+# Register PyTorch CUDA library directory for ONNX Runtime / RapidOCR on Windows
+try:
+    import torch
+    torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+    if os.path.exists(torch_lib):
+        if hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(torch_lib)
+        os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
+except Exception:
+    pass
+
 from idp.services.docling.options import DoclingOptions
 from idp.core.logging import logger
 

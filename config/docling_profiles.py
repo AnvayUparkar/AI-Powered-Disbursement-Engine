@@ -29,7 +29,7 @@ IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
                             # on every identity-document parse for a value that was never honored.
     do_ocr=True,
     force_full_page_ocr=True,
-    ocr_lang=["english", "hindi"],
+    ocr_lang=["en", "hindi"],
     images_scale=2.0,
     do_layout_analysis=True,
     detect_reading_order=True,
@@ -52,7 +52,7 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     # Table Detection (relaxed to handle fine-grained grids)
     do_table_structure=True,
     table_mode="ACCURATE",
-    table_confidence_threshold=0.4,  # Lower threshold to catch character grids
+    table_confidence_threshold=0.1,  # Lower threshold to catch character grids
     table_min_rows=1,  # Allow single-row "tables" (character sequences)
     table_min_cols=2,  # Min 3 chars to qualify
     
@@ -83,13 +83,16 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     # re-OCRs every character box regardless of what native text exists --
     # matching the already-correct scanned-document behavior for digital
     # inputs too, without touching CombBoxDetector/serializer.py at all.
+    # NOTE: scanned application forms (is_scanned=True) never reach this profile;
+    # they are routed to SCANNED_DOCUMENTS_PROFILE by get_profile_for_document_type.
+    # This profile is digital-only, so force_full_page_ocr=False is correct here.
     force_full_page_ocr=False,
-    ocr_lang=["english", "hindi"],
+    ocr_lang=["en", "hindi"],
     
     # OCR Quality (balanced)
     det_limit_side_len=1536,
     det_db_thresh=0.05,
-    det_db_box_thresh=0.2,
+    det_db_box_thresh=0.1,
     rec_batch_num=6,
     
     # Image Processing
@@ -120,8 +123,8 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     # Table Detection (strict, avoid false positives)
     do_table_structure=True,
     table_mode="ACCURATE",
-    table_confidence_threshold=0.4,  # Higher threshold for scans
-    table_min_rows=2,
+    table_confidence_threshold=0.1,  # Higher threshold for scans
+    table_min_rows=1,
     table_min_cols=2,
     
     # Cell Merging
@@ -132,12 +135,12 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     # OCR Settings (aggressive for scanned images)
     do_ocr=True,
     force_full_page_ocr=True,  # Always run OCR on scanned docs
-    ocr_lang=["english", "hindi"],
+    ocr_lang=["en", "hindi"],
     
     # OCR Quality (high quality for low-res scans)
     det_limit_side_len = 1536, # Detection input size (higher = slower, better)
     det_db_thresh = 0.05,  # Detection threshold (lower = more boxes)
-    det_db_box_thresh = 0.2,  # Box confidence threshold (lower = detect low-contrast/faint text)
+    det_db_box_thresh = 0.1,  # Box confidence threshold (lower = detect low-contrast/faint text)
     rec_batch_num = 6,  # Batch size for recognition
     
     # Image Processing (enhanced)
@@ -159,7 +162,73 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: DIGITAL PDFS (Native Text)
+# PROFILE: SCANNED CHARACTER BOX FORMS (e.g., scanned Application Forms)
+# ═══════════════════════════════════════════════════════════════════════════
+# Combines:
+#   - SCANNED_DOCUMENTS_PROFILE OCR aggressiveness:
+#       force_full_page_ocr=True, images_scale=3.0, low det thresholds
+#   - CHARACTER_BOX_FORMS_PROFILE structural settings:
+#       fine-grained character_box_max_width, tight table_confidence_threshold,
+#       merge_character_boxes for downstream CombBoxDetector
+#
+# Why both?  A scanned application form is a raster image (no native PDF
+# text), so force_full_page_ocr=True is mandatory.  But its fields are
+# individual character boxes that the comb-box detector must re-assemble, so
+# the tight table detection settings are also required.  Using
+# SCANNED_DOCUMENTS_PROFILE alone gets the OCR right but loses the comb-box
+# structural tuning; CHARACTER_BOX_FORMS_PROFILE alone gets the structure
+# right but force_full_page_ocr=False causes Docling to skip OCR on raster
+# regions that happen to overlay any mis-detected native text cluster.
+# ═══════════════════════════════════════════════════════════════════════════
+
+SCANNED_CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
+    # Table Detection — same relaxed gates as CHARACTER_BOX_FORMS_PROFILE
+    # so fine-grained character grids (each cell = one printed character)
+    # are caught by TableFormer before CombBoxDetector merges them.
+    do_table_structure=True,
+    table_mode="ACCURATE",
+    table_confidence_threshold=0.1,  # Low: character-box grids score low in TableFormer
+    table_min_rows=1,                # Single-row comb sequences (date, mobile, DOB)
+    table_min_cols=2,
+
+    # Character Box Handling — preserves individual tokens for CombBoxDetector
+    merge_character_boxes=True,
+    character_box_max_width=30.0,    # Typical scanned char-box cell width (pt)
+    character_box_gap_threshold=2.0,
+    merge_adjacent_cells=True,
+    cell_merge_threshold=0.8,
+    detect_cell_spans=True,
+
+    # OCR — full-page, aggressive: raster pages have no native text layer
+    do_ocr=True,
+    force_full_page_ocr=True,        # MANDATORY for scanned raster images
+    ocr_lang=["en", "hindi"],
+
+    # OCR detector thresholds — same as SCANNED_DOCUMENTS_PROFILE
+    det_limit_side_len=1536,
+    det_db_thresh=0.05,              # Low: catch faint/low-contrast ink
+    det_db_box_thresh=0.1,
+    rec_batch_num=6,
+
+    # Image scale — 3.0x so individual character-box cells have enough
+    # pixels for reliable per-glyph detection; 2.0x is insufficient for
+    # thin-stroked handwritten or low-DPI printed character grids.
+    images_scale=3.0,
+    enhance_contrast=True,
+    denoise=True,
+    deskew=True,
+
+    # Layout Analysis
+    do_layout_analysis=True,
+    detect_reading_order=True,
+    reading_order_method="column_aware",
+
+    # Performance
+    max_num_pages=100,
+    use_gpu=True,
+    num_threads=6,
+)
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Optimized for computer-generated PDFs with embedded text.
 # Minimal OCR, fast processing.
@@ -196,7 +265,7 @@ DIGITAL_PDF_PROFILE = DoclingOptions(
     # reliable per-character OCR path as scanned documents already do.
     force_full_page_ocr=False,
     ocr_on_tables_only=False,
-    ocr_lang=["english"],
+    ocr_lang=["en"],
     
     # OCR Quality (standard, rarely used)
     det_limit_side_len=1536,
@@ -236,8 +305,8 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     # Table Detection
     do_table_structure=True,
     table_mode="ACCURATE",
-    table_confidence_threshold=0.5,
-    table_min_rows=2,
+    table_confidence_threshold=0.1,
+    table_min_rows=1,
     table_min_cols=2,
     
     # Cell Merging
@@ -248,7 +317,7 @@ MIXED_CONTENT_PROFILE = DoclingOptions(
     # OCR Settings (adaptive)
     do_ocr=True,
     force_full_page_ocr=True,  # Use native text when available
-    ocr_lang=["english", "hindi"],
+    ocr_lang=["en", "hindi"],
     
     # OCR Quality (balanced)
     det_limit_side_len=1536,
@@ -296,7 +365,7 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
     # OCR Settings (fast)
     do_ocr=True,
     force_full_page_ocr=True,
-    ocr_lang=["english"],
+    ocr_lang=["en"],
     
     # OCR Quality (lower resolution, faster)
     det_limit_side_len=1536,  # Lower resolution
@@ -328,6 +397,7 @@ HIGH_PERFORMANCE_PROFILE = DoclingOptions(
 DOCLING_PROFILES = {
     "identity_document": IDENTITY_DOCUMENT_PROFILE,
     "character_box_forms": CHARACTER_BOX_FORMS_PROFILE,
+    "scanned_character_box_forms": SCANNED_CHARACTER_BOX_FORMS_PROFILE,
     "scanned_documents": SCANNED_DOCUMENTS_PROFILE,
     "digital_pdf": DIGITAL_PDF_PROFILE,
     "mixed_content": MIXED_CONTENT_PROFILE,
@@ -380,10 +450,18 @@ def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = No
     if doc_type in ["aadhaar", "pan", "pan_card", "dl", "driving_license", "voter_id", "passport"]:
         return IDENTITY_DOCUMENT_PROFILE
 
-    # Indian government forms with character boxes (e.g. application form)
-    # Structural choice, independent of scan status.
+    # Indian government forms with character boxes (e.g. application form).
+    # Two sub-profiles exist — one per scan status — because force_full_page_ocr
+    # must differ:
+    #   Scanned  → SCANNED_CHARACTER_BOX_FORMS_PROFILE  (force_full_page_ocr=True
+    #              + scanned OCR thresholds + char-box structural settings)
+    #   Digital  → CHARACTER_BOX_FORMS_PROFILE           (force_full_page_ocr=False
+    #              + char-box structural settings)
     elif doc_type in ["application_form"]:
+        if is_scanned is True:
+            return SCANNED_CHARACTER_BOX_FORMS_PROFILE
         return CHARACTER_BOX_FORMS_PROFILE
+
 
     # Content-inspected scan status takes precedence over the doc_type guess:
     # a "bank_statement" that is actually a clean digital export should not be
