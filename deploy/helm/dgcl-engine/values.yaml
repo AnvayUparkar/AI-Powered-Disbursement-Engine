@@ -1,0 +1,313 @@
+# Default values for dgcl-engine. Override per environment with
+# `helm install -f values-staging.yaml` / `-f values-prod.yaml` / `-f values-poc.yaml`.
+#
+# Plain (non-AWS) Kubernetes cluster, airgapped — no cloud APIs assumed
+# anywhere in this file. No IRSA, no EBS/gp3, no ECR, no ALB. Object storage
+# (S3) is deliberately NOT configured for this pass — see the note on
+# `config` below; the app's S3 client already has a documented local/mock
+# fallback for exactly this case (idp/services/storage/s3.py).
+#
+# AIRGAPPED KUBERNETES DEPLOYMENT — CONFIRM BEFORE APPLYING:
+#   - global.imageRegistry — your internal registry host (images are docker
+#     save/load'd from tar and pushed here; no Docker Hub/Bitnami reachability
+#     assumed). See deploy/helm/README.md "Airgapped delivery".
+#   - redis.image.registry / redis.image.repository below — the Bitnami
+#     subchart's image is a SEPARATE pull from your own images and needs its
+#     own retag+push into the same internal registry; overriding
+#     global.imageRegistry alone does NOT cover it.
+#   - ingress.className, ingress.host, ingress.tls.secretName — confirm the
+#     actual ingress controller installed on this cluster (nginx assumed).
+#   - secrets.existingSecret / redis.auth.existingSecret — created out of
+#     band via `kubectl create secret`, never inline here (see README §4).
+#   - Redis persistence is OFF by default (see redis.master.persistence
+#     below) — data lives in the pod's own ephemeral filesystem and is lost
+#     on pod restart/reschedule. Deliberate simplification for this pass, not
+#     an oversight; revisit with a real StorageClass name before this queue
+#     needs to survive a restart.
+
+global:
+  environment: production
+  imageRegistry: "<internal-registry>" # e.g. registry.internal.example.com — confirm real host
+  # The Bitnami redis subchart reads this SAME global.imageRegistry and
+  # applies it to every one of its own component images (redis, sentinel,
+  # exporter, os-shell, kubectl) automatically — no separate override needed
+  # as long as your internal registry mirrors upstream image paths unchanged
+  # (e.g. <internal-registry>/bitnami/redis:<tag>). If your mirror uses
+  # different paths, override redis.image.repository below instead.
+  security:
+    # Bitnami charts refuse to render entirely ("Original containers have
+    # been substituted for unrecognized ones") once the registry no longer
+    # matches their known-good bitnami source — which is unavoidable and
+    # expected once you point it at an internal registry. This is the
+    # documented Bitnami escape hatch for exactly that case, not a security
+    # downgrade of your own images (which have no such check).
+    allowInsecureImages: true
+
+image:
+  backend:
+    repository: dgcl-engine-backend   # prefixed with global.imageRegistry
+    tag: "v1.0.0" # pinned — do not leave blank/"latest" in an airgapped environment (no registry re-pull to fall back on)
+    pullPolicy: IfNotPresent
+  backendGpu:
+    # Built from docker/Dockerfile.backend-gpu — only referenced when
+    # idp.gpu.enabled is true (see idp.gpu below).
+    repository: dgcl-engine-backend-gpu
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: dgcl-engine-frontend
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# If the internal registry requires basic-auth/token pulls, create a
+# `kubernetes.io/dockerconfigjson` secret out of band and list its name here
+# — e.g. imagePullSecrets: [{ name: internal-registry-creds }]. Leave empty
+# if the registry is reachable anonymously from inside the cluster network.
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # No cloud-specific annotations needed (no IRSA equivalent without AWS).
+  # Only relevant again if this cluster gains its own workload-identity
+  # mechanism later, or if S3/object storage is reintroduced.
+
+# ---------------------------------------------------------------------------
+# FastAPI backend (app/main.py, :8000) — the API + review UI backend.
+# ---------------------------------------------------------------------------
+api:
+  replicaCount: 2
+  port: 8000
+  service:
+    # NodePort is IN ADDITION to the Ingress above, not a replacement for it
+    # — the Ingress still routes through this same Service regardless of
+    # type. Port stays 8000 internally regardless of type.
+    type: ClusterIP
+    nodePort: null # e.g. 30800 — required if type: NodePort; also needs its own firewall/NetworkPolicy allow
+  command: ["uvicorn"]
+  args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# IDP microservice (idp/main.py, :8001) — Docling/OCR/VLM. CPU + memory heavy
+# (~400MB resident per pod once models are loaded, per SCALING_PLAN.md §1.2).
+# ---------------------------------------------------------------------------
+idp:
+  replicaCount: 2
+  port: 8001
+  command: ["uvicorn"]
+  args: ["idp.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+  resources:
+    requests: { cpu: "1", memory: 1Gi }
+    limits: { cpu: "2", memory: 2Gi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 75
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  # nodeSelector: { workload: idp-cpu-optimized }  # pin to a dedicated node group
+  tolerations: []
+
+  # ---------------------------------------------------------------------
+  # GPU acceleration. Only idp benefits from a GPU (Docling layout/TableFormer
+  # are torch, RapidOCR's CUDA execution provider is opt-in via
+  # onnxruntime-gpu) — see idp/services/docling/accelerator.py. api/worker/
+  # frontend never look at this block. Requires:
+  #   1. A GPU-equipped node group in the cluster
+  #   2. The NVIDIA device plugin DaemonSet installed on the cluster so
+  #      `nvidia.com/gpu` is a schedulable resource
+  #   3. image.backendGpu built from docker/Dockerfile.backend-gpu and pushed
+  # One GPU per pod, `idp.args`'s "--workers 1" stays as-is so a single
+  # process owns the device — do not raise worker count or replicaCount
+  # without also raising the GPU node count 1:1.
+  # ---------------------------------------------------------------------
+  gpu:
+    enabled: false
+    countPerPod: 1
+    nodeSelector:
+      nvidia.com/gpu.present: "true"   # adjust to match the cluster's GPU node-group label
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+    resources:
+      requests: { cpu: "2", memory: 4Gi, "nvidia.com/gpu": "1" }
+      limits: { cpu: "4", memory: 8Gi, "nvidia.com/gpu": "1" }
+
+# ---------------------------------------------------------------------------
+# Celery worker (pipeline/celery_app.py) — no HTTP port, consumes Redis.
+# ---------------------------------------------------------------------------
+worker:
+  replicaCount: 2
+  command: ["python"]
+  args: ["-m", "celery", "-A", "pipeline.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+  resources:
+    requests: { cpu: 500m, memory: 768Mi }
+    limits: { cpu: "2", memory: 1536Mi }
+  autoscaling:
+    enabled: false
+    # Prefer KEDA over CPU-based HPA for this workload — a worker blocked on an
+    # LLM HTTP call shows low CPU and would be scaled DOWN exactly when the
+    # Redis queue is growing (SCALING_PLAN.md §8). Enable below once KEDA is
+    # installed on the cluster.
+  keda:
+    enabled: false
+    minReplicaCount: 1
+    maxReplicaCount: 12
+    redisListName: celery
+    listLength: "5"
+    pollingInterval: 15
+    cooldownPeriod: 120
+
+# ---------------------------------------------------------------------------
+# Frontend (nginx serving the Vite build, :8080)
+# ---------------------------------------------------------------------------
+frontend:
+  enabled: true
+  replicaCount: 2
+  port: 8080
+  service:
+    type: ClusterIP
+    nodePort: null # e.g. 30880 — required if type: NodePort
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+# ---------------------------------------------------------------------------
+# Shared storage across api/worker/idp — see deploy/helm/README.md for the
+# full explanation. Without this, api/worker and idp are separate pods with
+# no shared filesystem: a document written by api/worker (e.g. the case
+# pipeline's fetch_documents step) is invisible when idp tries to read that
+# same path back over its own HTTP API, because idp/services/storage/s3.py's
+# local-mode fallback only ever looks on its OWN pod's disk. Mounting the
+# same PVC at /srv/app/poc_data on all three fixes that — same disk, same
+# files, regardless of which pod wrote them.
+#
+# REQUIRES a StorageClass that supports ReadWriteMany (NFS/CephFS-backed —
+# NOT a plain block-storage class like most default cloud StorageClasses).
+# Ask the platform team specifically whether one exists before enabling this
+# — see the "Storage backend" discussion in deploy/helm/README.md.
+# ---------------------------------------------------------------------------
+sharedStorage:
+  enabled: true
+  storageClassName: "<rwx-storage-class>" # placeholder — confirm the platform team's RWX-capable StorageClass name
+  size: 15Gi # POC-scale estimate (see README) — confirm allowVolumeExpansion on the StorageClass before treating this as fixed
+
+# ---------------------------------------------------------------------------
+# Redis (Bitnami subchart) — self-hosted broker/result-backend for Celery.
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  # image.registry/repository below are an ESCAPE HATCH, not the default path
+  # — global.imageRegistry above already redirects this and every other
+  # Bitnami component image (sentinel/exporter/os-shell/kubectl) to the
+  # internal registry, as long as the mirror preserves upstream paths
+  # (<internal-registry>/bitnami/redis:<tag>). Only uncomment/override below
+  # if your internal registry uses a different path convention for this
+  # image specifically. Either way, the bitnami/redis image is a SEPARATE
+  # pull from this repo's own image builds — retag and push it once from a
+  # machine WITH internet before deploying.
+  # image:
+  #   registry: "<internal-registry>"
+  #   repository: "mirror/redis"  # only if your mirror doesn't keep the bitnami/redis path
+  auth:
+    enabled: true
+    existingSecret: "dgcl-engine-redis-auth"
+    existingSecretPasswordKey: "redis-password"
+  architecture: standalone
+  master:
+    persistence:
+      # Deliberately off for this pass — no StorageClass assumed on this
+      # cluster. Redis (Celery broker + result backend) then lives entirely
+      # in the pod's ephemeral filesystem: a pod restart/reschedule loses any
+      # in-flight/queued task state. Acceptable for a POC; revisit with a
+      # real StorageClass name (`persistence.enabled: true` + `storageClass:
+      # "<name>"`) before this needs to survive a restart without dropping work.
+      enabled: false
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1Gi }
+
+# ---------------------------------------------------------------------------
+# Application configuration (non-secret) — mounted as env vars from a
+# ConfigMap. Mirrors .env.example; keep the two in sync.
+# ---------------------------------------------------------------------------
+config:
+  APP_ENV: "production"
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  DEBUG: "False"
+  ALLOWED_ORIGINS: "https://dgcl.example.internal"
+  FRONTEND_ORIGIN: "https://dgcl.example.internal"
+  USE_EQUAL_FIELD_WEIGHTS: "false"
+  SKIP_IDP: "false"
+  GEMINI_MODEL: "gemini-3.6-flash"
+  GEMINI_TEMPERATURE: "0.0"
+  LLM_MODEL: "google/gemini-2.5-flash-lite"
+  OCR_ENGINE: "docling_ocr"
+  OCR_MODEL: "PP-OCRv6_medium"
+  OCR_CONFIDENCE_THRESHOLD: "0.70"
+  MAX_DOCUMENT_SIZE_MB: "50"
+  TEMP_DIR: "/tmp/node2_idp"
+  VLM_ENABLED: "False"
+  VLM_PROVIDER: "gemini"
+  MAX_DOC_WORKERS: "4"
+  IDP_SERVICE_URL: "http://dgcl-engine-idp:8001"
+  IDP_REQUEST_TIMEOUT: "300"
+  USE_REMOTE_IDP: "true"
+  DOCLING_OFFLINE: "true"
+  # No AWS_REGION/S3_BUCKET/*_PREFIX set on purpose — object storage isn't
+  # used for this deployment. idp/services/storage/s3.py's boto3 client
+  # already falls back to a local filesystem mock (under TEMP_DIR/s3_mock/)
+  # whenever it can't initialize real S3 access, logging a warning rather
+  # than failing — confirmed by reading that fallback path directly. Add the
+  # AWS_* keys back here (and to the secret below) if real object storage is
+  # introduced later.
+
+# ---------------------------------------------------------------------------
+# Secrets — NOT set here. Create out-of-band with `kubectl create secret` (see
+# deploy/helm/README.md) and reference the name below. This keeps API keys
+# out of values files and Helm release history.
+# ---------------------------------------------------------------------------
+secrets:
+  existingSecret: "dgcl-engine-secrets"
+  # Expected keys inside that Secret: GEMINI_API_KEY, LLM_API_KEY, VLM_API_KEY.
+  # No AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY — object storage isn't used
+  # for this deployment (see the `config` block above). Add that pair back
+  # here if real S3/object storage is introduced later.
+
+ingress:
+  enabled: true
+  # "nginx" is this platform's actual convention (see the LiteLLM UAT values
+  # this was cross-checked against) — confirm the IngressClass installed on
+  # this cluster. "alb" (AWS ALB-specific annotations, scheme/certificateArn
+  # below) does not apply here — this is a non-AWS cluster — kept only in
+  # case a future connected/AWS environment reuses this same chart.
+  className: nginx
+  host: "dgcl.internal.example.com" # placeholder — confirm real FQDN
+  tls:
+    enabled: true
+    secretName: "dgcl-engine-tls" # placeholder — confirm cert-manager Issuer or pre-created cert/key secret
+  # --- only used when className: alb ---
+  scheme: internal   # internal ALB — cluster is only reachable via the jump server/VPN
+  certificateArn: "" # ACM cert ARN, e.g. arn:aws:acm:ap-south-1:...:certificate/...
+  annotations: {}
+
+networkPolicy:
+  enabled: true

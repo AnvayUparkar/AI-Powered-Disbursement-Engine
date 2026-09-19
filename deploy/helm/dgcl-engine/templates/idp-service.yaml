@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dgcl.fullname" . }}-idp
+  labels:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "idp") .) | nindent 4 }}
+spec:
+  selector:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "idp") .) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http
+---
+{{- if .Values.idp.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "dgcl.fullname" . }}-idp
+  labels:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "idp") .) | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.idp.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "dgcl.selectorLabels" (merge (dict "component" "idp") .) | nindent 6 }}
+{{- end }}
+---
+{{- if .Values.idp.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "dgcl.fullname" . }}-idp
+  labels:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "idp") .) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "dgcl.fullname" . }}-idp
+  minReplicas: {{ .Values.idp.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.idp.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.idp.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

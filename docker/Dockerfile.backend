@@ -1,0 +1,42 @@
+# Shared backend image for the three Python entrypoints (FastAPI app :8000,
+# IDP microservice :8001, Celery worker). One image, three Deployments in the
+# Helm chart differ only by `command` — keeps the image build/push path single
+# and schema/dependency drift between the three impossible.
+FROM python:3.13-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DOCLING_OFFLINE=true \
+    DOCLING_ARTIFACTS_PATH=/opt/models/docling
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv/app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Bake the Docling/RapidOCR weights into the image so pods start with zero
+# outbound network dependency (see DOCLING_OFFLINE in config/settings.py and
+# scripts/download_models.py).
+COPY scripts/download_models.py scripts/download_models.py
+COPY idp/services/docling/model_store.py idp/services/docling/model_store.py
+RUN mkdir -p idp/services/docling && touch idp/__init__.py idp/services/__init__.py idp/services/docling/__init__.py
+
+COPY . .
+RUN python scripts/download_models.py --dest /opt/models/docling
+
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /srv/app /opt/models
+USER appuser
+
+EXPOSE 8000 8001
+
+# Overridden per-Deployment via values.yaml (api/idp/worker command+args).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: dgcl-engine
+description: AI-Powered Disbursement Engine (FastAPI app, IDP service, Celery worker, React dashboard) on EKS
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: redis
+    version: "28.2.1"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

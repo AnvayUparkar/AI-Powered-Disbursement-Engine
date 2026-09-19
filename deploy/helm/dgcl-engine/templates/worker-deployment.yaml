@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dgcl.fullname" . }}-worker
+  labels:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "worker") .) | nindent 4 }}
+spec:
+  {{- if not .Values.worker.keda.enabled }}
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "dgcl.selectorLabels" (merge (dict "component" "worker") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dgcl.selectorLabels" (merge (dict "component" "worker") .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "dgcl.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.sharedStorage.enabled }}
+      initContainers:
+        {{- include "dgcl.sharedStorageInitContainer" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "dgcl.backendImage" . }}
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          command:
+            {{- include "dgcl.entrypoint" (concat .Values.worker.command .Values.worker.args) | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "dgcl.fullname" . }}-config
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          env:
+            {{- include "dgcl.redisEnv" . | nindent 12 }}
+          {{- if .Values.sharedStorage.enabled }}
+          volumeMounts:
+            {{- include "dgcl.sharedStorageVolumeMount" . | nindent 12 }}
+          {{- end }}
+          # No HTTP port: Celery health is "does this process answer its own broker ping".
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "celery -A pipeline.celery_app inspect ping -d celery@$HOSTNAME --timeout 5"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+      {{- if .Values.sharedStorage.enabled }}
+      volumes:
+        {{- include "dgcl.sharedStorageVolume" . | nindent 8 }}
+      {{- end }}
+---
+{{- if .Values.worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "dgcl.fullname" . }}-worker
+  labels:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "worker") .) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "dgcl.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas | default 6 }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetCPUUtilizationPercentage | default 75 }}
+{{- end }}
+---
+{{- if .Values.worker.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "dgcl.fullname" . }}-worker
+  labels:
+    {{- include "dgcl.selectorLabels" (merge (dict "component" "worker") .) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "dgcl.fullname" . }}-worker
+  minReplicaCount: {{ .Values.worker.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.worker.keda.maxReplicaCount }}
+  pollingInterval: {{ .Values.worker.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.worker.keda.cooldownPeriod }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ include "dgcl.redisHost" . }}:6379
+        listName: {{ .Values.worker.keda.redisListName | quote }}
+        listLength: {{ .Values.worker.keda.listLength | quote }}
+      authenticationRef:
+        name: {{ include "dgcl.fullname" . }}-keda-redis-auth
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "dgcl.fullname" . }}-keda-redis-auth
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: {{ .Values.redis.auth.existingSecret }}
+      key: {{ .Values.redis.auth.existingSecretPasswordKey }}
+{{- end }}

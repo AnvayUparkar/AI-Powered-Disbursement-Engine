@@ -1,0 +1,24 @@
+DGCL Engine deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components:
+  - {{ include "dgcl.fullname" . }}-api      (FastAPI, :8000) — {{ .Values.api.replicaCount }} replicas
+  - {{ include "dgcl.fullname" . }}-idp      (Docling/OCR/VLM, :8001) — {{ .Values.idp.replicaCount }} replicas
+  - {{ include "dgcl.fullname" . }}-worker   (Celery) — {{ if .Values.worker.keda.enabled }}KEDA-scaled{{ else }}{{ .Values.worker.replicaCount }} replicas{{ end }}
+  {{- if .Values.frontend.enabled }}
+  - {{ include "dgcl.fullname" . }}-frontend (React dashboard, :8080) — {{ .Values.frontend.replicaCount }} replicas
+  {{- end }}
+  - {{ include "dgcl.redisHost" . }} (Redis broker/result-backend)
+
+Check rollout status:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "dgcl.fullname" . }}-api
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "dgcl.fullname" . }}-idp
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "dgcl.fullname" . }}-worker
+
+{{- if .Values.ingress.enabled }}
+
+Ingress host: {{ .Values.ingress.host }} (scheme: {{ .Values.ingress.scheme }})
+Fetch the ALB address once the AWS Load Balancer Controller reconciles it:
+  kubectl -n {{ .Release.Namespace }} get ingress {{ include "dgcl.fullname" . }}
+{{- end }}
+
+See deploy/helm/README.md for the jump-server access path, secret bootstrap, and rollback steps.
