@@ -6,7 +6,6 @@ import {
   FileText,
   CheckCircle2,
   Loader2,
-  AlertCircle,
   Sparkles,
   ArrowRight,
   ShieldCheck,
@@ -136,6 +135,7 @@ export function CreateCaseModal({
             undefined,
             caseId,
             qf.docType,
+            false,
           );
           setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
         } catch (err) {

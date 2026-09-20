@@ -9,8 +9,6 @@ import {
   UploadCloud,
   Play,
   Loader2,
-  CheckCircle2,
-  Sparkles,
   Printer,
   Trash2,
   AlertTriangle,
@@ -18,7 +16,6 @@ import {
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
-import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { DGCLScorecard } from '@/components/verification/DGCLScorecard';
 import { CheckpointDrawer } from '@/components/verification/CheckpointDrawer';

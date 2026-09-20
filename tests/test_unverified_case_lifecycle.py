@@ -127,3 +127,44 @@ def test_real_run_ocr_endpoint_execution(client):
 
     finally:
         delete_loan_data(case_id)
+
+
+def test_uploaded_unverified_case_scores_and_checkpoints_zero():
+    """Documents uploaded to S3 raw without pipeline execution must have 0% confidence, INDETERMINATE status, and 0.0 DGCL score."""
+    case_id = "APPL00327707_TEST"
+    delete_loan_data(case_id)
+
+    try:
+        # Simulate user uploading Aadhaar XML, Loan Agreement, and other docs to s3_raw
+        raw_dir = S3_RAW_DIR / case_id
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        (raw_dir / "Aadhaar_XML.zip").write_text("dummy-zip-content")
+        (raw_dir / "Loan_Agreement.pdf").write_text("dummy-pdf-content")
+        (raw_dir / "PAN.pdf").write_text("dummy-pdf-content")
+
+        serialized = serialize_case(case_id)
+
+        # Invariants: No score calculation, INDETERMINATE status
+        assert serialized["status"] == "INDETERMINATE"
+        assert serialized["dgclScore"] == 0.0
+        assert serialized["riskLevel"] == "LOW"
+
+        # Checkpoints invariants
+        for cp in serialized["checkpoints"]:
+            assert cp["status"] in ("INDETERMINATE", "NOT_APPLICABLE"), f"CP {cp['id']} {cp['name']} status was {cp['status']}"
+            assert cp["confidence"] == 0.0, f"CP {cp['id']} {cp['name']} confidence was {cp['confidence']}"
+
+        # Aadhaar XML specific check
+        cp9 = next(cp for cp in serialized["checkpoints"] if cp["id"] == 9)
+        assert cp9["status"] == "INDETERMINATE"
+        assert cp9["confidence"] == 0.0
+        assert "pending" in cp9["reason"].lower()
+
+        # Loan Agreement specific check
+        cp8 = next(cp for cp in serialized["checkpoints"] if cp["id"] == 8)
+        assert cp8["status"] == "INDETERMINATE"
+        assert cp8["confidence"] == 0.0
+
+    finally:
+        delete_loan_data(case_id)
+

@@ -219,3 +219,45 @@ def test_build_aadhaar_xml_checkpoint_surfaces_uid_and_comparison(tmp_path: Path
     # Verify comparison records are attached
     comp_ids = [c["check_id"] for c in cp["comparisons"]]
     assert "chk_aadhaar_xml_aadhaar_no_vs_los" in comp_ids
+
+
+def test_aadhaar_xml_zero_llm_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verifies that Aadhaar XML completely bypasses LLM extraction across parsing and structuring."""
+    from unittest.mock import MagicMock
+    from pipeline.nodes.llm_structure import _structure_single_document
+
+    mock_llm = MagicMock(side_effect=RuntimeError("LLM should not be called for Aadhaar XML"))
+    monkeypatch.setattr("pipeline.nodes.idp_scan.llm_extract_fields", mock_llm)
+    monkeypatch.setattr("pipeline.nodes.llm_structure.llm_extract_fields", mock_llm)
+
+    xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+<Certificate>
+  <CertificateData>
+    <KycRes>
+      <UidData uid="xxxxxxxx3054">
+        <Poi dob="27-05-2001" gender="F" name="Shital Bhusariya"/>
+      </UidData>
+    </KycRes>
+  </CertificateData>
+</Certificate>"""
+    xml_file = tmp_path / "Aadhaar XML.xml"
+    xml_file.write_text(xml_content, encoding="utf-8")
+
+    serializer = OutputSerializer()
+    parsed = serializer.parse_xml_fast_path(str(xml_file), doc_id="APPL00388856_aadhaar_xml")
+
+    assert parsed.custom_metadata.get("aadhaar_uid") == "xxxxxxxx3054"
+    assert parsed.custom_metadata.get("aadhaar_xml_present") is True
+
+    # 1. Build IDP scan result (must not call mock_llm)
+    idp_res = build_idp_result_from_parsed(parsed=parsed, doc_type="aadhaar_xml", doc_id="APPL00388856_aadhaar_xml")
+    assert idp_res.get("aadhaar_number") == "xxxxxxxx3054"
+    assert idp_res.get("aadhaar_xml_present") is True
+
+    # 2. Node 4 structure document (must not call mock_llm)
+    struct_res = _structure_single_document("aadhaar_xml", idp_res, "APPL00388856")
+    assert struct_res.get("aadhaar_number") == "xxxxxxxx3054"
+    assert struct_res.get("aadhaar_xml_present") is True
+
+    # Confirm LLM was never called
+    mock_llm.assert_not_called()

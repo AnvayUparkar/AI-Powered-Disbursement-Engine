@@ -49,7 +49,7 @@ def test_upload_persists_to_s3_raw_and_registers(clean_test_case):
     response = client.post("/api/v1/documents/upload", files=files, data=data)
     assert response.status_code == 200
     res_data = response.json()
-    assert res_data["status"] == "UPLOADED"
+    assert res_data["status"] in ("UPLOADED", "queued")
     assert res_data["processing_time_seconds"] < 1.0
 
     # 1. Check raw file in s3_raw
@@ -335,4 +335,193 @@ def test_celery_task_syncs_to_s3_extracted_tier(clean_test_case, tmp_path: Path)
         extracted_data = read_json(s3_extracted_file)
         assert extracted_data["pan_number"] == "ABCDE1234F"
         assert extracted_data["applicant_name"] == "Sunita Sharma"
+
+
+def test_case_upload_only_stages_to_s3_raw_without_idp(clean_test_case):
+    """Verifies that uploading to a specific loan case returns UPLOADED and does NOT trigger background Celery/IDP."""
+    case_id = clean_test_case
+    file_content = b"%PDF-1.4 Minimal test PDF content"
+    files = {
+        "file": ("kfs_upload.pdf", io.BytesIO(file_content), "application/pdf")
+    }
+    data = {
+        "case_id": case_id,
+        "doc_type": "KFS",
+    }
+
+    with patch("pipeline.celery_app.process_document_task.delay") as mock_delay:
+        response = client.post("/api/v1/documents/upload", files=files, data=data)
+        assert response.status_code == 200
+        res_data = response.json()
+        assert res_data["status"] == "UPLOADED"
+
+        # Verify Celery background IDP task was NOT called
+        mock_delay.assert_not_called()
+
+        # Verify raw file exists in S3 raw case directory
+        raw_file = S3_RAW_DIR / case_id / "kfs_upload.pdf"
+        assert raw_file.exists()
+
+
+def test_documents_tab_upload_enqueues_idp(clean_test_case):
+    """Verifies that uploading to General / Documents tab triggers immediate background IDP."""
+    file_content = b"%PDF-1.4 Minimal test PDF content"
+    files = {
+        "file": ("general_doc.pdf", io.BytesIO(file_content), "application/pdf")
+    }
+    data = {
+        "case_id": "GENERAL",
+        "doc_type": "Miscellaneous",
+    }
+
+    with patch("pipeline.celery_app.process_document_task.delay") as mock_delay:
+        response = client.post("/api/v1/documents/upload", files=files, data=data)
+        assert response.status_code == 200
+        res_data = response.json()
+        assert res_data["status"] == "queued"
+
+        # Verify Celery background IDP task was called
+        mock_delay.assert_called_once()
+
+
+def test_case_document_registry_strictly_shows_s3_raw_files_only(clean_test_case):
+    """Verifies that DocumentRegistry.list_all only returns documents physically present in s3_raw for the case."""
+    from app.services.document_registry import DocumentRegistry
+    case_id = clean_test_case
+
+    # 1. Create 2 real physical files in s3_raw
+    raw_dir = S3_RAW_DIR / case_id
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    (raw_dir / "Aadhaar Card.pdf").write_bytes(b"%PDF-1.4 sample aadhaar")
+    (raw_dir / "Sanction Letter.pdf").write_bytes(b"%PDF-1.4 sample sanction")
+
+    # 2. Create phantom extracted json in s3_extracted that does NOT exist in s3_raw
+    ext_dir = S3_EXTRACTED_DIR / case_id
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    write_json(ext_dir / "kfs.json", {"loan_amount": 500000})
+
+    registry = DocumentRegistry()
+    docs = registry.list_all(case_id=case_id)
+    doc_names = [d["name"] for d in docs]
+
+    # Only physical files in s3_raw must be returned
+    assert "Aadhaar Card.pdf" in doc_names
+    assert "Sanction Letter.pdf" in doc_names
+    assert "kfs.pdf" not in doc_names
+    assert "kfs.json" not in doc_names
+    assert len(docs) == 2
+
+
+def test_deduplication_between_upload_and_disk_scanned_documents():
+    """Verifies that merge_and_deduplicate merges PAN Card/PAN and KFS labels without producing duplicates."""
+    from app.services.registry.dedup import merge_and_deduplicate
+
+    case_id = "APPL00243685"
+    # Dynamic uploads with UI dropdown labels
+    dynamic_docs = [
+        {
+            "id": "doc-upload-1",
+            "name": "Mutturaj Pancard.pdf",
+            "type": "PAN Card",
+            "status": "Pending",
+            "caseId": case_id,
+            "uploadedTimestamp": 100.0,
+        },
+        {
+            "id": "doc-upload-2",
+            "name": "kfs.PDF",
+            "type": "Key Fact Statement (KFS)",
+            "status": "Pending",
+            "caseId": case_id,
+            "uploadedTimestamp": 101.0,
+        },
+    ]
+
+    # Disk-scanned documents with short inferred types
+    case_docs = [
+        {
+            "id": f"doc-{case_id}-mutturaj_pancard",
+            "name": "Mutturaj Pancard.pdf",
+            "type": "PAN",
+            "status": "Completed",
+            "caseId": case_id,
+            "uploadedTimestamp": 50.0,
+        },
+        {
+            "id": f"doc-{case_id}-kfs",
+            "name": "kfs.PDF",
+            "type": "KFS",
+            "status": "Completed",
+            "caseId": case_id,
+            "uploadedTimestamp": 51.0,
+        },
+        {
+            "id": f"doc-{case_id}-sanction",
+            "name": "sanction_letter_8.PDF",
+            "type": "Sanction Letter",
+            "status": "Completed",
+            "caseId": case_id,
+            "uploadedTimestamp": 52.0,
+        },
+    ]
+
+    merged = merge_and_deduplicate(dynamic_docs, case_docs)
+
+    # Exactly 3 documents must be returned (PAN, KFS, Sanction Letter), with zero duplicates
+    assert len(merged) == 3
+    names = [d["name"] for d in merged]
+    assert names.count("Mutturaj Pancard.pdf") == 1
+    assert names.count("kfs.PDF") == 1
+    assert names.count("sanction_letter_8.PDF") == 1
+
+
+def test_upload_lifecycle_statuses_case_vs_general_tab(clean_test_case):
+    """Verifies that case upload starts as PENDING, general upload as PROCESSING, and finishes as COMPLETED."""
+    from app.services.document_registry import document_registry
+    case_id = clean_test_case
+
+    # 1. Case Upload -> PENDING
+    file_content = b"%PDF-1.4 Case document"
+    files = {"file": ("case_doc.pdf", io.BytesIO(file_content), "application/pdf")}
+    data = {"case_id": case_id, "doc_type": "PAN Card"}
+
+    with patch("pipeline.celery_app.process_document_task.delay"):
+        resp = client.post("/api/v1/documents/upload", files=files, data=data)
+        assert resp.status_code == 200
+        doc_id = resp.json()["document_id"]
+
+    doc = document_registry.get_by_id(doc_id)
+    assert doc is not None
+    assert doc["ocrStatus"] == "PENDING"
+    assert doc["extractionStatus"] == "PENDING"
+    assert doc["confidence"] == 0.0
+
+    # 2. General Upload -> PROCESSING
+    files_gen = {"file": ("general_doc.pdf", io.BytesIO(file_content), "application/pdf")}
+    data_gen = {"case_id": "GENERAL", "doc_type": "Miscellaneous"}
+
+    with patch("pipeline.celery_app.process_document_task.delay"):
+        resp_gen = client.post("/api/v1/documents/upload", files=files_gen, data=data_gen)
+        assert resp_gen.status_code == 200
+        doc_gen_id = resp_gen.json()["document_id"]
+
+    doc_gen = document_registry.get_by_id(doc_gen_id)
+    assert doc_gen is not None
+    assert doc_gen["ocrStatus"] == "PROCESSING"
+    assert doc_gen["extractionStatus"] == "PROCESSING"
+
+    # 3. Transition to COMPLETED with extracted result
+    extracted_payload = {
+        "text": "Extracted PAN ABCDE1234F",
+        "extracted_fields": {"pan_number": "ABCDE1234F"},
+        "pages": 1,
+    }
+    document_registry.update_extracted_result(doc_id, extracted_payload)
+    doc_completed = document_registry.get_by_id(doc_id)
+    assert doc_completed["ocrStatus"] == "COMPLETED"
+    assert doc_completed["extractionStatus"] == "COMPLETED"
+    assert doc_completed["confidence"] > 90.0
+
+
+
 

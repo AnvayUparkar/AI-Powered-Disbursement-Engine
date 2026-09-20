@@ -44,13 +44,12 @@ def scan_idp_parsed_storage(
                     m = re.search(r"(LOAN_\d+|HDB-[A-Za-z0-9\-]+|APPL\d+)", f"{doc_id}_{filename}_{s3_key}")
                     if m:
                         cand_case = m.group(1)
-                        # Only associate with case if the raw physical document exists for this case
+                        # Only associate with case if the raw physical document exists for this case in s3_raw
                         case_raw_exists = (
                             (S3_RAW_DIR / cand_case / filename).exists()
                             or (DMS_DIR / cand_case / filename).exists()
-                            or (raw_dir / f"{doc_id}_{filename}").exists()
                         )
-                        if case_raw_exists or cand_case.startswith("LOAN_"):
+                        if case_raw_exists:
                             inferred_case = cand_case
                         else:
                             inferred_case = "GENERAL"
@@ -89,7 +88,11 @@ def scan_idp_parsed_storage(
                 inferred_case = None
                 m = re.search(r"(LOAN_\d+|HDB-[A-Za-z0-9\-]+|APPL\d+)", f"{doc_id}_{orig_filename}")
                 if m:
-                    inferred_case = m.group(1)
+                    cand_case = m.group(1)
+                    if (S3_RAW_DIR / cand_case / orig_filename).exists() or (DMS_DIR / cand_case / orig_filename).exists():
+                        inferred_case = cand_case
+                    else:
+                        inferred_case = "GENERAL"
 
                 try:
                     size_bytes = raw_file.stat().st_size

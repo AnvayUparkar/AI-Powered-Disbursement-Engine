@@ -1,6 +1,7 @@
 import threading
 from typing import Any, Dict, Optional
 from idp.services.docling.options import DoclingOptions
+from idp.services.model_manager import model_manager
 from idp.core.logging import logger
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,23 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
             from docling.document_converter import DocumentConverter, PdfFormatOption
             from docling.datamodel.pipeline_options import PdfPipelineOptions
 
-            pipeline_options = PdfPipelineOptions()
+            # Sync models from S3 if configured and local cache is missing
+            model_manager.sync_from_s3_if_needed()
+
+            # Pass offline artifacts path if present
+            docling_artifacts = model_manager.get_docling_artifacts_path()
+            if docling_artifacts:
+                try:
+                    pipeline_options = PdfPipelineOptions(artifacts_path=docling_artifacts)
+                    logger.info(f"[DoclingCache] Initialized PdfPipelineOptions with artifacts_path='{docling_artifacts}'")
+                except TypeError:
+                    pipeline_options = PdfPipelineOptions()
+                    if hasattr(pipeline_options, "artifacts_path"):
+                        pipeline_options.artifacts_path = docling_artifacts
+                        logger.info(f"[DoclingCache] Set pipeline_options.artifacts_path='{docling_artifacts}'")
+            else:
+                pipeline_options = PdfPipelineOptions()
+
             pipeline_options.do_ocr = options.do_ocr
             pipeline_options.do_table_structure = options.do_table_structure
 
@@ -138,13 +155,18 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                         lang=options.ocr_lang
                     )
                     
-                    # Custom model paths
-                    if options.det_model_path:
-                        ocr_opts.det_model_path = options.det_model_path
-                    if options.rec_model_path:
-                        ocr_opts.rec_model_path = options.rec_model_path
-                    if options.cls_model_path:
-                        ocr_opts.cls_model_path = options.cls_model_path
+                    # Custom / Local model paths
+                    local_rapid = model_manager.get_rapidocr_model_paths()
+                    det_path = options.det_model_path or local_rapid.get("det_model_path")
+                    rec_path = options.rec_model_path or local_rapid.get("rec_model_path")
+                    cls_path = options.cls_model_path or local_rapid.get("cls_model_path")
+
+                    if det_path:
+                        ocr_opts.det_model_path = det_path
+                    if rec_path:
+                        ocr_opts.rec_model_path = rec_path
+                    if cls_path:
+                        ocr_opts.cls_model_path = cls_path
                     
                     ocr_opts.scale = options.images_scale
                     if ocr_opts.rapidocr_params is None:
@@ -161,7 +183,7 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
                     pipeline_options.ocr_options = ocr_opts
                     logger.info(
                         f"[DoclingCache] Configured RapidOCR: {options.ocr_model_name}, "
-                        f"force_full_page={options.force_full_page_ocr}"
+                        f"force_full_page={options.force_full_page_ocr}, det_path={det_path}, rec_path={rec_path}"
                     )
                 except Exception as ocr_err:
                     logger.warning(f"[DoclingCache] RapidOcrOptions config skipped: {ocr_err}")

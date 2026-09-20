@@ -60,7 +60,7 @@ def test_kyc_checkpoint_no_documents_no_false_match(tmp_path: Path, monkeypatch:
     assert kyc_cp["status"] == "INDETERMINATE"
     assert kyc_cp["validation"]["left"] == "N/A"
     assert kyc_cp["validation"]["right"] == "N/A"
-    assert kyc_cp["validation"]["result"] == "MISMATCH"
+    assert kyc_cp["validation"]["result"] == "INCONCLUSIVE"
 
 
 def test_kyc_checkpoint_both_pan_and_address_present_and_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -81,6 +81,12 @@ def test_kyc_checkpoint_both_pan_and_address_present_and_match(tmp_path: Path, m
     ext_dir.mkdir(parents=True, exist_ok=True)
     (ext_dir / "kyc_pan.json").write_text(json.dumps({"pan_number": "ABCDE1234F"}))
     (ext_dir / "kyc_address_proof.json").write_text(json.dumps({"address_text": "123 Main Street"}))
+
+    res_dir = tmp_path / "s3_result" / loan_id
+    res_dir.mkdir(parents=True, exist_ok=True)
+    (res_dir / "comparison_results.json").write_text(json.dumps([
+        {"check_id": "chk_check_kyc_pan_pan_number_vs_los", "subnode": "check_kyc", "field": "pan_number", "match_status": "MATCH", "values": ["ABCDE1234F", "ABCDE1234F"]}
+    ]))
 
     monkeypatch.setattr("app.serializers.case_serializer.LOS_LOANS_DIR", los_dir)
     monkeypatch.setattr("app.serializers.case_serializer.S3_EXTRACTED_DIR", tmp_path / "s3_extracted")

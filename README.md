@@ -90,6 +90,7 @@ flowchart TD
 │   ├── core/                       # IDP configuration, logging, and exceptions
 │   ├── models/ & schemas/          # Document, layout, OCR, and table Pydantic schemas
 │   └── services/
+│       ├── model_manager.py        # Offline model weight resolver & S3 sync
 │       ├── docling/                # Docling XML fast path and native parser
 │       ├── ocr/                    # RapidOCR engine, confidence evaluator, preprocessor
 │       ├── vlm/                    # Gemini VLM fallback client and router
@@ -109,8 +110,11 @@ flowchart TD
 │   ├── dms/                        # DMS source PDFs and documents
 │   ├── s3_raw/                     # Raw loan documents per case
 │   └── s3_result/                  # Pipeline execution outputs and audit logs
-├── tests/                          # Automated Pytest Suite (18 test modules, 68+ tests)
+├── scripts/                        # Operational and setup utilities
+│   └── download_models.py          # One-time model weights downloader (Docling & RapidOCR)
+├── tests/                          # Automated Pytest Suite (19 test modules, 75+ tests)
 │   ├── idp/                        # IDP unit and integration tests
+│   ├── test_model_manager.py       # Offline model loading and S3 sync tests
 │   ├── test_node3a.py              # KYC comparison tests
 │   ├── test_node3b.py              # KFS & Sanction comparison tests
 │   ├── test_node3c.py              # Top-up & BT comparison tests
@@ -140,9 +144,9 @@ Ensure you have **Python 3.10+**, **Node.js 18+**, and **WSL2** (for Redis) inst
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd "Automated Disbursment Scorecard"
+cd "AI-Powered-Disbursement-Engine"
 
-# Create virtual environment
+# Create virtual environment (both `venv` and `.venv` are automatically supported by start_all.bat)
 python -m venv venv
 
 # Activate virtual environment
@@ -163,18 +167,33 @@ npm install
 cd ..
 ```
 
-### 2. Environment Configuration
+### 2. Download Offline Model Weights (One-Time Setup)
+
+In air-gapped / UAT environments, download all required Docling layout models and RapidOCR ONNX model weights to the local `models/` directory once:
+
+```bash
+# Download required Docling and RapidOCR weights to ./models
+python scripts/download_models.py
+
+# (Optional: Upload to S3 for pod/container deployments)
+# python scripts/download_models.py --upload-to-s3 s3://your-bucket-name/models/
+```
+
+### 3. Environment Configuration
 
 Create a `.env` file in the root directory (or copy `.env.example`):
 
 ```env
-# Direct Google Gemini (recommended for LLM adjudication & VLM fallbacks)
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash-lite
+# Air-Gapped / Offline Execution
+OFFLINE_MODE=true
+HF_HUB_OFFLINE=1
+TRANSFORMERS_OFFLINE=1
+MODEL_WEIGHTS_PATH=models/
+# MODEL_WEIGHTS_S3_URI=s3://your-bucket-name/models/  # Optional: S3 sync
 
-# OpenRouter / LLM Field Extractor (Node 2 OCR text → structured JSON)
-LLM_API_KEY=your_openrouter_api_key_here
-LLM_MODEL=google/gemini-2.5-flash-lite
+# Unified LLM Configuration (Gemini, OpenRouter, Groq, OpenAI)
+LLM_API_KEY=your_api_key_here
+LLM_MODEL=gemini-1.5-flash
 
 # Redis Broker (WSL2 / localhost)
 REDIS_URL=redis://127.0.0.1:6379/0

@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Printer,
-  Download,
-  Loader2,
   X,
   ShieldCheck,
   AlertTriangle,

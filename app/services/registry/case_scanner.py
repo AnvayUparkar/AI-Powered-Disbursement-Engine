@@ -38,7 +38,7 @@ def _collect_case_candidates(
     case_dms_dir: Path,
     case_ext_dir: Path,
 ) -> List[Tuple[str, Path, str]]:
-    """Gather candidate document files from raw S3, DMS, or extracted directories."""
+    """Gather real physical document files from raw S3 (or legacy DMS)."""
     seen_filenames: Set[str] = set()
     candidate_files: List[Tuple[str, Path, str]] = []
 
@@ -55,7 +55,7 @@ def _collect_case_candidates(
                     seen_filenames.add(rf.name)
                     candidate_files.append((rf.name, rf, "s3_raw"))
 
-    # 2. Real files in DMS
+    # 2. Real files in DMS (fallback if present)
     if case_dms_dir.exists():
         for rf in sorted(case_dms_dir.iterdir()):
             if (
@@ -68,15 +68,6 @@ def _collect_case_candidates(
                 if rf.name not in seen_filenames:
                     seen_filenames.add(rf.name)
                     candidate_files.append((rf.name, rf, "dms"))
-
-    # 3. If no raw/dms files exist, check if extracted JSONs exist for pipeline runs
-    if not candidate_files and case_ext_dir.exists():
-        for ef in sorted(case_ext_dir.glob("*.json")):
-            if ef.name != f"{c_id}.json" and ef.name not in _EXCLUDED_EXTRACTED_NAMES:
-                fake_name = f"{ef.stem}.pdf"
-                if fake_name not in seen_filenames:
-                    seen_filenames.add(fake_name)
-                    candidate_files.append((fake_name, ef, "extracted"))
 
     return candidate_files
 
@@ -275,11 +266,22 @@ def _build_case_document_record(
             continue
         rows = tbl.get("rows") or []
         headers = tbl.get("headers") or []
+        tbl_cells = tbl.get("cells") or []
+        cell_confs = []
+        for c in tbl_cells:
+            if isinstance(c, dict) and "confidence" in c:
+                try:
+                    cv = float(c["confidence"])
+                    cell_confs.append(cv * 100.0 if cv <= 1.0 else cv)
+                except (ValueError, TypeError):
+                    pass
+        tbl_conf = round(sum(cell_confs) / len(cell_confs), 1) if cell_confs else 95.0
+
         extracted_fields.append({
             "id": tbl.get("id") or f"table-{doc_id}-{t_idx + 1}",
             "name": f"Table (Page {tbl.get('page_number', 1)})",
             "value": f"{len(rows)} rows x {len(headers) if headers else (len(rows[0]) if rows else 0)} cols",
-            "confidence": 95,
+            "confidence": tbl_conf,
             "sourceDocumentId": doc_id,
             "page": tbl.get("page_number", 1),
             "type": "table",
@@ -302,6 +304,37 @@ def _build_case_document_record(
             size_kb = 45
 
     has_data = bool(ext_data or struct_data or raw_text)
+
+    # Compute genuine mathematical OCR confidence from token/field telemetry
+    conf_list: List[float] = []
+    for tok in ocr_tokens:
+        if isinstance(tok, dict) and "confidence" in tok:
+            try:
+                cv = float(tok["confidence"])
+                c_val = cv * 100.0 if cv <= 1.0 else cv
+                if c_val > 0:
+                    conf_list.append(c_val)
+            except (ValueError, TypeError):
+                pass
+    for f in extracted_fields:
+        c = f.get("confidence")
+        if c is not None:
+            try:
+                cv = float(c)
+                if cv > 0:
+                    conf_list.append(cv)
+            except (ValueError, TypeError):
+                pass
+
+    is_xml = "xml" in doc_filename.lower() or "xml" in doc_type.lower()
+    if is_xml:
+        doc_conf = 100.0 if has_data else 0.0
+    elif conf_list:
+        doc_conf = round(sum(conf_list) / len(conf_list), 1)
+    elif has_data:
+        doc_conf = 95.0
+    else:
+        doc_conf = 0.0
 
     formatted_text = (
         ext_data.get("_formatted_text")
@@ -337,7 +370,7 @@ def _build_case_document_record(
         "pages": pages,
         "ocrStatus": "COMPLETED" if has_data else "PENDING",
         "extractionStatus": "COMPLETED" if has_data else "PENDING",
-        "confidence": 98.0 if has_data else 95.0,
+        "confidence": doc_conf,
         "vlmUsed": bool(ext_data.get("_vlm_used", False)),
         "uploadedAt": uploaded_at,
         "uploadedTimestamp": mtime,
@@ -358,7 +391,7 @@ def _build_case_document_record(
                 "status": "COMPLETED" if has_data else "PENDING",
                 "detail": f"{doc_filename} OCR processing",
                 "startedAt": "10:30:00",
-                "confidence": 98.0,
+                "confidence": doc_conf if has_data else 0.0,
             }
         ],
     }
@@ -448,13 +481,24 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
                     for tk, tv in tpl.items():
                         nice_name = tk.replace("_", " ").title()
                         if tv is not None and nice_name not in existing_fnames:
+                            fl = (doc.get("debug") or {}).get("field_locations", {}).get(tk) or {}
+                            f_raw_conf = fl.get("confidence")
+                            if f_raw_conf is not None:
+                                try:
+                                    fc = float(f_raw_conf)
+                                    f_conf = round(fc * 100.0, 1) if fc <= 1.0 else round(fc, 1)
+                                except (ValueError, TypeError):
+                                    f_conf = doc.get("confidence", 95.0)
+                            else:
+                                f_conf = doc.get("confidence", 95.0)
+
                             doc.setdefault("extractedFields", []).append({
                                 "id": f"llm-{tk}",
                                 "name": nice_name,
                                 "value": str(tv),
-                                "confidence": 98.0,
+                                "confidence": f_conf,
                                 "sourceDocumentId": doc_id,
-                                "page": 1,
+                                "page": fl.get("page", 1),
                                 "type": "key_value",
                                 "source": "OPENROUTER_LLM",
                             })
