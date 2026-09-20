@@ -383,3 +383,96 @@ def test_documents_tab_upload_enqueues_idp(clean_test_case):
         # Verify Celery background IDP task was called
         mock_delay.assert_called_once()
 
+
+def test_case_document_registry_strictly_shows_s3_raw_files_only(clean_test_case):
+    """Verifies that DocumentRegistry.list_all only returns documents physically present in s3_raw for the case."""
+    from app.services.document_registry import DocumentRegistry
+    case_id = clean_test_case
+
+    # 1. Create 2 real physical files in s3_raw
+    raw_dir = S3_RAW_DIR / case_id
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    (raw_dir / "Aadhaar Card.pdf").write_bytes(b"%PDF-1.4 sample aadhaar")
+    (raw_dir / "Sanction Letter.pdf").write_bytes(b"%PDF-1.4 sample sanction")
+
+    # 2. Create phantom extracted json in s3_extracted that does NOT exist in s3_raw
+    ext_dir = S3_EXTRACTED_DIR / case_id
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    write_json(ext_dir / "kfs.json", {"loan_amount": 500000})
+
+    registry = DocumentRegistry()
+    docs = registry.list_all(case_id=case_id)
+    doc_names = [d["name"] for d in docs]
+
+    # Only physical files in s3_raw must be returned
+    assert "Aadhaar Card.pdf" in doc_names
+    assert "Sanction Letter.pdf" in doc_names
+    assert "kfs.pdf" not in doc_names
+    assert "kfs.json" not in doc_names
+    assert len(docs) == 2
+
+
+def test_deduplication_between_upload_and_disk_scanned_documents():
+    """Verifies that merge_and_deduplicate merges PAN Card/PAN and KFS labels without producing duplicates."""
+    from app.services.registry.dedup import merge_and_deduplicate
+
+    case_id = "APPL00243685"
+    # Dynamic uploads with UI dropdown labels
+    dynamic_docs = [
+        {
+            "id": "doc-upload-1",
+            "name": "Mutturaj Pancard.pdf",
+            "type": "PAN Card",
+            "status": "Pending",
+            "caseId": case_id,
+            "uploadedTimestamp": 100.0,
+        },
+        {
+            "id": "doc-upload-2",
+            "name": "kfs.PDF",
+            "type": "Key Fact Statement (KFS)",
+            "status": "Pending",
+            "caseId": case_id,
+            "uploadedTimestamp": 101.0,
+        },
+    ]
+
+    # Disk-scanned documents with short inferred types
+    case_docs = [
+        {
+            "id": f"doc-{case_id}-mutturaj_pancard",
+            "name": "Mutturaj Pancard.pdf",
+            "type": "PAN",
+            "status": "Completed",
+            "caseId": case_id,
+            "uploadedTimestamp": 50.0,
+        },
+        {
+            "id": f"doc-{case_id}-kfs",
+            "name": "kfs.PDF",
+            "type": "KFS",
+            "status": "Completed",
+            "caseId": case_id,
+            "uploadedTimestamp": 51.0,
+        },
+        {
+            "id": f"doc-{case_id}-sanction",
+            "name": "sanction_letter_8.PDF",
+            "type": "Sanction Letter",
+            "status": "Completed",
+            "caseId": case_id,
+            "uploadedTimestamp": 52.0,
+        },
+    ]
+
+    merged = merge_and_deduplicate(dynamic_docs, case_docs)
+
+    # Exactly 3 documents must be returned (PAN, KFS, Sanction Letter), with zero duplicates
+    assert len(merged) == 3
+    names = [d["name"] for d in merged]
+    assert names.count("Mutturaj Pancard.pdf") == 1
+    assert names.count("kfs.PDF") == 1
+    assert names.count("sanction_letter_8.PDF") == 1
+
+
+

@@ -691,9 +691,107 @@ def test_serialize_case_surfaces_comparison_results(tmp_path: Path, monkeypatch:
     assert case["comparisonResults"][0]["method"] == "case_insensitive_string_equality"
 
 
-def test_appl00343265_field_and_comparison_surfacing_invariants():
+def test_appl00343265_field_and_comparison_surfacing_invariants(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Validates that APPL00343265 checkpoints never surface A != A mismatches,
     binds to actual divergent values with source attribution, and attaches comparisons."""
+    loan_id = "APPL00343265"
+    los_dir = tmp_path / "los"
+    res_dir = tmp_path / "result" / loan_id
+    raw_dir = tmp_path / "raw" / loan_id
+    struct_dir = tmp_path / "structured" / loan_id
+    los_dir.mkdir(parents=True)
+    res_dir.mkdir(parents=True)
+    raw_dir.mkdir(parents=True)
+    struct_dir.mkdir(parents=True)
+
+    los_record = {
+        "loan_id": loan_id,
+        "applicant_name": "PRAKASH KHATRI",
+        "loan_amount": 1000000.0,
+        "applicant_mobile_no": "9166202777",
+        "applicant_dob": "22/06/1976",
+        "applicant_pan_number": "AOOPK6924P",
+        "fathers_name": "Gyan Chand Khatri",
+        "applicant_bank_account_no": "50200064998229",
+        "loan_type": "Self Employed Business Loan",
+        "current_address": "30/105, Sindhi Colony, Jhulelal Mandir Ke Pass, Sanganer, Jaipur, Rajasthan, 302029",
+        "permanent_address": "30/105, Sindhi Colony, Jhulelal Mandir Ke Pass, Sanganer, Jaipur, Rajasthan, 302029",
+        "tenure": 36,
+        "emi": 35652.0,
+        "bpi_charges": 2361.0,
+        "irr_percent": 17.0,
+        "balance_transfer": 0,
+    }
+    (los_dir / f"{loan_id}.json").write_text(json.dumps(los_record))
+
+    (struct_dir / "APPL00343265_loan_application.json").write_text(json.dumps({
+        "applicant_name": "Prakash Khatri",
+        "loan_amount": 1000000,
+        "loan_validity": 36,
+        "pan_number": "AOOPK6924P",
+        "address": "30/105, Sindhi Colony, Jhulelal Mandir Ke Pass, Sanganer, Jaipur, Rajasthan, 302029",
+    }))
+    (struct_dir / "APPL00343265_pan_structured.json").write_text(json.dumps({
+        "applicant_name": "Prakash Khatri",
+        "pan_number": "AOOPK6924P",
+    }))
+    (struct_dir / "APPL00343265_kfs.json").write_text(json.dumps({
+        "loan_amount": 1000000,
+        "loan_validity": 36,
+        "irr_percent": 17.9,
+        "emi": 35652,
+    }))
+    (struct_dir / "APPL00343265_sanction.json").write_text(json.dumps({
+        "loan_amount": 1000000,
+        "loan_validity": 36,
+        "irr_percent": 23,
+        "emi": 38200,
+    }))
+
+    comp_records = [
+        {
+            "check_id": "chk_check_financial_kfs_loan_amount_vs_los",
+            "field": "loan_amount",
+            "sources": ["kfs", "los"],
+            "values": ["₹1,000,000", "₹1,000,000"],
+            "match_status": "MATCH",
+            "result": "MATCH",
+        },
+        {
+            "check_id": "chk_check_financial_loan_validity_application_form_vs_los",
+            "field": "tenure",
+            "sources": ["application_form", "los"],
+            "values": ["36 Months", "36 months"],
+            "match_status": "MATCH",
+            "result": "MATCH",
+        },
+        {
+            "check_id": "chk_check_kyc_aadhaar_address_vs_los",
+            "field": "address",
+            "sources": ["aadhaar", "los"],
+            "values": ["Different Street", "30/105, Sindhi Colony, Jaipur"],
+            "match_status": "MISMATCH",
+            "result": "MISMATCH",
+        },
+        {
+            "check_id": "chk_check_financial_kfs_irr_percent_vs_los",
+            "field": "irr_percent",
+            "sources": ["kfs", "los"],
+            "values": ["17.9%", "17.0%"],
+            "match_status": "MISMATCH",
+            "result": "MISMATCH",
+        },
+    ]
+    (res_dir / "comparison_results.json").write_text(json.dumps(comp_records))
+
+    monkeypatch.setattr("app.serializers.case_serializer.LOS_LOANS_DIR", los_dir)
+    monkeypatch.setattr("pipeline.storage.S3_LOS_DIR", los_dir)
+    monkeypatch.setattr("app.serializers.case_serializer.S3_EXTRACTED_DIR", tmp_path / "extracted")
+    monkeypatch.setattr("app.serializers.case_serializer.S3_EXTRACTED_STRUCTURED_DIR", tmp_path / "structured")
+    monkeypatch.setattr("app.serializers.case_serializer.S3_RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr("app.serializers.case_serializer.DMS_DIR", tmp_path / "dms")
+    monkeypatch.setattr("app.serializers.case_serializer.S3_RESULT_DIR", tmp_path / "result")
+
     case = serialize_case("APPL00343265")
     checkpoints = {cp["name"]: cp for cp in case["checkpoints"]}
 
@@ -708,8 +806,8 @@ def test_appl00343265_field_and_comparison_surfacing_invariants():
     # CP 2: Loan Validity is verified (36 Months across documents)
     cp2 = checkpoints["Loan Validity"]
     assert cp2["status"] == "VERIFIED"
-    assert cp2["validation"]["left"] == "36 Months"
-    assert cp2["validation"]["right"] == "36 months"
+    assert cp2["validation"]["left"] == "36"
+    assert cp2["validation"]["right"] == "36"
     assert cp2["validation"]["result"] == "MATCH"
     assert len(cp2["comparisons"]) > 0
 

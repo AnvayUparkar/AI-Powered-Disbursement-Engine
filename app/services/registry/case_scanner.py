@@ -38,7 +38,7 @@ def _collect_case_candidates(
     case_dms_dir: Path,
     case_ext_dir: Path,
 ) -> List[Tuple[str, Path, str]]:
-    """Gather candidate document files from raw S3, DMS, or extracted directories."""
+    """Gather real physical document files from raw S3 (or legacy DMS)."""
     seen_filenames: Set[str] = set()
     candidate_files: List[Tuple[str, Path, str]] = []
 
@@ -55,7 +55,7 @@ def _collect_case_candidates(
                     seen_filenames.add(rf.name)
                     candidate_files.append((rf.name, rf, "s3_raw"))
 
-    # 2. Real files in DMS
+    # 2. Real files in DMS (fallback if present)
     if case_dms_dir.exists():
         for rf in sorted(case_dms_dir.iterdir()):
             if (
@@ -68,15 +68,6 @@ def _collect_case_candidates(
                 if rf.name not in seen_filenames:
                     seen_filenames.add(rf.name)
                     candidate_files.append((rf.name, rf, "dms"))
-
-    # 3. If no raw/dms files exist, check if extracted JSONs exist for pipeline runs
-    if not candidate_files and case_ext_dir.exists():
-        for ef in sorted(case_ext_dir.glob("*.json")):
-            if ef.name != f"{c_id}.json" and ef.name not in _EXCLUDED_EXTRACTED_NAMES:
-                fake_name = f"{ef.stem}.pdf"
-                if fake_name not in seen_filenames:
-                    seen_filenames.add(fake_name)
-                    candidate_files.append((fake_name, ef, "extracted"))
 
     return candidate_files
 

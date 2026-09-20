@@ -250,10 +250,13 @@ def normalize_uploaded_record(
     ocr_status = "COMPLETED"
     extraction_status = "COMPLETED"
 
+    from config.doc_types import get_display_name
+    normalized_type = get_display_name(detected_type) if detected_type else "Miscellaneous"
+
     return {
         "id": doc_id,
         "name": filename,
-        "type": detected_type,
+        "type": normalized_type,
         "pages": pages_count,
         "ocrStatus": ocr_status,
         "extractionStatus": extraction_status,

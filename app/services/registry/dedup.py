@@ -3,6 +3,17 @@ from typing import Any, Dict, List, Optional, Set
 
 from .resolver import normalize_doc_name
 
+SINGLETON_CANONICAL_TYPES: Set[str] = {
+    "application_form",
+    "aadhaar",
+    "pan",
+    "sanction_letter",
+    "loan_agreement",
+    "disbursal_memo",
+    "kfs",
+    "aadhaar_xml",
+}
+
 SINGLETON_TYPES: Set[str] = {
     "Application Form",
     "Aadhaar",
@@ -36,8 +47,10 @@ def merge_and_deduplicate(
 ) -> List[Dict[str, Any]]:
     """
     Merge dynamic uploaded documents and case disk documents with priority given to uploads.
-    Prevents duplicates using singleton document type constraints and normalized names.
+    Prevents duplicates using canonical singleton document types and normalized filenames.
     """
+    from config.doc_types import get_canonical_doc_type
+
     seen_keys: Set[Any] = set()
     all_docs: List[Dict[str, Any]] = []
 
@@ -45,34 +58,52 @@ def merge_and_deduplicate(
     dynamic_list = list(reversed(dynamic_docs))
     for d in dynamic_list:
         c_id = d.get("caseId")
-        dtype = d.get("type")
-        doc_key = d.get("id") or d.get("name")
-        key = (c_id, doc_key)
+        dtype = d.get("type") or ""
+        dname = d.get("name") or ""
+        doc_id = d.get("id") or dname
+        canon = get_canonical_doc_type(dtype or dname)
+        norm_name = normalize_doc_name(dname)
 
-        if key in seen_keys:
+        is_dup = False
+        if (c_id, doc_id) in seen_keys or (c_id, dname) in seen_keys or (c_id, norm_name) in seen_keys:
+            is_dup = True
+        elif c_id and c_id != "GENERAL" and canon in SINGLETON_CANONICAL_TYPES and (c_id, canon) in seen_keys:
+            is_dup = True
+
+        if is_dup:
             continue
-        seen_keys.add(key)
 
-        if dtype in SINGLETON_TYPES and c_id and c_id != "GENERAL":
-            seen_keys.add((c_id, dtype))
-        else:
-            norm_name = normalize_doc_name(d.get("name", ""))
-            seen_keys.add((c_id, norm_name))
+        seen_keys.add((c_id, doc_id))
+        seen_keys.add((c_id, dname))
+        seen_keys.add((c_id, norm_name))
+        if c_id and c_id != "GENERAL" and canon != "miscellaneous":
+            seen_keys.add((c_id, canon))
 
         all_docs.append(d)
 
     for d in case_docs:
         c_id = d.get("caseId")
-        dtype = d.get("type")
-        if dtype in SINGLETON_TYPES and c_id and c_id != "GENERAL":
-            key = (c_id, dtype)
-        else:
-            norm_name = normalize_doc_name(d.get("name", ""))
-            key = (c_id, norm_name)
+        dtype = d.get("type") or ""
+        dname = d.get("name") or ""
+        doc_id = d.get("id") or dname
+        canon = get_canonical_doc_type(dtype or dname)
+        norm_name = normalize_doc_name(dname)
 
-        if key in seen_keys:
+        is_dup = False
+        if (c_id, doc_id) in seen_keys or (c_id, dname) in seen_keys or (c_id, norm_name) in seen_keys:
+            is_dup = True
+        elif c_id and c_id != "GENERAL" and canon in SINGLETON_CANONICAL_TYPES and (c_id, canon) in seen_keys:
+            is_dup = True
+
+        if is_dup:
             continue
-        seen_keys.add(key)
+
+        seen_keys.add((c_id, doc_id))
+        seen_keys.add((c_id, dname))
+        seen_keys.add((c_id, norm_name))
+        if c_id and c_id != "GENERAL" and canon != "miscellaneous":
+            seen_keys.add((c_id, canon))
+
         all_docs.append(d)
 
     # Sort youngest (newest upload) to oldest
@@ -94,7 +125,18 @@ def filter_documents(
     filtered = docs
 
     if case_id:
-        filtered = [d for d in filtered if d.get("caseId") == case_id]
+        if case_id != "GENERAL":
+            from config import DMS_DIR, S3_RAW_DIR
+            filtered = [
+                d for d in filtered
+                if d.get("caseId") == case_id
+                and (
+                    (S3_RAW_DIR / case_id / (d.get("name") or "")).exists()
+                    or (DMS_DIR / case_id / (d.get("name") or "")).exists()
+                )
+            ]
+        else:
+            filtered = [d for d in filtered if d.get("caseId") == "GENERAL" or not d.get("caseId")]
 
     if doc_type and doc_type != "ALL":
         filtered = [d for d in filtered if d.get("type") == doc_type]
