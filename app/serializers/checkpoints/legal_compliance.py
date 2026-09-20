@@ -60,14 +60,23 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         ]
         evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Agreement Signature")]
     elif has_agree and not is_signed:
-        status = "DISCREPANCY"
-        fields = [
-            build_field("Loan Agreement Presence", "Present", presence_conf, f"doc-{ctx.loan_id}-agreement"),
-            build_field("Loan Agreement Signature", "Unsigned", 0.0, f"doc-{ctx.loan_id}-agreement"),
-        ]
-        evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Unsigned", 1, "Agreement Signature")]
-        val = {"left": "Present & Unsigned", "right": "Mandatory Signed Agreement", "result": "MISMATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
-        notes = r6_sig.get("notes") if (r6_sig and r6_sig.get("notes")) else "Loan agreement uploaded but missing required digital signature."
+        if not ctx.has_verification_run and not agree_records:
+            status = "INDETERMINATE"
+            notes = "Loan agreement uploaded; signature verification pending."
+            val = {"left": "Uploaded", "right": "Mandatory Signed Agreement", "result": "INCONCLUSIVE", "leftSource": "loan_agreement", "rightSource": "mandatory"}
+            fields = [
+                build_field("Loan Agreement Presence", "Present", presence_conf, f"doc-{ctx.loan_id}-agreement"),
+                build_field("Loan Agreement Signature", "Pending Verification", 0.0, f"doc-{ctx.loan_id}-agreement"),
+            ]
+        else:
+            status = "DISCREPANCY"
+            fields = [
+                build_field("Loan Agreement Presence", "Present", presence_conf, f"doc-{ctx.loan_id}-agreement"),
+                build_field("Loan Agreement Signature", "Unsigned", 0.0, f"doc-{ctx.loan_id}-agreement"),
+            ]
+            val = {"left": "Present & Unsigned", "right": "Mandatory Signed Agreement", "result": "MISMATCH", "leftSource": "loan_agreement", "rightSource": "mandatory"}
+            notes = r6_sig.get("notes") if (r6_sig and r6_sig.get("notes")) else "Loan agreement uploaded but missing required digital signature."
+        evidence = [build_evidence(f"doc-{ctx.loan_id}-agreement", "Loan_Agreement.pdf", "Loan Agreement — Signature", 1, "Agreement Signature")]
     else:
         status = "INDETERMINATE"
         fields = [build_field("Loan Agreement", "Not Uploaded", 0.0, f"doc-{ctx.loan_id}")]

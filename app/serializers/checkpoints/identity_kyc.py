@@ -452,11 +452,14 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     conf_val: float | None = None
     if has_selfie:
-        status = "VERIFIED"
-        if r5 and r5.get("match_status") == "MISMATCH":
-            status = "DISCREPANCY"
-        elif r5 and r5.get("match_status") in ("PARTIAL", "NOT_FOUND"):
+        if not ctx.has_verification_run and not r5:
             status = "INDETERMINATE"
+        else:
+            status = "VERIFIED"
+            if r5 and r5.get("match_status") == "MISMATCH":
+                status = "DISCREPANCY"
+            elif r5 and r5.get("match_status") in ("PARTIAL", "NOT_FOUND"):
+                status = "INDETERMINATE"
         conf_val = resolve_field_confidence(record=r5)
         conf_label = f"{conf_val:.1f}%" if conf_val is not None else "No telemetry"
         fields = [build_field("Face Match Confidence", conf_label, conf_val, f"doc-{ctx.loan_id}-selfie")]
@@ -466,7 +469,11 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         status = "INDETERMINATE"
 
     conf = conf_val if (conf_val is not None and status == "VERIFIED") else 0.0
-    notes = (r5.get("notes") if r5 else "") or ("Live selfie embedding verification." if has_selfie else "Selfie photo not uploaded.")
+    notes = (r5.get("notes") if r5 else "") or (
+        ("Selfie uploaded; verification pending." if not ctx.has_verification_run and not r5 else "Live selfie embedding verification.")
+        if has_selfie
+        else "Selfie photo not uploaded."
+    )
 
     val_block = resolve_checkpoint_validation(
         status,
@@ -514,14 +521,22 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         or (ctx.dms_dir / "aadhaar_xml_status.json").exists()
         or (r9 is not None and r9.get("match_status") == "MATCH")
     )
-    status = "VERIFIED" if has_xml else "INDETERMINATE"
-    if r9 and r9.get("match_status") == "MISMATCH":
-        status = "DISCREPANCY"
+    comparisons = [r for r in [r9, r9_uid] if r]
 
-    # Presence is a binary hard gate — confidence is 100% when the file is confirmed present
-    # by idp_scan (aadhaar_xml_present=True), or 0% when missing. resolve_field_confidence
-    # always returns None for XML docs (no OCR telemetry), so we set it directly.
-    xml_conf = 100.0 if has_xml else 0.0
+    if not ctx.has_verification_run and not comparisons:
+        status = "INDETERMINATE"
+        xml_conf = 0.0
+        notes = "Aadhaar XML uploaded; validation pending." if has_xml else "Aadhaar XML missing from repository."
+    else:
+        status = "VERIFIED" if has_xml else "INDETERMINATE"
+        if r9 and r9.get("match_status") == "MISMATCH":
+            status = "DISCREPANCY"
+        xml_conf = 100.0 if has_xml else 0.0
+        notes = (r9.get("notes") if r9 else "") or (
+            "Aadhaar XML present in repository and verified." if has_xml else "Aadhaar XML missing from repository."
+        )
+
+    # Presence is a binary hard gate — confidence is 100% when verified, 0% when pending or missing.
     fields = [build_field("Aadhaar XML Presence", "Present" if has_xml else "Missing", xml_conf, f"doc-{ctx.loan_id}-aadhaarxml")]
 
     # Surface Aadhaar Number extracted from XML UID attribute if present
@@ -533,7 +548,7 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 break
 
     if xml_uid:
-        uid_conf = resolve_field_confidence(doc=xml_doc, record=r9_uid, field_name="aadhaar_number") or 100.0
+        uid_conf = resolve_field_confidence(doc=xml_doc, record=r9_uid, field_name="aadhaar_number") or (100.0 if ctx.has_verification_run or r9_uid else 0.0)
         fields.append(build_field("Aadhaar Number", xml_uid, uid_conf, f"doc-{ctx.loan_id}-aadhaarxml"))
 
     notes = (r9.get("notes") if r9 else "") or (

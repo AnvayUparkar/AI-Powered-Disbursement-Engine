@@ -297,7 +297,12 @@ def _resolve_case_status_and_score(
     scorecard_decision = scorecard_data.get("preliminary_decision")
     scorecard_tier = scorecard_data.get("risk_tier")
 
-    if (
+    if not records and not scorecard_data:
+        # Verification pipeline has not been executed yet
+        overall_status = "INDETERMINATE"
+        risk_level = "LOW"
+        dgcl_score = 0.0
+    elif (
         discrepancy_count > 0
         or scorecard_decision == "REJECT_OR_FLAG"
         or scorecard_tier == "HIGH_RISK"
@@ -309,11 +314,6 @@ def _resolve_case_status_and_score(
             if scorecard_score is not None
             else max(25.0, 100.0 - (discrepancy_count * 25.0 + review_count * 10.0))
         )
-    elif not records and not scorecard_data:
-        # Verification pipeline has not been executed yet
-        overall_status = "INDETERMINATE"
-        risk_level = "LOW"
-        dgcl_score = 0.0
     elif review_count > 0 and (
         status_data.get("status") == "PROCESSING" or (not records and not docs)
     ):
