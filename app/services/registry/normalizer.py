@@ -9,24 +9,51 @@ from config import IST, S3_EXTRACTED_DIR
 from pipeline.engines.llm_field_extractor import format_template_json
 
 
-def build_default_processing_steps(doc_id: str) -> List[Dict[str, Any]]:
-    """Build default processing steps for an uploaded document."""
+def build_default_processing_steps(doc_id: str, status: str = "COMPLETED") -> List[Dict[str, Any]]:
+    """Build default processing steps for an uploaded document according to its pipeline status."""
     curr_time = datetime.now().strftime("%H:%M:%S")
+    norm_status = (status or "PENDING").upper()
+    
+    if norm_status == "COMPLETED":
+        docling_status = "COMPLETED"
+        ocr_status = "COMPLETED"
+        ocr_conf = 95.0
+        docling_time = curr_time
+        ocr_time = curr_time
+    elif norm_status == "PROCESSING":
+        docling_status = "PROCESSING"
+        ocr_status = "PENDING"
+        ocr_conf = 0.0
+        docling_time = curr_time
+        ocr_time = None
+    elif norm_status == "FAILED":
+        docling_status = "FAILED"
+        ocr_status = "FAILED"
+        ocr_conf = 0.0
+        docling_time = curr_time
+        ocr_time = None
+    else:  # PENDING
+        docling_status = "PENDING"
+        ocr_status = "PENDING"
+        ocr_conf = 0.0
+        docling_time = None
+        ocr_time = None
+
     return [
         {
             "id": f"stp-{doc_id}-1",
             "component": "Docling",
-            "status": "COMPLETED",
-            "detail": "Docling parsed document structure",
-            "startedAt": curr_time,
+            "status": docling_status,
+            "detail": "Docling parsed document structure" if docling_status == "COMPLETED" else "Docling parsing pending",
+            "startedAt": docling_time,
         },
         {
             "id": f"stp-{doc_id}-2",
             "component": "PaddleOCR",
-            "status": "COMPLETED",
-            "detail": "RapidOCR PP-OCRv6 extracted text",
-            "startedAt": curr_time,
-            "confidence": 95.0,
+            "status": ocr_status,
+            "detail": "RapidOCR PP-OCRv6 extracted text" if ocr_status == "COMPLETED" else "OCR text extraction pending",
+            "startedAt": ocr_time,
+            "confidence": ocr_conf,
         },
     ]
 
@@ -62,68 +89,56 @@ def build_default_extracted_fields(
             "id": f"fld-{doc_id}-3",
             "name": "PAN Number",
             "value": "ABCDE1234F",
-            "confidence": 99.0,
+            "confidence": 99.2,
             "sourceDocumentId": doc_id,
             "page": 1,
         })
     return fields
 
 
-def _lookup_disk_llm_meta(assoc_case: str, filename: str, detected_type: str) -> Dict[str, Any]:
-    """Look up extracted LLM metadata on disk if not provided in parsed payload."""
-    if not assoc_case or assoc_case == "GENERAL":
-        return {}
-
-    case_ext_dir = S3_EXTRACTED_DIR / assoc_case
-    if not case_ext_dir.exists():
-        return {}
-
-    stem = Path(filename).stem.lower().replace(" ", "_")
-    type_slug = detected_type.lower().replace(" ", "_")
-    candidates = [
-        case_ext_dir / f"{filename}.json",
-        case_ext_dir / f"{Path(filename).stem}.json",
-        case_ext_dir / f"{stem}.json",
-        case_ext_dir / f"{type_slug}.json",
-        case_ext_dir / f"{detected_type}.json",
-        case_ext_dir / "Application Form.json" if "app" in stem else None,
-        case_ext_dir / "application_form.json" if "app" in stem else None,
-    ]
-
-    for cp in candidates:
-        if cp and cp.exists() and cp.is_file():
-            try:
-                loaded_data = json.loads(cp.read_text(encoding="utf-8"))
-                if isinstance(loaded_data, dict) and any(
-                    k in loaded_data for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")
-                ):
-                    return loaded_data
-            except Exception:
-                pass
+def _lookup_disk_llm_meta(case_id: str, filename: str, detected_type: str) -> Dict[str, Any]:
+    """Fallback: lookup disk s3_extracted structured JSON for case document if exists."""
+    from .case_scanner import _find_extracted_and_structured_files
+    case_ext = S3_EXTRACTED_DIR / case_id
+    ext_f, struct_f = _find_extracted_and_structured_files(case_ext, case_id, filename, detected_type)
+    if struct_f and struct_f.exists():
+        try:
+            return json.loads(struct_f.read_text(encoding="utf-8")) or {}
+        except Exception:
+            pass
+    if ext_f and ext_f.exists():
+        try:
+            return json.loads(ext_f.read_text(encoding="utf-8")) or {}
+        except Exception:
+            pass
     return {}
 
 
 def parse_extracted_fields(
     doc_id: str,
     parsed_result: Dict[str, Any],
-    llm_meta: Dict[str, Any],
+    llm_meta: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Parse key-value fields, text blocks, and tables from parsed result."""
+    """Extract structured fields, paragraphs, and tables from parsing output."""
     extracted_fields: List[Dict[str, Any]] = []
     field_locs = (parsed_result.get("custom_metadata") or {}).get("field_locations") or {}
+    ocr_tokens = (parsed_result.get("custom_metadata") or {}).get("ocr_tokens") or []
 
-    for lk, lv in llm_meta.items():
-        if lv is not None:
-            fl = field_locs.get(lk) or {}
+    # 1. Key-value fields from LLM extracted metadata
+    if llm_meta and isinstance(llm_meta, dict):
+        for k, v in llm_meta.items():
+            if k.startswith("_") or isinstance(v, (dict, list)) or v is None:
+                continue
+            fl = field_locs.get(k) or {}
             fl_bbox = fl.get("bbox")
             fl_status = fl.get("location_status", "resolved" if fl_bbox else "unresolved")
-            raw_conf = fl.get("confidence", 0.98)
+            raw_conf = fl.get("confidence", 0.97)
             fl_conf = round(raw_conf * 100, 1) if raw_conf <= 1.0 else round(raw_conf, 1)
 
             extracted_fields.append({
-                "id": f"llm-{lk}",
-                "name": lk.replace("_", " ").title(),
-                "value": str(lv),
+                "id": f"fld-{doc_id}-{k.lower().replace(' ', '_')}",
+                "name": k.replace("_", " ").title(),
+                "value": str(v),
                 "confidence": fl_conf,
                 "sourceDocumentId": doc_id,
                 "page": fl.get("page", 1),
@@ -138,45 +153,26 @@ def parse_extracted_fields(
                 "candidates": fl.get("candidates", []),
             })
 
+    # 2. Text Paragraphs from Docling elements
     elements = parsed_result.get("elements") or []
-    for idx, e in enumerate(elements):
-        text = e.get("text", "")
-        if not text or not text.strip():
+    for idx, el in enumerate(elements):
+        text = (el.get("text") or "").strip()
+        if not text:
             continue
-        raw_conf = e.get("confidence", 0.95)
-        conf = round(raw_conf * 100) if raw_conf <= 1.0 else round(raw_conf)
-        page_num = e.get("page_number", 1)
-
-        if ":" in text or "=" in text:
-            delim = ":" if ":" in text else "="
-            parts = text.split(delim, 1)
-            k, v = parts[0].strip(), parts[1].strip()
-            if k and v:
-                extracted_fields.append({
-                    "id": e.get("id") or f"f-{idx + 1}",
-                    "name": k,
-                    "value": v,
-                    "confidence": conf,
-                    "sourceDocumentId": doc_id,
-                    "page": page_num,
-                    "type": "key_value",
-                    "source": e.get("source", "ocr"),
-                    "bbox": e.get("bbox"),
-                })
-                continue
-
+        conf_val = round(el.get("confidence", 0.95) * 100, 1) if el.get("confidence", 0.95) <= 1.0 else round(el.get("confidence", 95.0), 1)
         extracted_fields.append({
-            "id": e.get("id") or f"f-{idx + 1}",
-            "name": "Text Block" if e.get("type") != "heading" else "Heading",
-            "value": text.strip(),
-            "confidence": conf,
+            "id": el.get("id") or f"elem-{idx + 1}",
+            "name": el.get("classification", "paragraph").replace("_", " ").title(),
+            "value": text,
+            "confidence": conf_val,
             "sourceDocumentId": doc_id,
-            "page": page_num,
-            "type": e.get("type", "text"),
-            "source": e.get("source", "ocr"),
-            "bbox": e.get("bbox"),
+            "page": el.get("page", 1),
+            "type": "text",
+            "bbox": el.get("bbox"),
+            "source": "Docling",
         })
 
+    # 3. Tables from Docling tables
     tables = parsed_result.get("tables") or []
     for t_idx, tbl in enumerate(tables):
         extracted_fields.append({
@@ -205,6 +201,7 @@ def normalize_uploaded_record(
     assoc_case: str,
     file_size_bytes: int = 0,
     parsed_result: Optional[Dict[str, Any]] = None,
+    status: Optional[str] = None,
     uploaded_at: Optional[str] = None,
     uploaded_timestamp: Optional[float] = None,
 ) -> Dict[str, Any]:
@@ -212,16 +209,32 @@ def normalize_uploaded_record(
     now_ist = datetime.now(IST)
     upload_date = uploaded_at or now_ist.strftime("%Y-%m-%d %H:%M IST")
     upload_timestamp = uploaded_timestamp if uploaded_timestamp is not None else time.time()
-    processing_steps = build_default_processing_steps(doc_id)
 
     pages_count = 1
-    confidence = 96.5
     vlm_used = False
     extracted_fields: List[Dict[str, Any]] = []
     llm_meta: Dict[str, Any] = {}
     p_res = parsed_result or {}
 
-    if parsed_result:
+    has_parsed = bool(
+        parsed_result and (
+            parsed_result.get("text")
+            or parsed_result.get("raw_text")
+            or parsed_result.get("rawText")
+            or parsed_result.get("elements")
+            or parsed_result.get("custom_metadata")
+            or parsed_result.get("extracted_fields")
+        )
+    )
+
+    if has_parsed:
+        effective_status = "COMPLETED"
+    elif status:
+        effective_status = status.upper()
+    else:
+        effective_status = "PENDING"
+
+    if has_parsed and parsed_result:
         pages_count = len(parsed_result.get("pages") or []) or 1
         vlm_used = bool(parsed_result.get("processing", {}).get("vlm_used", False))
         confidence = 91.0 if vlm_used else 97.5
@@ -231,9 +244,13 @@ def normalize_uploaded_record(
             llm_meta = _lookup_disk_llm_meta(assoc_case, filename, detected_type)
 
         extracted_fields = parse_extracted_fields(doc_id, parsed_result, llm_meta)
+    elif effective_status == "COMPLETED":
+        confidence = 96.5
+    else:
+        confidence = 0.0
 
     if not extracted_fields:
-        extracted_fields = build_default_extracted_fields(doc_id, filename, "Verified & Indexed", is_status=True)
+        extracted_fields = build_default_extracted_fields(doc_id, filename, "Verified & Indexed" if effective_status == "COMPLETED" else effective_status.title(), is_status=True)
 
     raw_text_val = (p_res.get("text") or p_res.get("raw_text") or p_res.get("rawText") or "").strip()
     if not raw_text_val:
@@ -246,9 +263,7 @@ def normalize_uploaded_record(
     )
 
     field_locs = (p_res.get("custom_metadata") or {}).get("field_locations") or {}
-
-    ocr_status = "COMPLETED"
-    extraction_status = "COMPLETED"
+    processing_steps = build_default_processing_steps(doc_id, status=effective_status)
 
     from config.doc_types import get_display_name
     normalized_type = get_display_name(detected_type) if detected_type else "Miscellaneous"
@@ -258,8 +273,8 @@ def normalize_uploaded_record(
         "name": filename,
         "type": normalized_type,
         "pages": pages_count,
-        "ocrStatus": ocr_status,
-        "extractionStatus": extraction_status,
+        "ocrStatus": effective_status,
+        "extractionStatus": effective_status,
         "confidence": confidence,
         "vlmUsed": vlm_used,
         "uploadedAt": upload_date,

@@ -51,6 +51,7 @@ class DocumentRegistry:
         case_id: Optional[str] = None,
         file_size_bytes: int = 0,
         parsed_result: Optional[Dict[str, Any]] = None,
+        status: Optional[str] = None,
         uploaded_at: Optional[str] = None,
         uploaded_timestamp: Optional[float] = None,
     ) -> Dict[str, Any]:
@@ -66,6 +67,7 @@ class DocumentRegistry:
                 assoc_case=assoc_case,
                 file_size_bytes=file_size_bytes,
                 parsed_result=parsed_result,
+                status=status,
                 uploaded_at=uploaded_at,
                 uploaded_timestamp=uploaded_timestamp,
             )
@@ -125,7 +127,14 @@ class DocumentRegistry:
             }
             extracted_fields_list = parse_extracted_fields(doc_id, parsed_shim, llm_meta)
 
-            pages_count = len(result.get("pages") or []) or result.get("pages") or rec.get("pages", 1)
+            raw_pages = result.get("pages")
+            if isinstance(raw_pages, list):
+                pages_count = len(raw_pages)
+            elif raw_pages is not None:
+                pages_count = raw_pages
+            else:
+                pages_count = rec.get("pages", 1)
+
             try:
                 pages_val = int(pages_count)
             except (ValueError, TypeError):

@@ -123,6 +123,13 @@ async def upload_and_process_document(
             logger.debug(format_doc_log(doc_id, f"Mock S3 storage notification: {s3_err}"))
             output_url = f"s3://disbursement-documents/raw-documents/{raw_key}"
 
+        # Determine whether to execute immediate background IDP extraction:
+        # 1. If run_idp is explicitly requested, honor it.
+        # 2. If uploaded directly to a specific loan case, default to False (pure S3 raw staging).
+        # 3. If uploaded to General / Documents tab, default to True (immediate IDP).
+        should_run_idp = run_idp if run_idp is not None else (not case_val or case_val == "GENERAL")
+        initial_status = "PROCESSING" if should_run_idp else "PENDING"
+
         try:
             from app.services.document_registry import document_registry
             document_registry.register_uploaded_document(
@@ -132,15 +139,10 @@ async def upload_and_process_document(
                 case_id=case_val,
                 file_size_bytes=len(file_bytes),
                 parsed_result=None,
+                status=initial_status,
             )
         except Exception as reg_err:
             logger.debug(format_doc_log(doc_id, f"Document registry sync notification: {reg_err}"))
-
-        # Determine whether to execute immediate background IDP extraction:
-        # 1. If run_idp is explicitly requested, honor it.
-        # 2. If uploaded directly to a specific loan case, default to False (pure S3 raw staging).
-        # 3. If uploaded to General / Documents tab, default to True (immediate IDP).
-        should_run_idp = run_idp if run_idp is not None else (not case_val or case_val == "GENERAL")
 
         if should_run_idp:
             try:

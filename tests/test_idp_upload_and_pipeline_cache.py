@@ -475,4 +475,53 @@ def test_deduplication_between_upload_and_disk_scanned_documents():
     assert names.count("sanction_letter_8.PDF") == 1
 
 
+def test_upload_lifecycle_statuses_case_vs_general_tab(clean_test_case):
+    """Verifies that case upload starts as PENDING, general upload as PROCESSING, and finishes as COMPLETED."""
+    from app.services.document_registry import document_registry
+    case_id = clean_test_case
+
+    # 1. Case Upload -> PENDING
+    file_content = b"%PDF-1.4 Case document"
+    files = {"file": ("case_doc.pdf", io.BytesIO(file_content), "application/pdf")}
+    data = {"case_id": case_id, "doc_type": "PAN Card"}
+
+    with patch("pipeline.celery_app.process_document_task.delay"):
+        resp = client.post("/api/v1/documents/upload", files=files, data=data)
+        assert resp.status_code == 200
+        doc_id = resp.json()["document_id"]
+
+    doc = document_registry.get_by_id(doc_id)
+    assert doc is not None
+    assert doc["ocrStatus"] == "PENDING"
+    assert doc["extractionStatus"] == "PENDING"
+    assert doc["confidence"] == 0.0
+
+    # 2. General Upload -> PROCESSING
+    files_gen = {"file": ("general_doc.pdf", io.BytesIO(file_content), "application/pdf")}
+    data_gen = {"case_id": "GENERAL", "doc_type": "Miscellaneous"}
+
+    with patch("pipeline.celery_app.process_document_task.delay"):
+        resp_gen = client.post("/api/v1/documents/upload", files=files_gen, data=data_gen)
+        assert resp_gen.status_code == 200
+        doc_gen_id = resp_gen.json()["document_id"]
+
+    doc_gen = document_registry.get_by_id(doc_gen_id)
+    assert doc_gen is not None
+    assert doc_gen["ocrStatus"] == "PROCESSING"
+    assert doc_gen["extractionStatus"] == "PROCESSING"
+
+    # 3. Transition to COMPLETED with extracted result
+    extracted_payload = {
+        "text": "Extracted PAN ABCDE1234F",
+        "extracted_fields": {"pan_number": "ABCDE1234F"},
+        "pages": 1,
+    }
+    document_registry.update_extracted_result(doc_id, extracted_payload)
+    doc_completed = document_registry.get_by_id(doc_id)
+    assert doc_completed["ocrStatus"] == "COMPLETED"
+    assert doc_completed["extractionStatus"] == "COMPLETED"
+    assert doc_completed["confidence"] > 90.0
+
+
+
 
