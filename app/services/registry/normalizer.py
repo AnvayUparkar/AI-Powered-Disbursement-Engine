@@ -9,7 +9,76 @@ from config import IST, S3_EXTRACTED_DIR
 from pipeline.engines.llm_field_extractor import format_template_json
 
 
-def build_default_processing_steps(doc_id: str, status: str = "COMPLETED") -> List[Dict[str, Any]]:
+def compute_dynamic_ocr_confidence(
+    parsed_result: Optional[Dict[str, Any]] = None,
+    extracted_fields: Optional[List[Dict[str, Any]]] = None,
+    is_xml: bool = False,
+    effective_status: str = "PENDING",
+) -> float:
+    """Computes genuine mathematical OCR confidence from token/field telemetry.
+    Returns:
+      - 0.0 for PENDING, PROCESSING, or FAILED status without data
+      - 100.0 for verified XML documents
+      - Float arithmetic mean rounded to 1 decimal place if token or field confidences exist
+    """
+    if effective_status in ("PENDING", "PROCESSING", "FAILED") and not parsed_result and not extracted_fields:
+        return 0.0
+
+    if is_xml:
+        return 100.0 if effective_status == "COMPLETED" else 0.0
+
+    confidences: List[float] = []
+
+    # 1. Inspect OCR tokens from custom_metadata / components
+    if parsed_result:
+        custom_meta = parsed_result.get("custom_metadata") or {}
+        tokens = custom_meta.get("ocr_tokens") or parsed_result.get("ocr_tokens") or []
+        for tok in tokens:
+            if isinstance(tok, dict) and "confidence" in tok:
+                try:
+                    c = float(tok["confidence"])
+                    c_val = c * 100.0 if c <= 1.0 else c
+                    if c_val > 0:
+                        confidences.append(c_val)
+                except (ValueError, TypeError):
+                    pass
+
+        # Also inspect elements confidences
+        elements = parsed_result.get("elements") or []
+        for el in elements:
+            if isinstance(el, dict) and "confidence" in el:
+                try:
+                    c = float(el["confidence"])
+                    c_val = c * 100.0 if c <= 1.0 else c
+                    if c_val > 0:
+                        confidences.append(c_val)
+                except (ValueError, TypeError):
+                    pass
+
+    # 2. Inspect extracted fields confidences
+    if extracted_fields:
+        for fld in extracted_fields:
+            if isinstance(fld, dict) and "confidence" in fld:
+                c = fld["confidence"]
+                if c is not None:
+                    try:
+                        c_val = float(c)
+                        if c_val > 0:
+                            confidences.append(c_val)
+                    except (ValueError, TypeError):
+                        pass
+
+    if confidences:
+        return round(sum(confidences) / len(confidences), 1)
+
+    return 0.0 if effective_status in ("PENDING", "PROCESSING", "FAILED") else 95.0
+
+
+def build_default_processing_steps(
+    doc_id: str,
+    status: str = "COMPLETED",
+    ocr_confidence: Optional[float] = None,
+) -> List[Dict[str, Any]]:
     """Build default processing steps for an uploaded document according to its pipeline status."""
     curr_time = datetime.now().strftime("%H:%M:%S")
     norm_status = (status or "PENDING").upper()
@@ -17,7 +86,7 @@ def build_default_processing_steps(doc_id: str, status: str = "COMPLETED") -> Li
     if norm_status == "COMPLETED":
         docling_status = "COMPLETED"
         ocr_status = "COMPLETED"
-        ocr_conf = 95.0
+        ocr_conf = ocr_confidence if ocr_confidence is not None else 95.0
         docling_time = curr_time
         ocr_time = curr_time
     elif norm_status == "PROCESSING":
@@ -175,11 +244,22 @@ def parse_extracted_fields(
     # 3. Tables from Docling tables
     tables = parsed_result.get("tables") or []
     for t_idx, tbl in enumerate(tables):
+        tbl_cells = tbl.get("cells") or []
+        cell_confs = []
+        for c in tbl_cells:
+            if isinstance(c, dict) and "confidence" in c:
+                try:
+                    cv = float(c["confidence"])
+                    cell_confs.append(cv * 100.0 if cv <= 1.0 else cv)
+                except (ValueError, TypeError):
+                    pass
+        tbl_conf = round(sum(cell_confs) / len(cell_confs), 1) if cell_confs else 95.0
+
         extracted_fields.append({
             "id": tbl.get("id") or f"table-{t_idx + 1}",
             "name": f"Table (Page {tbl.get('page_number', 1)})",
             "value": f"{tbl.get('num_rows', 0)} rows x {tbl.get('num_cols', 0)} cols",
-            "confidence": 95,
+            "confidence": tbl_conf,
             "sourceDocumentId": doc_id,
             "page": tbl.get("page_number", 1),
             "type": "table",
@@ -234,18 +314,19 @@ def normalize_uploaded_record(
     else:
         effective_status = "PENDING"
 
+    is_xml = "xml" in filename.lower() or "xml" in detected_type.lower()
     if has_parsed and parsed_result:
         pages_count = len(parsed_result.get("pages") or []) or 1
         vlm_used = bool(parsed_result.get("processing", {}).get("vlm_used", False))
-        confidence = 91.0 if vlm_used else 97.5
 
         llm_meta = (parsed_result.get("custom_metadata") or {}).get("llm_extracted_fields") or {}
         if not llm_meta and assoc_case and assoc_case != "GENERAL":
             llm_meta = _lookup_disk_llm_meta(assoc_case, filename, detected_type)
 
         extracted_fields = parse_extracted_fields(doc_id, parsed_result, llm_meta)
+        confidence = compute_dynamic_ocr_confidence(parsed_result, extracted_fields, is_xml=is_xml, effective_status=effective_status)
     elif effective_status == "COMPLETED":
-        confidence = 96.5
+        confidence = 100.0 if is_xml else 95.0
     else:
         confidence = 0.0
 
@@ -263,7 +344,7 @@ def normalize_uploaded_record(
     )
 
     field_locs = (p_res.get("custom_metadata") or {}).get("field_locations") or {}
-    processing_steps = build_default_processing_steps(doc_id, status=effective_status)
+    processing_steps = build_default_processing_steps(doc_id, status=effective_status, ocr_confidence=confidence if confidence > 0 else None)
 
     from config.doc_types import get_display_name
     normalized_type = get_display_name(detected_type) if detected_type else "Miscellaneous"

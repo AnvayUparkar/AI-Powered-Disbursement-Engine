@@ -140,11 +140,40 @@ class DocumentRegistry:
             except (ValueError, TypeError):
                 pages_val = 1
 
+            # Dynamically calculate document confidence from token and field telemetry
+            dyn_confs: List[float] = []
+            for tok in ocr_tokens:
+                if isinstance(tok, dict) and "confidence" in tok:
+                    try:
+                        cv = float(tok["confidence"])
+                        c_val = cv * 100.0 if cv <= 1.0 else cv
+                        if c_val > 0:
+                            dyn_confs.append(c_val)
+                    except (ValueError, TypeError):
+                        pass
+            for f in (extracted_fields_list or []):
+                fc = f.get("confidence")
+                if fc is not None:
+                    try:
+                        cv = float(fc)
+                        if cv > 0:
+                            dyn_confs.append(cv)
+                    except (ValueError, TypeError):
+                        pass
+
+            is_xml_doc = "xml" in (rec.get("name") or "").lower() or "xml" in (rec.get("type") or "").lower()
+            if is_xml_doc:
+                doc_dyn_conf = 100.0
+            elif dyn_confs:
+                doc_dyn_conf = round(sum(dyn_confs) / len(dyn_confs), 1)
+            else:
+                doc_dyn_conf = 95.0
+
             rec.update({
                 "status": "processed",
                 "ocrStatus": "COMPLETED",
                 "extractionStatus": "COMPLETED",
-                "confidence": 97.5,
+                "confidence": doc_dyn_conf,
                 "pages": max(1, pages_val),
                 "rawText": raw_txt,
                 "formattedText": fmt_txt,

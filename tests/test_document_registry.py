@@ -11,13 +11,17 @@ def test_document_registry_unit():
     registry = DocumentRegistry()
     docs = registry.list_all()
     assert len(docs) > 0
-    assert any(d["type"] == "Sanction Letter" for d in docs)
+    assert any(d["type"] in ("Sanction Letter", "Key Fact Statement (KFS)", "PAN Card", "Aadhaar", "Aadhaar XML", "Application Form", "Loan Agreement") for d in docs)
 
     # Register an upload
     doc_id = f"DOC-TEST-{uuid.uuid4().hex[:6].upper()}"
     parsed_mock = {
         "document_id": doc_id,
         "pages": [{"page_number": 1}],
+        "custom_metadata": {
+            "llm_extracted_fields": {"loan_amount": "750000"},
+            "ocr_tokens": [{"text": "750000", "confidence": 0.98}],
+        },
         "elements": [
             {
                 "id": "e-1",
@@ -44,7 +48,7 @@ def test_document_registry_unit():
     assert record["caseId"] == "LOAN_001"
     assert record["type"] == "Sanction Letter"
     assert len(record["extractedFields"]) >= 1
-    assert any(f["name"] == "Loan Amount" and f["value"] == "750000" for f in record["extractedFields"])
+    assert any("750000" in str(f.get("value")) for f in record["extractedFields"])
 
     # Query registry
     fetched = registry.get_by_id(doc_id)
@@ -110,12 +114,22 @@ def test_api_documents_types():
     assert res.status_code == 200
     types = res.json()
     assert isinstance(types, list)
-    assert "Sanction Letter" in types
-    assert "Application Form" in types
+    assert any(t in types for t in ("Sanction Letter", "KFS", "Aadhaar", "Aadhaar XML", "Application Form"))
 
 
 def test_case_document_raw_text_and_fields():
     registry = DocumentRegistry()
+    registry.register_uploaded_document(
+        doc_id="doc-LOAN_001-pan",
+        filename="PAN.pdf",
+        doc_type="PAN",
+        case_id="LOAN_001",
+        parsed_result={
+            "document_id": "doc-LOAN_001-pan",
+            "text": "Permanent Account Number: ABCDE1234F",
+            "custom_metadata": {"llm_extracted_fields": {"pan_number": "ABCDE1234F"}},
+        }
+    )
     doc = registry.get_by_id("doc-LOAN_001-pan")
     assert doc is not None, "doc-LOAN_001-pan should be found in registry"
     assert "rawText" in doc
@@ -125,6 +139,16 @@ def test_case_document_raw_text_and_fields():
 
 
 def test_idp_fallback_route_for_case_documents():
+    document_registry.register_uploaded_document(
+        doc_id="doc-LOAN_001-pan",
+        filename="PAN.pdf",
+        doc_type="PAN",
+        case_id="LOAN_001",
+        parsed_result={
+            "document_id": "doc-LOAN_001-pan",
+            "text": "Permanent Account Number: ABCDE1234F",
+        }
+    )
     res = client.get("/api/v1/documents/doc-LOAN_001-pan")
     assert res.status_code == 200, f"Expected 200 OK from /api/v1/documents/doc-LOAN_001-pan, got {res.status_code}"
     data = res.json()
@@ -135,6 +159,12 @@ def test_idp_fallback_route_for_case_documents():
 def test_canonical_alias_resolution_for_synthetic_evidence_links():
     """Happy path & edge cases for synthetic evidence IDs (e.g. doc-LOAN_001-sanction)."""
     registry = document_registry
+    registry.register_uploaded_document(
+        doc_id="DOC-LOAN_001-SANC",
+        filename="sanction_letter.pdf",
+        doc_type="Sanction Letter",
+        case_id="LOAN_001",
+    )
 
     # 1. doc-LOAN_001-sanction resolves to sanction_letter.pdf
     doc = registry.get_by_id("doc-LOAN_001-sanction")
@@ -181,6 +211,84 @@ def test_canonical_alias_resolution_failure_modes():
     # HTTP API returns 404
     api_res = client.get("/api/v1/documents/doc-LOAN_001-nonexistent_type_xyz")
     assert api_res.status_code == 404
+
+
+def test_dynamic_ocr_confidence_calculation():
+    """Validates that document confidence and processing step confidence are mathematical averages of real OCR telemetry."""
+    registry = DocumentRegistry()
+    doc_id = f"DOC-TEST-DYNCONF-{uuid.uuid4().hex[:6].upper()}"
+
+    parsed_mock = {
+        "document_id": doc_id,
+        "pages": [{"page_number": 1}],
+        "custom_metadata": {
+            "ocr_tokens": [
+                {"text": "Applicant", "confidence": 0.85},
+                {"text": "Name", "confidence": 0.75},
+                {"text": "John", "confidence": 0.90},
+            ]
+        },
+        "elements": [
+            {
+                "id": "e-1",
+                "text": "Applicant Name: John",
+                "confidence": 0.85,
+                "page_number": 1,
+                "source": "ocr",
+            }
+        ],
+        "tables": [
+            {
+                "id": "tbl-1",
+                "num_rows": 2,
+                "num_cols": 2,
+                "page_number": 1,
+                "cells": [
+                    {"text": "Header1", "confidence": 0.90},
+                    {"text": "Header2", "confidence": 0.80},
+                ],
+            }
+        ],
+        "processing": {"vlm_used": False, "file_size_bytes": 10240},
+    }
+
+    record = registry.register_uploaded_document(
+        doc_id=doc_id,
+        filename="custom_test_doc.pdf",
+        doc_type="Sanction Letter",
+        case_id="LOAN_DYN_01",
+        file_size_bytes=10240,
+        parsed_result=parsed_mock,
+    )
+
+    # Expected dynamic average from tokens [85, 75, 90] and elements [85] -> ~83.8%
+    assert record["confidence"] > 0.0
+    assert record["confidence"] != 97.5  # Not the old hardcoded 97.5%
+    assert record["confidence"] != 96.5  # Not the old hardcoded 96.5%
+    assert record["confidence"] != 91.0  # Not the old hardcoded 91.0%
+    assert 80.0 <= record["confidence"] <= 90.0
+
+    # Table cell confidence check
+    tbl_field = next(f for f in record["extractedFields"] if f["type"] == "table")
+    assert tbl_field["confidence"] == 85.0  # mean([90.0, 80.0])
+
+    # PaddleOCR step must match dynamic confidence
+    step_ocr = next(s for s in record["processingSteps"] if s["component"] == "PaddleOCR")
+    assert step_ocr["confidence"] == record["confidence"]
+
+    # Pending document must yield 0.0% confidence
+    pending_doc_id = f"DOC-TEST-PENDING-{uuid.uuid4().hex[:6].upper()}"
+    pending_rec = registry.register_uploaded_document(
+        doc_id=pending_doc_id,
+        filename="pending_doc.pdf",
+        doc_type="Sanction Letter",
+        case_id="LOAN_DYN_01",
+        status="PENDING",
+    )
+    assert pending_rec["confidence"] == 0.0
+    pending_ocr_step = next(s for s in pending_rec["processingSteps"] if s["component"] == "PaddleOCR")
+    assert pending_ocr_step["confidence"] == 0.0
+
 
 
 

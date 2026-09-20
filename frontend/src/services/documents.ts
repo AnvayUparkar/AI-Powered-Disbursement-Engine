@@ -146,6 +146,18 @@ export function adaptNode2DocumentToRecord(
     });
   });
 
+  // Dynamically compute overall document confidence from OCR tokens and elements
+  const allConfs = extractedFields
+    .map((f) => f.confidence)
+    .filter((c): c is number => typeof c === 'number' && c > 0);
+
+  const isXmlDoc = (parsed.source?.filename || docId || '').toLowerCase().includes('xml');
+  const computedConfidence = isXmlDoc
+    ? 100.0
+    : allConfs.length > 0
+    ? Math.round((allConfs.reduce((a, b) => a + b, 0) / allConfs.length) * 10) / 10
+    : (vlmUsed ? 88.0 : 95.0);
+
   return {
     id: docId,
     name: parsed.source?.filename || `${docId}.pdf`,
@@ -153,7 +165,7 @@ export function adaptNode2DocumentToRecord(
     pages: pageCount,
     ocrStatus: 'COMPLETED',
     extractionStatus: 'COMPLETED',
-    confidence: vlmUsed ? 91.0 : 96.5,
+    confidence: computedConfidence,
     vlmUsed: vlmUsed,
     uploadedAt: new Date().toISOString().split('T')[0],
     caseId: resolvedCaseId || 'Unassigned',
@@ -173,7 +185,7 @@ export function adaptNode2DocumentToRecord(
         status: 'COMPLETED',
         detail: `RapidOCR PP-OCRv6 extracted text (${parsed.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
         startedAt: new Date().toLocaleTimeString(),
-        confidence: 95.0,
+        confidence: computedConfidence,
       },
       {
         id: 'step-3',

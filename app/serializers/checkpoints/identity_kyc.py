@@ -551,12 +551,6 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         uid_conf = resolve_field_confidence(doc=xml_doc, record=r9_uid, field_name="aadhaar_number") or (100.0 if ctx.has_verification_run or r9_uid else 0.0)
         fields.append(build_field("Aadhaar Number", xml_uid, uid_conf, f"doc-{ctx.loan_id}-aadhaarxml"))
 
-    notes = (r9.get("notes") if r9 else "") or (
-        "Aadhaar XML present in repository and verified." if has_xml else "Aadhaar XML missing from repository."
-    )
-
-    comparisons = [r for r in [r9, r9_uid] if r]
-
     val_block = resolve_checkpoint_validation(
         status,
         default_left="Present" if has_xml else "Missing",
