@@ -31,7 +31,7 @@ export function adaptNode2DocumentToRecord(
     ? parsed.pages
     : typeof (parsed as any).page_count === 'number'
     ? (parsed as any).page_count
-    : (parsed.extractedFields || (parsed as any).elements || []).reduce(
+    : ((parsed as any).extractedFields || (parsed as any).elements || []).reduce(
         (max: number, el: any) => Math.max(max, el.page || el.page_number || 1),
         1
       );
