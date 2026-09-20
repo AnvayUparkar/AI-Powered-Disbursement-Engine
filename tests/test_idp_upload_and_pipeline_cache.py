@@ -49,7 +49,7 @@ def test_upload_persists_to_s3_raw_and_registers(clean_test_case):
     response = client.post("/api/v1/documents/upload", files=files, data=data)
     assert response.status_code == 200
     res_data = response.json()
-    assert res_data["status"] == "UPLOADED"
+    assert res_data["status"] in ("UPLOADED", "queued")
     assert res_data["processing_time_seconds"] < 1.0
 
     # 1. Check raw file in s3_raw
@@ -335,4 +335,51 @@ def test_celery_task_syncs_to_s3_extracted_tier(clean_test_case, tmp_path: Path)
         extracted_data = read_json(s3_extracted_file)
         assert extracted_data["pan_number"] == "ABCDE1234F"
         assert extracted_data["applicant_name"] == "Sunita Sharma"
+
+
+def test_case_upload_only_stages_to_s3_raw_without_idp(clean_test_case):
+    """Verifies that uploading to a specific loan case returns UPLOADED and does NOT trigger background Celery/IDP."""
+    case_id = clean_test_case
+    file_content = b"%PDF-1.4 Minimal test PDF content"
+    files = {
+        "file": ("kfs_upload.pdf", io.BytesIO(file_content), "application/pdf")
+    }
+    data = {
+        "case_id": case_id,
+        "doc_type": "KFS",
+    }
+
+    with patch("pipeline.celery_app.process_document_task.delay") as mock_delay:
+        response = client.post("/api/v1/documents/upload", files=files, data=data)
+        assert response.status_code == 200
+        res_data = response.json()
+        assert res_data["status"] == "UPLOADED"
+
+        # Verify Celery background IDP task was NOT called
+        mock_delay.assert_not_called()
+
+        # Verify raw file exists in S3 raw case directory
+        raw_file = S3_RAW_DIR / case_id / "kfs_upload.pdf"
+        assert raw_file.exists()
+
+
+def test_documents_tab_upload_enqueues_idp(clean_test_case):
+    """Verifies that uploading to General / Documents tab triggers immediate background IDP."""
+    file_content = b"%PDF-1.4 Minimal test PDF content"
+    files = {
+        "file": ("general_doc.pdf", io.BytesIO(file_content), "application/pdf")
+    }
+    data = {
+        "case_id": "GENERAL",
+        "doc_type": "Miscellaneous",
+    }
+
+    with patch("pipeline.celery_app.process_document_task.delay") as mock_delay:
+        response = client.post("/api/v1/documents/upload", files=files, data=data)
+        assert response.status_code == 200
+        res_data = response.json()
+        assert res_data["status"] == "queued"
+
+        # Verify Celery background IDP task was called
+        mock_delay.assert_called_once()
 

@@ -44,19 +44,26 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
 
     extracted_fields = (parsed.custom_metadata or {}).get("llm_extracted_fields") if (parsed and parsed.custom_metadata) else None
     if not extracted_fields:
-        extracted_fields = llm_extract_fields(
-            doc_type=doc_type,
-            raw_text=parsed.text,
-            doc_id=doc_id,
-        )
+        if doc_type == "aadhaar_xml":
+            aadhaar_uid = (parsed.custom_metadata or {}).get("aadhaar_uid") if parsed else None
+            extracted_fields = {"aadhaar_number": aadhaar_uid, "aadhaar_xml_present": True}
+        elif doc_type == "loan_agreement":
+            extracted_fields = {"loan_agreement_present": True}
+        else:
+            extracted_fields = llm_extract_fields(
+                doc_type=doc_type,
+                raw_text=parsed.text,
+                doc_id=doc_id,
+            )
 
     # For Aadhaar XML docs, inject the UID extracted from the <UidData uid="..."> attribute.
-    # The LLM never sees this value since it's an XML attribute, not element text.
-    if doc_type == "aadhaar_xml" and parsed and parsed.custom_metadata:
-        aadhaar_uid = parsed.custom_metadata.get("aadhaar_uid")
-        if aadhaar_uid and not (extracted_fields or {}).get("aadhaar_number"):
-            extracted_fields = dict(extracted_fields or {})
-            extracted_fields["aadhaar_number"] = aadhaar_uid
+    if doc_type == "aadhaar_xml":
+        extracted_fields = dict(extracted_fields or {})
+        extracted_fields["aadhaar_xml_present"] = True
+        if parsed and parsed.custom_metadata:
+            aadhaar_uid = parsed.custom_metadata.get("aadhaar_uid")
+            if aadhaar_uid and not extracted_fields.get("aadhaar_number"):
+                extracted_fields["aadhaar_number"] = aadhaar_uid
 
     template_fields = format_template_json(extracted_fields or {})
 
@@ -120,6 +127,7 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
 
     return {
         **template_fields,
+        **(extracted_fields or {}),
         "_raw_text": parsed.text,
         "rawText": parsed.text,
         "_formatted_text": formatted_json,

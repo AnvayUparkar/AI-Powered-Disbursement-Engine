@@ -939,8 +939,13 @@ class DocumentSerializer:
             elements: List[LayoutElement] = []
             text_lines = []
 
+            # Ignore bulky binary/signature base64 payloads to keep memory and text clean
+            ignored_tags = {"pht", "signature", "signaturevalue", "x509certificate", "digestvalue"}
+
             def _traverse(node, depth=0):
                 tag = node.tag.split("}")[-1]  # remove namespace if present
+                if tag.lower() in ignored_tags:
+                    return
                 val = (node.text or "").strip()
                 if val:
                     line = f"{tag}: {val}"
@@ -962,10 +967,10 @@ class DocumentSerializer:
             _traverse(root)
 
             # Extract masked UID from UIDAI UidData element (uid attribute, e.g. "xxxxxxxx1407").
-            # _traverse only captures element text; XML attributes are never emitted into text_lines.
             aadhaar_uid: Optional[str] = None
             for elem in root.iter():
-                if elem.tag.split("}")[-1] == "UidData" and elem.get("uid"):
+                tag = elem.tag.split("}")[-1]
+                if tag == "UidData" and elem.get("uid"):
                     aadhaar_uid = elem.get("uid")
                     break
 
@@ -994,6 +999,17 @@ class DocumentSerializer:
                 tables=[]
             )
 
+            extracted_fields = {
+                "aadhaar_number": aadhaar_uid,
+                "aadhaar_xml_present": True,
+            }
+
+            custom_meta: Dict[str, Any] = {
+                "aadhaar_uid": aadhaar_uid,
+                "aadhaar_xml_present": True,
+                "llm_extracted_fields": extracted_fields,
+            }
+
             return ParsedDocument(
                 document_id=doc_id,
                 source=DocumentSource(
@@ -1007,7 +1023,7 @@ class DocumentSerializer:
                 elements=elements,
                 text=full_text,
                 processing=proc_meta,
-                custom_metadata={"aadhaar_uid": aadhaar_uid} if aadhaar_uid else {},
+                custom_metadata=custom_meta,
             )
 
         except Exception as e:

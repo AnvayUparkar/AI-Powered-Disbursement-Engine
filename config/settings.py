@@ -56,4 +56,10 @@ IDP_SERVICE_URL = os.getenv("IDP_SERVICE_URL", "http://127.0.0.1:8001")
 IDP_REQUEST_TIMEOUT = float(os.getenv("IDP_REQUEST_TIMEOUT", "300"))  # seconds; Docling can be slow
 USE_REMOTE_IDP = os.getenv("USE_REMOTE_IDP", "true").lower() in ("true", "1", "yes")
 
+# Model Weights & Offline Configuration
+OFFLINE_MODE = os.getenv("OFFLINE_MODE", "true").lower() in ("true", "1", "yes")
+MODEL_WEIGHTS_PATH = os.getenv("MODEL_WEIGHTS_PATH", "models/")
+MODEL_WEIGHTS_S3_URI = os.getenv("MODEL_WEIGHTS_S3_URI", None)
+
+
 

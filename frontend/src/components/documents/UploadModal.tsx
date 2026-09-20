@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, UploadCloud, FileText, CheckCircle2, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
-import type { DocumentType, DocumentRecord, ExtractedField, ProcessingStep } from '@/types';
+import { X, UploadCloud, FileText, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import type { DocumentType, DocumentRecord } from '@/types';
 import { node2Api } from '@/api/node2';
 import { documentsService, adaptNode2DocumentToRecord } from '@/services/documents';
 
@@ -98,12 +98,14 @@ export function UploadModal({
       setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 40 } : f)));
       try {
         const docId = `DOC-${Date.now().toString().slice(-6)}`;
+        const shouldRunIdp = !selectedCase || selectedCase.trim() === '' || selectedCase.toUpperCase() === 'GENERAL';
         const res = await node2Api.uploadAndProcess(
           qf.file,
           docId,
           undefined,
           selectedCase || undefined,
           qf.docType,
+          shouldRunIdp,
         );
 
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));

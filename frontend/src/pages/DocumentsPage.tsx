@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Search,
-  ArrowRight,
   Sparkles,
   UploadCloud,
   Folder,

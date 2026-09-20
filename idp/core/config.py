@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     FRONTEND_ORIGIN: str = "http://localhost:5173"
 
+    # Offline Execution & Model Weights
+    OFFLINE_MODE: bool = True
+    HF_HUB_OFFLINE: Optional[str] = None
+    TRANSFORMERS_OFFLINE: Optional[str] = None
+    MODEL_WEIGHTS_PATH: str = "models/"
+    MODEL_WEIGHTS_S3_URI: Optional[str] = None
+
     # S3 Storage
     AWS_REGION: str = "us-east-1"
     AWS_ACCESS_KEY_ID: Optional[str] = None
@@ -89,3 +96,13 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Propagate environment settings loaded from .env to os.environ dynamically
+if settings.OFFLINE_MODE or (settings.HF_HUB_OFFLINE and settings.HF_HUB_OFFLINE.lower() in ("true", "1", "yes")):
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+elif settings.HF_HUB_OFFLINE is not None:
+    os.environ["HF_HUB_OFFLINE"] = str(settings.HF_HUB_OFFLINE)
+    if settings.TRANSFORMERS_OFFLINE is not None:
+        os.environ["TRANSFORMERS_OFFLINE"] = str(settings.TRANSFORMERS_OFFLINE)

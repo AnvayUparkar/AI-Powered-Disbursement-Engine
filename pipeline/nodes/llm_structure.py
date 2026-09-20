@@ -24,7 +24,7 @@ def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: 
 
     # Check if valid structured fields are already present from IDP or upstream stage
     has_preextracted = (
-        doc_key == "loan_agreement"
+        doc_key in ("loan_agreement", "aadhaar_xml")
         or any(
             k in doc_data and doc_data[k] is not None
             for k in ("applicant_name", "loan_amount", "pan_number", "aadhaar_number", "dob", "bank_account_no", "irr_percent", "emi")

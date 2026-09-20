@@ -10,8 +10,21 @@ echo.
 
 set "ROOT_DIR=%~dp0"
 set "FRONTEND_DIR=%ROOT_DIR%frontend"
-set "PYTHON_EXE=%ROOT_DIR%venv\Scripts\python.exe"
-set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
+
+:: Detect virtual environment (venv or .venv)
+if exist "%ROOT_DIR%venv\Scripts\python.exe" (
+    set "VENV_DIR=%ROOT_DIR%venv"
+    set "PYTHON_EXE=%ROOT_DIR%venv\Scripts\python.exe"
+    set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
+) else if exist "%ROOT_DIR%.venv\Scripts\python.exe" (
+    set "VENV_DIR=%ROOT_DIR%.venv"
+    set "PYTHON_EXE=%ROOT_DIR%.venv\Scripts\python.exe"
+    set "CELERY_EXE=%ROOT_DIR%.venv\Scripts\celery.exe"
+) else (
+    set "VENV_DIR="
+    set "PYTHON_EXE="
+    set "CELERY_EXE="
+)
 
 :: -----------------------------------------------------------------------------
 :: 1. Clean Up Any Stale Previous Instances (Ports & Worker Windows)
@@ -29,9 +42,9 @@ echo.
 echo [2/6] Checking environment dependencies...
 
 :: Check Python venv
-if not exist "%PYTHON_EXE%" (
+if "%PYTHON_EXE%"=="" (
     echo [ERROR] Python virtual environment not found at:
-    echo         "%ROOT_DIR%venv"
+    echo         "%ROOT_DIR%venv" or "%ROOT_DIR%.venv"
     echo.
     echo Please create and install dependencies first:
     echo   python -m venv venv
@@ -40,7 +53,7 @@ if not exist "%PYTHON_EXE%" (
     pause
     exit /b 1
 ) else (
-    echo   [OK] Python venv found.
+    echo   [OK] Python venv found: "%VENV_DIR%"
 )
 
 :: Check Node.js and NPM
@@ -94,6 +107,21 @@ if not exist "%ROOT_DIR%.env" (
     echo   [OK] .env configuration file found.
 )
 
+:: Check offline model weights
+if not exist "%ROOT_DIR%models" (
+    echo [ERROR] Model weights directory not found at:
+    echo         "%ROOT_DIR%models"
+    echo.
+    echo In air-gapped environments, model weights must be pre-populated.
+    echo To download required weights on an internet-enabled system, run:
+    echo   venv\Scripts\python.exe scripts\download_models.py
+    echo.
+    pause
+    exit /b 1
+) else (
+    echo   [OK] Local model weights directory found.
+)
+
 :: -----------------------------------------------------------------------------
 :: 3. Check WSL and Start Redis with Keep-Alive
 :: -----------------------------------------------------------------------------
@@ -140,24 +168,29 @@ if "%REDIS_READY%"=="1" (
 :: -----------------------------------------------------------------------------
 echo.
 echo [4/6] Launching FastAPI Core Backend (Port 8000)...
-start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.env"
+start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && "%PYTHON_EXE%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.env"
 
 :: -----------------------------------------------------------------------------
 :: 5. Launch IDP Engine Microservice (Port 8001)
 :: -----------------------------------------------------------------------------
 echo.
 echo [5/6] Launching IDP Engine Microservice (Port 8001)...
-start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
+start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && "%PYTHON_EXE%" -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
 
-echo   Waiting 30 seconds for backend microservices to initialize...
-timeout /t 30 /nobreak >nul
+echo   Waiting for backend microservices to initialize...
+for /L %%i in (1,1,30) do (
+    curl -s http://127.0.0.1:8001/health 2>nul | findstr /i "status" >nul 2>&1
+    if not errorlevel 1 goto :backend_ready
+    timeout /t 1 /nobreak >nul
+)
+:backend_ready
 
 :: -----------------------------------------------------------------------------
 :: 6. Launch Celery Worker (with Auto-Reload) and Frontend UI
 :: -----------------------------------------------------------------------------
 echo.
 echo [6/6] Launching Celery Worker (with Auto-Reload) and Frontend UI...
-start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m watchfiles "venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info -P threads" pipeline app config idp .env"
+start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && "%PYTHON_EXE%" -m watchfiles "%PYTHON_EXE% -m celery -A pipeline.celery_app worker -l info -P threads" pipeline app config idp .env"
 
 start "Disbursement Scorecard - Vite Frontend (5173)" cmd /k "cd /d "%~dp0frontend" && color 03 && npm run dev"
 
