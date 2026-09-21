@@ -56,25 +56,13 @@ def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: 
         structured["_raw_text"] = doc_data["_raw_text"]
         structured["rawText"] = doc_data["_raw_text"]
 
-    # Preserve or compute field locations
+    # Preserve field locations from upstream IDP or components
     if "_field_locations" in doc_data:
         structured["_field_locations"] = doc_data["_field_locations"]
-    elif components and "raw_elements" in components:
-        try:
-            from idp.services.extraction.field_location_resolver import FieldLocationResolver
-            resolver = FieldLocationResolver()
-            field_locs = resolver.resolve_field_locations(
-                extracted_fields=template_fields,
-                ocr_elements=components.get("raw_elements", []),
-                table_cells=components.get("table_cells", []),
-                page_dimensions=components.get("page_dimensions", []),
-                debug_mode=True
-            )
-            field_locs_dict = {k: v.model_dump() for k, v in field_locs.items()}
-            structured["_field_locations"] = field_locs_dict
-            components["field_locations"] = field_locs_dict
-        except Exception as e:
-            logger.debug("Field location resolution skipped for %s: %s", doc_key, e)
+    elif components and "field_locations" in components:
+        structured["_field_locations"] = components["field_locations"]
+    else:
+        structured["_field_locations"] = {}
 
     import json
     formatted_json = doc_data.get("_formatted_text") or doc_data.get("formattedText") or json.dumps(template_fields, indent=2)

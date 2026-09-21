@@ -56,6 +56,21 @@ class TestModelManager:
         assert artifacts_path is not None
         assert Path(artifacts_path) == docling_dir
 
+    def test_empty_docling_subfolder_returns_none(self, tmp_path: Path):
+        """Verify docling artifacts path returns None if docling/ only has empty subdirectories."""
+        models_dir = tmp_path / "models"
+        docling_dir = models_dir / "docling"
+        empty_sub = docling_dir / "docling-project--docling-layout-heron"
+        empty_sub.mkdir(parents=True, exist_ok=True)
+
+        manager = ModelManager(
+            model_weights_path=str(models_dir),
+            base_dir=tmp_path,
+        )
+        assert manager.get_docling_artifacts_path() is None
+        validation = manager.validate_models_present()
+        assert validation["docling_models_present"] is False
+
     def test_rapidocr_model_paths_discovery(self, tmp_path: Path):
         """Verify RapidOCR ONNX model files are detected in rapidocr/ subfolder."""
         models_dir = tmp_path / "models"

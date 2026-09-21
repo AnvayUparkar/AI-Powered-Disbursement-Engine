@@ -442,10 +442,19 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
     doc_id = doc.get("id", "")
     c_id = doc.get("caseId")
     if not c_id or c_id == "GENERAL":
-        m = re.search(r"(LOAN_\d+)", f"{doc_id}_{doc.get('name', '')}")
+        m = re.search(r"(LOAN_\d+|APPL\d+|HDB-[A-Za-z0-9\-]+)", f"{doc_id}_{doc.get('name', '')}")
         if m:
             c_id = m.group(1)
             doc["caseId"] = c_id
+        else:
+            doc_name = doc.get("name", "")
+            if doc_name and S3_RAW_DIR.exists():
+                for cand_dir in S3_RAW_DIR.iterdir():
+                    if cand_dir.is_dir() and cand_dir.name != "GENERAL":
+                        if (cand_dir / doc_name).exists():
+                            c_id = cand_dir.name
+                            doc["caseId"] = c_id
+                            break
 
     if not c_id or c_id == "GENERAL":
         return doc
@@ -455,7 +464,16 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
     stem = Path(doc.get("name", "")).stem.lower().replace(" ", "_")
     clean_stem = re.sub(r"^(loan_\d+|appl\d+)_", "", stem)
 
-    cands = [
+    from config.doc_types import get_canonical_doc_type
+    canon = get_canonical_doc_type(doc.get("type") or doc.get("name") or "")
+
+    cands = []
+    if canon and canon != "miscellaneous":
+        cands.extend([
+            c_struct / f"{canon}.json" if c_struct.exists() else None,
+            c_ext / f"{canon}.json" if c_ext.exists() else None,
+        ])
+    cands.extend([
         c_struct / f"{clean_stem}.json" if c_struct.exists() else None,
         c_ext / f"{clean_stem}.json" if c_ext.exists() else None,
         c_ext / f"{doc.get('name')}.json" if c_ext.exists() else None,
@@ -464,7 +482,7 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
         c_ext / f"{(doc.get('type') or '').lower().replace(' ', '_')}.json" if c_ext.exists() else None,
         (c_ext / "Application Form.json") if c_ext.exists() and "app" in stem else None,
         (c_ext / "application_form.json") if c_ext.exists() and "app" in stem else None,
-    ]
+    ])
 
     for cp in cands:
         if cp and cp.exists() and cp.is_file():
@@ -475,6 +493,19 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
                 ):
                     tpl = format_template_json(loaded)
                     doc["formattedText"] = json.dumps(tpl, indent=2)
+                    doc["ocrStatus"] = "COMPLETED"
+                    doc["extractionStatus"] = "COMPLETED"
+                    doc["status"] = "processed"
+
+                    raw_txt = loaded.get("_raw_text") or loaded.get("rawText")
+                    if raw_txt and (not doc.get("rawText") or doc["rawText"].startswith("Document Name:")):
+                        doc["rawText"] = raw_txt
+
+                    if loaded.get("_pages"):
+                        try:
+                            doc["pages"] = int(loaded["_pages"])
+                        except (ValueError, TypeError):
+                            pass
 
                     # Also add canonical fields to extractedFields if missing
                     existing_fnames = {f.get("name") for f in doc.get("extractedFields", [])}

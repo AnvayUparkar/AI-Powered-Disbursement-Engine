@@ -290,5 +290,87 @@ def test_dynamic_ocr_confidence_calculation():
     assert pending_ocr_step["confidence"] == 0.0
 
 
+def test_case_document_canonical_enrichment():
+    """Verify enrich_document_record resolves canonical doc_type aadhaar.json for Aadhar Card.pdf."""
+    from app.services.registry.case_scanner import enrich_document_record
+    dummy_doc = {
+        "id": "DOC-317628",
+        "name": "Aadhar Card.pdf",
+        "type": "Aadhaar",
+        "caseId": "APPL00343265",
+        "ocrStatus": "PENDING",
+        "extractionStatus": "PENDING",
+        "status": "pending",
+        "extractedFields": [],
+        "rawText": "",
+    }
+    enriched = enrich_document_record(dummy_doc)
+    assert enriched["ocrStatus"] == "COMPLETED"
+    assert enriched["extractionStatus"] == "COMPLETED"
+    assert len(enriched["rawText"]) > 0
+    assert len(enriched["extractedFields"]) > 0
+    assert any("Aadhaar Number" in f.get("name", "") or "Applicant Name" in f.get("name", "") for f in enriched["extractedFields"])
+
+
+def test_dynamic_reconciliation_replaces_pending_with_completed():
+    """Verify merge_and_deduplicate updates PENDING dynamic record when completed case doc is present."""
+    from app.services.registry.dedup import merge_and_deduplicate
+
+    dynamic_pending = [
+        {
+            "id": "DOC-317628",
+            "name": "Aadhar Card.pdf",
+            "type": "Aadhaar",
+            "caseId": "APPL00343265",
+            "ocrStatus": "PENDING",
+            "extractionStatus": "PENDING",
+            "status": "pending",
+            "uploadedTimestamp": 100.0,
+        }
+    ]
+    case_completed = [
+        {
+            "id": "APPL00343265_aadhaar",
+            "name": "Aadhar Card.pdf",
+            "type": "Aadhaar",
+            "caseId": "APPL00343265",
+            "ocrStatus": "COMPLETED",
+            "extractionStatus": "COMPLETED",
+            "status": "processed",
+            "confidence": 98.5,
+            "rawText": "MOCK AADHAAR OCR TEXT",
+            "extractedFields": [{"id": "f1", "name": "Aadhaar Number", "value": "1234 5678 9012"}],
+        }
+    ]
+
+    merged = merge_and_deduplicate(dynamic_pending, case_completed)
+    assert len(merged) == 1
+    record = merged[0]
+    assert record["id"] == "DOC-317628"
+    assert record["ocrStatus"] == "COMPLETED"
+    assert record["extractionStatus"] == "COMPLETED"
+    assert record["rawText"] == "MOCK AADHAAR OCR TEXT"
+    assert len(record["extractedFields"]) == 1
+
+
+def test_api_upload_mints_deterministic_canonical_id_for_cases():
+    """Verify direct upload to a case mints {case_id}_{canon} deterministic ID instead of random DOC-XXXXXX."""
+    file_bytes = b"%PDF-1.4 Test Aadhaar Content"
+    files = {
+        "file": ("Aadhar Card.pdf", io.BytesIO(file_bytes), "application/pdf")
+    }
+    data = {
+        "case_id": "APPL00343265",
+        "doc_type": "Aadhaar",
+        "run_idp": "false",
+    }
+    upload_res = client.post("/api/v1/documents/upload", files=files, data=data)
+    assert upload_res.status_code == 200
+    res_data = upload_res.json()
+    assert res_data["document_id"] == "APPL00343265_aadhaar"
+    assert res_data["status"] == "UPLOADED"
+
+
+
 
 

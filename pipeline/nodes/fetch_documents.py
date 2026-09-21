@@ -1,5 +1,6 @@
 """Worker 2: Fetch Documents — Validates and stages loan document package in S3 Raw tier."""
 import logging
+from pathlib import Path
 import shutil
 from typing import Dict
 
@@ -45,8 +46,16 @@ def fetch_documents(state: PipelineState) -> PipelineState:
                 raw_doc_paths[item.name] = str(item)
 
     logger.info("Total %d raw document(s) validated and staged in S3 Raw tier for %s", len(raw_doc_paths), loan_id)
+    logger.info(
+        "fetch_documents: %d binary doc(s) and %d sidecar JSON(s) staged for loan %s",
+        sum(1 for f in raw_doc_paths if Path(f).suffix.lower()
+            in {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".xml"}),
+        sum(1 for f in raw_doc_paths if f.lower().endswith(".json")),
+        loan_id,
+    )
 
     update_status(loan_id, current_node="fetch_documents", errors=errors, node_history=history)
+
 
     return {
         **state,

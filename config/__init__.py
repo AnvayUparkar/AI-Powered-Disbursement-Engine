@@ -43,9 +43,12 @@ from config.doc_types import (
     DOC_TYPE_ALIASES,
     DOC_TYPE_DISPLAY_NAMES,
     SUPPORTED_DOCUMENT_EXTENSIONS,
+    TABULAR_OR_MISC_DOCS,
     get_canonical_doc_type,
     get_display_name,
+    is_tabular_or_misc_doc,
 )
+
 from config.pipeline_checks import (
     CHECKPOINTS_SPEC,
     EQUAL_FIELD_CRITICALITY_WEIGHTS,

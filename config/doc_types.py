@@ -104,3 +104,28 @@ def get_display_name(doc_type: str) -> str:
     """Returns the user-facing display name for a document type."""
     canonical = get_canonical_doc_type(doc_type)
     return DOC_TYPE_DISPLAY_NAMES.get(canonical, canonical.replace("_", " ").title())
+
+
+TABULAR_OR_MISC_DOCS = frozenset({
+    "application_form",
+    "kfs",
+    "sanction_letter",
+    "account_statement",
+    "loan_agreement",
+    "disbursal_memo",
+    "miscellaneous",
+})
+
+
+def is_tabular_or_misc_doc(doc_type: str) -> bool:
+    """Returns True if the document type requires TableFormer table structure detection.
+
+    Pure identity cards (Aadhaar, PAN, voter ID, passport, driving license) do not contain
+    financial tables and bypass TableFormer, saving ~45s/page of CPU transformer inference.
+    All tabular, financial, and miscellaneous/unmapped document types execute TableFormer.
+    """
+    canonical = get_canonical_doc_type(doc_type).lower()
+    if canonical in {"aadhaar", "pan", "voter_id", "passport", "driving_license"}:
+        return False
+    return True
+

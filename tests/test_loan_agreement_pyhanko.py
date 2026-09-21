@@ -373,6 +373,16 @@ def test_idp_scan_bypasses_ocr_and_populates_pyhanko(tmp_path: Path, monkeypatch
     monkeypatch.setattr("pipeline.nodes.idp_scan.S3_EXTRACTED_DIR", s3_ext)
     monkeypatch.setattr("pipeline.nodes.idp_scan.S3_RAW_DIR", s3_raw)
 
+    from idp.services.output.serializer import DocumentSerializer
+    from idp.services.output.canonical_builder import build_canonical_extracted_dict
+
+    def _mock_idp_call(fpath, doc_id, doc_key):
+        serializer = DocumentSerializer()
+        parsed = serializer.parse_loan_agreement_fast_path(str(fpath), doc_id=doc_id, filename=Path(fpath).name)
+        return build_canonical_extracted_dict(parsed, doc_type=doc_key, doc_id=doc_id)
+
+    monkeypatch.setattr("pipeline.nodes.idp_scan._call_idp_service", _mock_idp_call)
+
     state: PipelineState = {
         "loan_id": loan_id,
         "raw_doc_paths": {
@@ -384,6 +394,7 @@ def test_idp_scan_bypasses_ocr_and_populates_pyhanko(tmp_path: Path, monkeypatch
     }
 
     out_state = idp_scan(state)
+
     extracted = out_state.get("extracted_data", {})
 
     assert "loan_agreement" in extracted, "Loan agreement must be present in extracted_data"
@@ -394,7 +405,7 @@ def test_idp_scan_bypasses_ocr_and_populates_pyhanko(tmp_path: Path, monkeypatch
     assert agree_doc["loan_agreement_signed"] is True
     assert "pyhanko_inspection" in agree_doc
     assert agree_doc["pyhanko_inspection"]["is_signed"] is True
-    assert "Digital Signature Status: DIGITALLY SIGNED (VALID)" in agree_doc["_raw_text"]
+    assert "DIGITALLY SIGNED (VALID)" in agree_doc["_raw_text"]
     assert agree_doc["_components"]["raw_elements"][0]["type"] == "paragraph"
 
 

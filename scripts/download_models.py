@@ -104,11 +104,15 @@ def setup_rapidocr_weights(output_dir: Path) -> None:
             download_file_with_progress(url, dest)
 
 
-def download_docling_weights(output_dir: Path) -> None:
+def download_docling_weights(output_dir: Path) -> bool:
     """Download Docling Layout and TableFormer model artifacts."""
     docling_dir = output_dir / "docling"
     print(f"\n[2/2] Downloading Docling Model Artifacts to {docling_dir}...")
     docling_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure HF Hub offline mode is disabled during downloader execution
+    os.environ["HF_HUB_OFFLINE"] = "0"
+    os.environ["TRANSFORMERS_OFFLINE"] = "0"
 
     # StandardPdfPipeline official model downloader
     try:
@@ -117,7 +121,7 @@ def download_docling_weights(output_dir: Path) -> None:
             print("  Using docling StandardPdfPipeline.download_models()...")
             StandardPdfPipeline.download_models(output_dir=docling_dir)
             print("  [OK] Docling models downloaded successfully.")
-            return
+            return True
     except Exception as e:
         print(f"  StandardPdfPipeline.download_models info: {e}")
 
@@ -130,22 +134,31 @@ def download_docling_weights(output_dir: Path) -> None:
             "ds4sd/docling-models": docling_dir / "ds4sd--docling-models",
         }
         for repo_id, target_path in repos.items():
-            target_path.mkdir(parents=True, exist_ok=True)
             print(f"  Downloading snapshot for {repo_id} -> {target_path.name}...")
-            snapshot_download(
-                repo_id=repo_id,
-                local_dir=str(target_path),
-                local_dir_use_symlinks=False,
-            )
-            print(f"  [OK] {repo_id} downloaded.")
+            try:
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=str(target_path),
+                )
+                print(f"  [OK] {repo_id} downloaded.")
+            except Exception as dl_err:
+                print(f"  [ERROR] Failed to download {repo_id}: {dl_err}")
+                # Clean up if target directory was created but has no model files
+                if target_path.exists():
+                    has_files = any(target_path.rglob("*.safetensors")) or any(target_path.rglob("*.bin")) or any(target_path.rglob("*.json"))
+                    if not has_files:
+                        shutil.rmtree(target_path, ignore_errors=True)
+                raise dl_err
 
         # Ensure model_artifacts from ds4sd is also mirrored in root docling_dir for TableFormer
         ds4sd_artifacts = docling_dir / "ds4sd--docling-models" / "model_artifacts"
         root_artifacts = docling_dir / "model_artifacts"
         if ds4sd_artifacts.exists() and not root_artifacts.exists():
             shutil.copytree(ds4sd_artifacts, root_artifacts, dirs_exist_ok=True)
+        return True
     except Exception as e:
-        print(f"  [Notice] Snapshot download encountered: {e}")
+        print(f"  [Error] Docling model download failed: {e}")
+        return False
 
 
 def upload_to_s3(local_dir: Path, s3_uri: str) -> None:
@@ -213,18 +226,24 @@ def main():
     if not args.skip_rapidocr:
         setup_rapidocr_weights(base_output)
 
+    docling_ok = True
     if not args.skip_docling:
-        download_docling_weights(base_output)
+        docling_ok = download_docling_weights(base_output)
 
     if args.upload_to_s3:
         upload_to_s3(base_output, args.upload_to_s3)
 
     print("\n" + "=" * 70)
-    print(" Setup Complete!")
-    print(f" All model weights are available in: {base_output}")
-    print(" To use these models offline, verify your .env has:")
-    print(f"   OFFLINE_MODE=true")
-    print(f"   MODEL_WEIGHTS_PATH=models/")
+    if docling_ok:
+        print(" Setup Complete!")
+        print(f" All model weights are available in: {base_output}")
+        print(" To use these models offline, verify your .env has:")
+        print(f"   OFFLINE_MODE=true")
+        print(f"   MODEL_WEIGHTS_PATH=models/")
+    else:
+        print(" [WARNING] Setup finished with errors.")
+        print(" Docling model artifacts could not be fully downloaded.")
+        print(" Check network connectivity or HF rate limits and rerun.")
     print("=" * 70)
 
 

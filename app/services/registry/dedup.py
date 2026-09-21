@@ -96,6 +96,18 @@ def merge_and_deduplicate(
             is_dup = True
 
         if is_dup:
+            if d.get("ocrStatus") == "COMPLETED":
+                for existing in all_docs:
+                    if existing.get("caseId") == c_id and (
+                        existing.get("name") == dname
+                        or normalize_doc_name(existing.get("name", "")) == norm_name
+                        or (canon in SINGLETON_CANONICAL_TYPES and get_canonical_doc_type(existing.get("type", "") or existing.get("name", "")) == canon)
+                    ):
+                        if existing.get("ocrStatus") != "COMPLETED":
+                            for k in ("ocrStatus", "extractionStatus", "status", "confidence", "rawText", "formattedText", "extractedFields", "pages", "debug"):
+                                if d.get(k):
+                                    existing[k] = d[k]
+                        break
             continue
 
         seen_keys.add((c_id, doc_id))
@@ -131,7 +143,8 @@ def filter_documents(
                 d for d in filtered
                 if d.get("caseId") == case_id
                 and (
-                    (S3_RAW_DIR / case_id / (d.get("name") or "")).exists()
+                    (d.get("uploadedTimestamp") or 0.0) > 0.0
+                    or (S3_RAW_DIR / case_id / (d.get("name") or "")).exists()
                     or (DMS_DIR / case_id / (d.get("name") or "")).exists()
                 )
             ]

@@ -121,18 +121,28 @@ def process_document_task(self, doc_id: str, file_path: str, case_id: str | None
         if resolved_case_id and resolved_case_id != "GENERAL":
             from config.doc_types import get_canonical_doc_type
             from pipeline.storage import save_s3_extracted
-            from pipeline.nodes.idp_scan import build_idp_result_from_parsed
-            from idp.models.document import ParsedDocument
 
             doc_key = get_canonical_doc_type(Path(file_path).name)
-            if parsed_json:
-                try:
-                    parsed_doc = ParsedDocument.model_validate(parsed_json)
-                    idp_scan_dict = build_idp_result_from_parsed(parsed_doc, doc_type=doc_key, doc_id=doc_id)
-                    save_s3_extracted(resolved_case_id, doc_key, idp_scan_dict)
-                    logger.info("Persisted Celery IDP scan extraction to S3 tier for case %s, doc %s", resolved_case_id, doc_key)
-                except Exception as save_err:
-                    logger.warning("Failed writing IDP scan extraction to S3 tier for case %s: %s", resolved_case_id, save_err)
+            try:
+                with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
+                    canonical_resp = client.get(
+                        f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}/canonical"
+                    )
+                    if canonical_resp.status_code == 200:
+                        idp_scan_dict = canonical_resp.json()
+                        save_s3_extracted(resolved_case_id, doc_key, idp_scan_dict)
+                        logger.info(
+                            "Persisted canonical IDP extraction to S3 tier for case %s, doc %s",
+                            resolved_case_id,
+                            doc_key,
+                        )
+            except Exception as save_err:
+                logger.warning(
+                    "Failed writing canonical extraction to S3 tier for case %s: %s",
+                    resolved_case_id,
+                    save_err,
+                )
+
 
         try:
             from app.services.registry.case_scanner import invalidate_case_cache

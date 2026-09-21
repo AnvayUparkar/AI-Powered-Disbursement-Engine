@@ -82,15 +82,29 @@ async def upload_and_process_document(
     """
     Accept direct browser multipart document upload, store raw file, and run Node 2 IDP pipeline.
     """
-    doc_id = document_id if isinstance(document_id, str) and document_id.strip() else f"DOC-{uuid.uuid4().hex[:8].upper()}"
     bucket = s3_bucket if isinstance(s3_bucket, str) and s3_bucket.strip() else None
     case_val = case_id if isinstance(case_id, str) and case_id.strip() else None
     dtype_val = doc_type if isinstance(doc_type, str) and doc_type.strip() else None
+    clean_filename = Path(file.filename or "uploaded_doc.pdf").name
+
+    if isinstance(document_id, str) and document_id.strip():
+        doc_id = document_id.strip()
+    elif case_val and case_val != "GENERAL":
+        from app.services.registry.dedup import SINGLETON_CANONICAL_TYPES
+        from config.doc_types import get_canonical_doc_type
+        canon = get_canonical_doc_type(dtype_val or clean_filename)
+        clean_stem = Path(clean_filename).stem.lower().replace(" ", "_")
+        if canon in SINGLETON_CANONICAL_TYPES and canon != "miscellaneous":
+            doc_id = f"{case_val}_{canon}"
+        else:
+            doc_id = f"{case_val}_{clean_stem}"
+    else:
+        doc_id = f"DOC-{uuid.uuid4().hex[:8].upper()}"
+
     logger.info(format_doc_log(doc_id, f"Received direct file upload for {file.filename}"))
 
     try:
         file_bytes = await file.read()
-        clean_filename = Path(file.filename or "uploaded_doc.pdf").name
 
         from config import S3_RAW_DIR
         raw_key = f"{doc_id}_{clean_filename}"
@@ -220,3 +234,37 @@ async def get_document_result(document_id: str):
             logger.debug("Enrichment note for %s: %s", document_id, enrich_err)
 
     return parsed_dict
+
+
+@router.get(
+    "/{document_id}/canonical",
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: {"model": ErrorResponse, "description": "Document not found or not yet processed"},
+        500: {"model": ErrorResponse, "description": "Canonical build error"},
+    }
+)
+async def get_document_canonical(document_id: str):
+    """
+    Returns the canonical storage-tier extracted JSON for a processed document.
+    This is the format written to s3_extracted/{loan_id}/{doc_key}.json.
+    Called by pipeline's idp_scan node — never deserializes ParsedDocument on the pipeline side.
+    """
+    parsed = await processor.get_parsed_document(document_id)
+    if not parsed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NotFound", "message": f"Parsed document for {document_id} not found."}
+        )
+
+    try:
+        doc_type = (parsed.custom_metadata or {}).get("doc_type") or "miscellaneous"
+        from idp.services.output.canonical_builder import build_canonical_extracted_dict
+        return build_canonical_extracted_dict(parsed=parsed, doc_type=doc_type, doc_id=document_id)
+    except Exception as e:
+        logger.error(format_doc_log(document_id, f"Canonical build error: {e}"))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "InternalServerError", "message": str(e), "document_id": document_id}
+        )
+

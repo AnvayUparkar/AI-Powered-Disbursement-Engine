@@ -215,8 +215,9 @@ class DocumentRegistry:
 
             # Dynamic reconciliation: Sync any pending/processing upload if parsed JSON is ready on disk
             for d_id, d_rec in list(self._dynamic_docs.items()):
-                if d_rec.get("ocrStatus") == "PROCESSING" or d_rec.get("extractionStatus") == "PROCESSING":
+                if d_rec.get("ocrStatus") != "COMPLETED" or d_rec.get("extractionStatus") != "COMPLETED":
                     self._sync_parsed_doc_from_disk(d_id)
+                    enrich_document_record(d_rec)
 
             dynamic_list = list(self._dynamic_docs.values())
             case_docs = self._get_case_documents()

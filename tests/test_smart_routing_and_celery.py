@@ -3,8 +3,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
-from pipeline.nodes.idp_scan import is_tabular_or_misc_doc
+from config.doc_types import is_tabular_or_misc_doc
 from pipeline.nodes.llm_structure import _structure_single_document
+
 from pipeline.celery_app import app as celery_app, run_pipeline_task
 from app.main import app as fastapi_app
 

@@ -111,15 +111,28 @@ class ModelManager:
             logger.warning(f"[ModelManager] Failed to sync models from S3 ({self.s3_uri}): {e}")
             return False
 
+    @staticmethod
+    def _has_model_artifacts(directory: Path) -> bool:
+        """Check if directory contains at least one recognized model weight or config file."""
+        if not directory.exists() or not directory.is_dir():
+            return False
+        model_extensions = {".safetensors", ".bin", ".onnx", ".pt", ".pth"}
+        config_names = {"config.json", "preprocessor_config.json"}
+        for p in directory.rglob("*"):
+            if p.is_file():
+                if p.suffix.lower() in model_extensions or p.name.lower() in config_names:
+                    return True
+        return False
+
     def get_docling_artifacts_path(self) -> Optional[str]:
         """
         Return the local artifacts path for Docling layout & TableFormer models.
-        Checks models/docling or root models/ directory.
+        Checks models/docling or root models/ directory only if valid model files exist.
         """
         docling_sub = self.models_dir / "docling"
-        if docling_sub.exists():
+        if self._has_model_artifacts(docling_sub):
             return str(docling_sub)
-        if self.models_dir.exists():
+        if self._has_model_artifacts(self.models_dir):
             return str(self.models_dir)
         return None
 
@@ -183,7 +196,7 @@ class ModelManager:
         rapid = self.get_rapidocr_model_paths()
         docling_path = self.get_docling_artifacts_path()
 
-        has_docling = bool(docling_path and Path(docling_path).exists() and any(Path(docling_path).iterdir()))
+        has_docling = bool(docling_path is not None)
         has_rapid = bool(rapid.get("det_model_path") and rapid.get("rec_model_path"))
 
         return {

@@ -5,8 +5,9 @@ from typing import Any
 
 from idp.models.document import DocumentSource, PageInformation, ParsedDocument, ProcessingMetadata
 from idp.services.output.serializer import OutputSerializer
-from pipeline.nodes.idp_scan import build_idp_result_from_parsed
+from idp.services.output.canonical_builder import build_canonical_extracted_dict as build_idp_result_from_parsed
 from pipeline.nodes.check_kyc import check_kyc
+
 from pipeline.state import PipelineState
 from app.serializers.case_context import CaseContext
 from app.serializers.checkpoints.identity_kyc import build_aadhaar_xml_checkpoint
@@ -227,8 +228,9 @@ def test_aadhaar_xml_zero_llm_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     from pipeline.nodes.llm_structure import _structure_single_document
 
     mock_llm = MagicMock(side_effect=RuntimeError("LLM should not be called for Aadhaar XML"))
-    monkeypatch.setattr("pipeline.nodes.idp_scan.llm_extract_fields", mock_llm)
+    monkeypatch.setattr("pipeline.engines.llm_field_extractor.llm_extract_fields", mock_llm)
     monkeypatch.setattr("pipeline.nodes.llm_structure.llm_extract_fields", mock_llm)
+
 
     xml_content = """<?xml version="1.0" encoding="UTF-8"?>
 <Certificate>

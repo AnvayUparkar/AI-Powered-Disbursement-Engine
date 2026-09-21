@@ -1,10 +1,9 @@
 """Node: IDP Scan — Ingests raw PDFs/images/XML via IDP and saves output to S3 Extracted tier."""
-import asyncio
-import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
 import httpx
 
 from config import (
@@ -18,201 +17,66 @@ from config import (
     USE_REMOTE_IDP,
     get_canonical_doc_type,
 )
-from pipeline.engines.key_value_extractor import KeyValueExtractor
-from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures, is_loan_agreement
 from pipeline.state import PipelineState
 from pipeline.storage import (
     get_all_s3_extracted_structured,
     read_json,
     save_s3_extracted,
     update_status,
-    write_json,
 )
-from idp.models.document import ParsedDocument
-from idp.services.extraction.field_location_resolver import FieldLocationResolver
-from idp.services.output.serializer import DocumentSerializer
-from pipeline.engines.llm_field_extractor import format_template_json, llm_extract_fields
 from pipeline.utils.image_normalizer import ensure_png_for_idp
 
 logger = logging.getLogger("disbursement_pipeline.idp_scan")
 
 
-def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: str) -> Dict[str, Any]:
-    """Builds canonical extracted dictionary with elements, tables, and bounding boxes from a ParsedDocument."""
-    if not parsed:
-        return {}
+def _call_idp_service(
+    file_path: Path,
+    doc_id: str,
+    doc_key: str,
+) -> Optional[Dict[str, Any]]:
+    """Delegates document extraction to the IDP HTTP microservice (Port 8001).
 
-    extracted_fields = (parsed.custom_metadata or {}).get("llm_extracted_fields") if (parsed and parsed.custom_metadata) else None
-    if not extracted_fields:
-        if doc_type == "aadhaar_xml":
-            aadhaar_uid = (parsed.custom_metadata or {}).get("aadhaar_uid") if parsed else None
-            extracted_fields = {"aadhaar_number": aadhaar_uid, "aadhaar_xml_present": True}
-        elif doc_type == "loan_agreement":
-            extracted_fields = {"loan_agreement_present": True}
-        else:
-            extracted_fields = llm_extract_fields(
-                doc_type=doc_type,
-                raw_text=parsed.text,
-                doc_id=doc_id,
-            )
-
-    # For Aadhaar XML docs, inject the UID extracted from the <UidData uid="..."> attribute.
-    if doc_type == "aadhaar_xml":
-        extracted_fields = dict(extracted_fields or {})
-        extracted_fields["aadhaar_xml_present"] = True
-        if parsed and parsed.custom_metadata:
-            aadhaar_uid = parsed.custom_metadata.get("aadhaar_uid")
-            if aadhaar_uid and not extracted_fields.get("aadhaar_number"):
-                extracted_fields["aadhaar_number"] = aadhaar_uid
-
-    template_fields = format_template_json(extracted_fields or {})
-
-    raw_element_dicts = []
-    for elem in parsed.elements:
-        elem_dict = elem.model_dump()
-        raw_element_dicts.append(elem_dict)
-
-    kv_extractor = KeyValueExtractor()
-    spatial_results = kv_extractor.extract(raw_element_dicts, doc_type=doc_type)
-
-    tables_data = []
-    for tbl in (parsed.tables or []):
-        tables_data.append({
-            "id": tbl.id,
-            "page_number": tbl.page_number,
-            "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
-            "headers": tbl.headers,
-            "rows": tbl.rows_raw,
-        })
-
-    template_fields = format_template_json(extracted_fields or {})
-    formatted_json = json.dumps(template_fields, indent=2)
-
-    page_dims = []
-    for p in (parsed.pages or []):
-        page_dims.append({"width": getattr(p, "width", 0.0), "height": getattr(p, "height", 0.0)})
-
-    table_cells_dicts = []
-    for tbl in (parsed.tables or []):
-        for cell in (getattr(tbl, "cells", []) or []):
-            table_cells_dicts.append({
-                "id": getattr(cell, "id", None),
-                "text": getattr(cell, "text", ""),
-                "bbox": getattr(cell, "bbox", []),
-                "page_number": getattr(tbl, "page_number", 1),
-                "confidence": getattr(cell, "confidence", 1.0),
-            })
-
-    resolver = FieldLocationResolver()
-    field_locs = resolver.resolve_field_locations(
-        extracted_fields=template_fields,
-        ocr_elements=raw_element_dicts,
-        table_cells=table_cells_dicts,
-        page_dimensions=page_dims,
-        debug_mode=True,
-    )
-    field_locs_dict = {k: v.model_dump() for k, v in field_locs.items()}
-    ocr_tokens_debug = [t.model_dump() for t in resolver.extract_debug_tokens(raw_element_dicts, page_dims)]
-
-    components = {
-        "document_type": doc_type,
-        "key_values": spatial_results.get("key_values", {}),
-        "checkboxes": spatial_results.get("checkboxes", {}),
-        "tables": tables_data,
-        "paragraphs": spatial_results.get("paragraphs", []),
-        "field_locations": field_locs_dict,
-        "ocr_tokens": ocr_tokens_debug,
-        "page_dimensions": page_dims,
-    }
-
-    return {
-        **template_fields,
-        **(extracted_fields or {}),
-        "_raw_text": parsed.text,
-        "rawText": parsed.text,
-        "_formatted_text": formatted_json,
-        "formattedText": formatted_json,
-        "_pages": len(parsed.pages),
-        "_elements_count": len(parsed.elements),
-        "_components": components,
-        "_field_locations": field_locs_dict,
-    }
-
-
-TABULAR_OR_MISC_DOCS = frozenset({
-    "application_form",
-    "kfs",
-    "sanction_letter",
-    "account_statement",
-    "loan_agreement",
-    "disbursal_memo",
-    "miscellaneous",
-})
-
-
-def is_tabular_or_misc_doc(doc_type: str) -> bool:
-    """Returns True if the document type requires TableFormer table structure detection.
-
-    Pure identity cards (Aadhaar, PAN, voter ID, passport, driving license) do not contain
-    financial tables and bypass TableFormer, saving ~45s/page of CPU transformer inference.
-    All tabular, financial, and miscellaneous/unmapped document types execute TableFormer.
+    Port 8001 routes internally: XML → fast-path, Loan Agreement → pyHanko,
+    all others → Docling + OCR. Returns the canonical extracted dict ready for
+    s3_extracted/, or None on failure.
     """
-    canonical = get_canonical_doc_type(doc_type).lower()
-    if canonical in {"aadhaar", "pan", "voter_id", "passport", "driving_license"}:
-        return False
-    return True
-
-
-def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Optional[Dict[str, Any]]:
-    """Runs IDP via 8001 HTTP microservice. XML fast-path runs locally via DocumentSerializer.
-    
-    Port 8000 NEVER runs local Docling, OCR, or heavy DL models.
-    """
-    # Normalize .tif/.tiff images to standard RGB PNG to prevent ONNX OCR memory crashes
     file_path = ensure_png_for_idp(file_path)
 
-    # XML fast-path runs locally on 8000 (pure deterministic XML tree parsing, zero heavy ML models)
-    if file_path.suffix.lower() == ".xml" or doc_key == "aadhaar_xml":
-        try:
-            serializer = DocumentSerializer()
-            parsed = serializer.parse_xml_fast_path(str(file_path), doc_id=doc_id)
-            if parsed:
-                return build_idp_result_from_parsed(parsed=parsed, doc_type=doc_key, doc_id=doc_id)
-        except Exception as e:
-            logger.warning("Local XML fast-path parsing failed for %s: %s", file_path, e)
-            return None
+    if not USE_REMOTE_IDP:
+        logger.warning(
+            "USE_REMOTE_IDP is disabled — cannot extract %s (%s). "
+            "Enable USE_REMOTE_IDP and ensure Port 8001 is running.",
+            doc_key,
+            file_path,
+        )
+        return None
 
-    # Enforce HTTP delegation to Port 8001 IDP microservice
-    if USE_REMOTE_IDP:
-        try:
-            with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
-                resp = client.post(
-                    f"{IDP_SERVICE_URL}/api/v1/documents/process",
-                    json={"document_id": doc_id, "s3_key": str(file_path)},
-                )
-                resp.raise_for_status()
-
-                get_resp = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}")
-                get_resp.raise_for_status()
-
-                parsed = ParsedDocument.model_validate(get_resp.json())
-                return build_idp_result_from_parsed(parsed=parsed, doc_type=doc_key, doc_id=doc_id)
-        except Exception as exc:
-            logger.warning(
-                "Remote IDP call to %s failed for %s (%s): %s",
-                IDP_SERVICE_URL,
-                doc_id,
-                file_path,
-                exc,
+    try:
+        with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
+            resp = client.post(
+                f"{IDP_SERVICE_URL}/api/v1/documents/process",
+                json={"document_id": doc_id, "s3_key": str(file_path)},
             )
-            return None
+            resp.raise_for_status()
 
-    logger.warning("USE_REMOTE_IDP is disabled and local OCR execution is disabled on Port 8000 for %s", file_path)
-    return None
+            canonical_resp = client.get(
+                f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}/canonical",
+            )
+            canonical_resp.raise_for_status()
+            return canonical_resp.json()
+    except Exception as exc:
+        logger.warning(
+            "IDP service call failed for %s (%s): %s",
+            doc_id,
+            file_path,
+            exc,
+        )
+        return None
 
 
 def idp_scan(state: PipelineState) -> PipelineState:
     """Processes document files in raw_doc_paths with IDP and persists OCR/layout in S3 Extracted tier."""
+
     loan_id = state["loan_id"]
     errors = list(state.get("errors", []))
     history = list(state.get("node_history", []))
@@ -300,87 +164,11 @@ def idp_scan(state: PipelineState) -> PipelineState:
                         raw_txt = cached_data.get("_raw_text") or cached_data.get("rawText") or ""
                         if (raw_txt.strip() or cached_data.get("_components") or len(cached_data) > 0) and cached_path.stat().st_mtime >= fpath.stat().st_mtime:
                             logger.info("IDP scan cache hit for %s (%s) in loan %s. Skipping duplicate OCR.", doc_key, fname, loan_id)
-                            # Ensure Loan Agreement digital signature verification is populated even on cache hit
-                            if (is_loan_agreement(fname) or is_loan_agreement(doc_key)) and fpath.suffix.lower() == ".pdf":
-                                if "pyhanko_inspection" not in cached_data:
-                                    try:
-                                        sig_res = inspect_pdf_signatures(fpath, filename=fname)
-                                        cached_data["pyhanko_inspection"] = sig_res
-                                        cached_data["loan_agreement_present"] = True
-                                        cached_data["loan_agreement_signed"] = bool(sig_res.get("is_acceptable", False))
-                                    except Exception as sig_err:
-                                        logger.warning("pyHanko signature inspection failed on cache hit for %s: %s", fname, sig_err)
                             return fname, fpath, doc_key, cached_data
                     except Exception as cache_read_err:
                         logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
 
-                # For Loan Agreements: bypass heavy OCR/Docling on multi-page agreements
-                # and directly execute fast pyHanko digital signature inspection.
-                if (is_loan_agreement(fname) or is_loan_agreement(doc_key)) and fpath.suffix.lower() == ".pdf":
-                    logger.info("Bypassing OCR for Loan Agreement %s (%s); running pyHanko directly.", fname, loan_id)
-                    try:
-                        sig_res = inspect_pdf_signatures(fpath, filename=fname)
-                    except Exception as sig_err:
-                        logger.warning("pyHanko signature inspection failed for %s: %s", fname, sig_err)
-                        sig_res = {"error": str(sig_err), "is_signed": False, "is_acceptable": False, "signatures": []}
-
-                    is_signed = bool(sig_res.get("is_signed", False))
-                    is_acceptable = bool(sig_res.get("is_acceptable", False))
-                    sig_count = int(sig_res.get("signature_count", 0))
-                    signatures = sig_res.get("signatures", [])
-                    page_count = sig_res.get("page_count", 0)
-                    signer_cn = signatures[0]["signer"]["common_name"] if signatures else "N/A"
-
-                    status_label = (
-                        "DIGITALLY SIGNED (VALID)"
-                        if is_acceptable
-                        else "UNSIGNED"
-                        if not is_signed
-                        else "SIGNATURE INVALID/TAMPERED"
-                    )
-                    diag_text = (
-                        f"Document: {fname}\n"
-                        f"Document Type: Loan Agreement\n"
-                        f"Pages: {page_count}\n"
-                        f"Digital Signature Status: {status_label}\n"
-                        f"Signatures Detected: {sig_count}\n"
-                    )
-                    if is_signed and signatures:
-                        sig0 = signatures[0]
-                        diag_text += (
-                            f"Signer CN: {signer_cn}\n"
-                            f"Issuer: {sig0['signer'].get('issuer_dn')}\n"
-                            f"Validity Window: {sig0['signer'].get('valid_from')} to {sig0['signer'].get('valid_until')}\n"
-                            f"Trust Anchor: {sig0.get('trust_anchor_label')}\n"
-                            f"Cryptographic Integrity: {'INTACT' if sig0.get('intact') else 'TAMPERED'}\n"
-                        )
-
-                    scan_res = {
-                        "_raw_text": diag_text,
-                        "rawText": diag_text,
-                        "loan_agreement_present": True,
-                        "loan_agreement_signed": is_acceptable,
-                        "pyhanko_inspection": sig_res,
-                        "_components": {
-                            "raw_elements": [
-                                {
-                                    "type": "paragraph",
-                                    "text": diag_text,
-                                    "bbox": [0, 0, 100, 100],
-                                    "page": 1,
-                                }
-                            ]
-                        },
-                        "_field_locations": {},
-                    }
-                    return fname, fpath, doc_key, scan_res
-
-                # Standard IDP OCR processing for non-agreement documents (KYC, Statements, KFS, etc.)
-                scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
-                # Aadhaar XML presence is proven by the file being classified as aadhaar_xml —
-                # the LLM cannot infer this from raw UIDAI XML tag content, so force it here.
-                if scan_res and doc_key == "aadhaar_xml":
-                    scan_res["aadhaar_xml_present"] = True
+                scan_res = _call_idp_service(fpath, doc_id=doc_id, doc_key=doc_key)
                 return fname, fpath, doc_key, scan_res
             except Exception as scan_err:
                 logger.warning("Error processing %s: %s", fname, scan_err)
