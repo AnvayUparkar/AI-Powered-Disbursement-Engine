@@ -33,6 +33,7 @@ class ElementClassification(str, Enum):
     CHECKBOX_LABEL = "checkbox_label"
     LABEL = "label"
     VALUE = "value"
+    LOW_CONFIDENCE_VALUE = "low_confidence_value"
     PARAGRAPH = "paragraph"
     NOISE = "noise"
 
@@ -78,7 +79,8 @@ class KeyValueExtractor:
         "due date", "bu / subdivision", "billing address", "reference", "reference 1",
         "reference 2", "rederence1", "reference a", "bank a/c number", "bauka/cumber",
         "application id", "loan id", "pan number", "pan", "applicant name",
-        "permanent account number", "permanentaccountnumber", "permanent account no", "permanent account"
+        "permanent account number", "permanentaccountnumber", "permanent account no", "permanent account",
+        "state", "district", "city", "pin code", "pincode", "dob", "date of birth", "gender"
     }
 
     CHECKBOX_OPTION_REGEX = re.compile(
@@ -93,12 +95,18 @@ class KeyValueExtractor:
         same_row_y_threshold: float = 0.022,
         max_horizontal_gap: float = 0.35,
         max_vertical_gap: float = 0.045,
-        min_pair_confidence: float = 0.72
+        min_pair_confidence: float = 0.72,
+        hard_noise_floor: float = 0.20,
+        confident_value_floor: float = 0.50,
+        emit_unmatched_stubs: bool = True,
     ):
         self.same_row_y_threshold = same_row_y_threshold
         self.max_horizontal_gap = max_horizontal_gap
         self.max_vertical_gap = max_vertical_gap
         self.min_pair_confidence = min_pair_confidence
+        self.hard_noise_floor = hard_noise_floor
+        self.confident_value_floor = confident_value_floor
+        self.emit_unmatched_stubs = emit_unmatched_stubs
 
     def extract(
         self,
@@ -146,6 +154,9 @@ class KeyValueExtractor:
             kv_results, kv_consumed = self._extract_spatial_key_values(classified, consumed_ids)
             for k, v in kv_results.items():
                 if k not in all_key_values:
+                    all_key_values[k] = v
+                elif all_key_values[k].get("value") is None and v.get("value") is not None:
+                    # Prefer real extracted value over an unmatched stub from an earlier page/pass
                     all_key_values[k] = v
             consumed_ids.update(kv_consumed)
 
@@ -243,9 +254,15 @@ class KeyValueExtractor:
             txt_lower = txt.lower()
             clean_txt = re.sub(r"[^\w\s/]", "", txt_lower).strip()
 
-            # 1. Noise check
-            if conf < 0.50 or self._is_garbled(txt):
+            # 1. Noise check — genuinely unreadable text, at any confidence, or extremely low confidence
+            if self._is_garbled(txt) or conf < self.hard_noise_floor:
+                logger.debug(f"[KV NOISE DROPPED] text='{txt[:30]}' conf={conf:.2f} garbled={self._is_garbled(txt)}")
                 classified.append({"element": elem, "classification": ElementClassification.NOISE})
+                continue
+
+            # 1b. Uncertain but not noise — keep it, flag it later
+            if conf < self.confident_value_floor:
+                classified.append({"element": elem, "classification": ElementClassification.LOW_CONFIDENCE_VALUE})
                 continue
 
             # 2. Section header check
@@ -313,12 +330,14 @@ class KeyValueExtractor:
                 v = parts[1].strip()
                 if k and v:
                     norm_k = self._normalize_label_key(k)
+                    elem_conf = float(elem.get("confidence", 1.0))
                     key_values[norm_k] = {
                         "label": k,
                         "value": v,
                         "page_number": elem.get("page_number", 1),
-                        "confidence": round(float(elem.get("confidence", 1.0)), 4),
-                        "relationship": "inline_delimiter"
+                        "confidence": round(elem_conf, 4),
+                        "relationship": "inline_delimiter",
+                        "needs_review": elem_conf < self.min_pair_confidence,
                     }
                     consumed.add(eid)
                     logger.debug(f"[KV EXTRACTION] Inline: Label='{k}' Value='{v}'")
@@ -330,7 +349,7 @@ class KeyValueExtractor:
         ]
         values = [
             item["element"] for item in classified_items
-            if item["classification"] == ElementClassification.VALUE and item["element"].get("id") not in consumed and item["element"].get("id") not in consumed_ids
+            if item["classification"] in (ElementClassification.VALUE, ElementClassification.LOW_CONFIDENCE_VALUE) and item["element"].get("id") not in consumed and item["element"].get("id") not in consumed_ids
         ]
 
         # Sort labels top-to-bottom, left-to-right
@@ -407,24 +426,48 @@ class KeyValueExtractor:
             # Strict score & confidence verification
             if best_val and best_score >= 0.70:
                 pair_conf = min(float(l_elem.get("confidence", 1.0)), float(best_val.get("confidence", 1.0)))
-                if pair_conf >= self.min_pair_confidence:
+                val_classification = next(
+                    (i["classification"] for i in classified_items if i["element"].get("id") == best_val.get("id")),
+                    ElementClassification.VALUE,
+                )
+                is_low_conf = val_classification == ElementClassification.LOW_CONFIDENCE_VALUE
+
+                # Low-confidence values get a relaxed acceptance floor (they're flagged, not silently trusted)
+                accept_floor = 0.40 if is_low_conf else self.min_pair_confidence
+                if pair_conf >= accept_floor:
                     norm_k = self._normalize_label_key(l_txt)
                     val_txt = best_val.get("text", "").strip()
+                    needs_rev = is_low_conf or pair_conf < self.min_pair_confidence
 
                     key_values[norm_k] = {
                         "label": l_txt,
                         "value": val_txt,
                         "page_number": l_elem.get("page_number", 1),
                         "confidence": round(pair_conf, 4),
-                        "relationship": best_rel
+                        "relationship": best_rel,
+                        "needs_review": needs_rev,
                     }
                     consumed.add(l_id)
                     consumed.add(best_val.get("id"))
-                    logger.info(f"[KV EXTRACTION ACCEPTED] '{l_txt}' -> '{val_txt}' | Rel: {best_rel} | Score: {best_score:.2f}")
+                    logger.info(f"[KV EXTRACTION ACCEPTED] '{l_txt}' -> '{val_txt}' | Rel: {best_rel} | Score: {best_score:.2f} | needs_review={needs_rev}")
                 else:
-                    logger.debug(f"[KV EXTRACTION REJECTED CONFIDENCE] '{l_txt}' -> '{best_val.get('text')}' (conf: {pair_conf:.2f} < {self.min_pair_confidence})")
+                    logger.debug(f"[KV EXTRACTION REJECTED CONFIDENCE] '{l_txt}' -> '{best_val.get('text')}' (conf: {pair_conf:.2f} < {accept_floor})")
             elif best_val:
                 logger.debug(f"[KV EXTRACTION REJECTED SCORE] '{l_txt}' -> '{best_val.get('text')}' (score: {best_score:.2f} < 0.70)")
+
+        # Stub emission for unmatched labels
+        if self.emit_unmatched_stubs:
+            for l_elem in labels:
+                if l_elem.get("id") not in consumed:
+                    norm_k = self._normalize_label_key(l_elem.get("text", "").strip())
+                    key_values.setdefault(norm_k, {
+                        "label": l_elem.get("text", "").strip(),
+                        "value": None,
+                        "page_number": l_elem.get("page_number", 1),
+                        "confidence": 0.0,
+                        "needs_review": True,
+                        "reason": "no_value_matched",
+                    })
 
         return key_values, consumed
 
@@ -568,7 +611,7 @@ class KeyValueExtractor:
         # Short title-case phrase
         if len(t.split()) <= 4 and t[0].isupper() and not any(w in t_lower for w in ["limited", "ltd", "corporation", "office"]):
             # Must have label indicator keywords
-            label_indicators = ["code", "name", "date", "bank", "no", "number", "amount", "period", "tenure", "reference", "address"]
+            label_indicators = ["code", "name", "date", "bank", "no", "number", "amount", "period", "tenure", "reference", "address", "state", "district", "city"]
             if any(ind in t_lower for ind in label_indicators):
                 return True
 

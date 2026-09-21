@@ -61,4 +61,9 @@ USE_REMOTE_IDP = os.getenv("USE_REMOTE_IDP", "true").lower() in ("true", "1", "y
 # code revert (e.g. if binarisation is too aggressive for a specific document class in staging).
 ENABLE_SCAN_PREPROCESSING = os.getenv("ENABLE_SCAN_PREPROCESSING", "true").lower() in ("true", "1", "yes")
 
+# Tiered key-value extraction confidence: keeps low-confidence OCR values flagged with needs_review
+# and emits stubs for unmatched labels instead of silently dropping them.
+ENABLE_TIERED_KV_CONFIDENCE = os.getenv("ENABLE_TIERED_KV_CONFIDENCE", "true").lower() in ("true", "1", "yes")
+
+
 

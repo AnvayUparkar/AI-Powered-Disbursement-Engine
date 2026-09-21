@@ -710,6 +710,9 @@ class DocumentSerializer:
     _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
     _LONG_DIGIT_RUN_RE = re.compile(r"\d{5,}")
     _ALNUM_TOKEN_RE = re.compile(r"[A-Za-z0-9]{6,}")
+    # Masked identity token: a run of 3+ identical letters (e.g. "XXXX", "XXXX XXXX")
+    # used in Aadhaar masking, KYC redaction, and printed form placeholders.
+    _MASKED_ID_RE = re.compile(r"\b([A-Za-z])\1{2,}\b")
 
     @staticmethod
     def _has_recoverable_value(text: str) -> bool:
@@ -738,6 +741,10 @@ class DocumentSerializer:
         if DocumentSerializer._EMAIL_RE.search(text):
             return True
         if DocumentSerializer._LONG_DIGIT_RUN_RE.search(text):
+            return True
+        # Masked Aadhaar / identity redaction tokens: "XXXX", "XXXX XXXX", etc.
+        # These carry no digits but are intentional printed masking, not garble.
+        if DocumentSerializer._MASKED_ID_RE.search(text):
             return True
         for token in DocumentSerializer._ALNUM_TOKEN_RE.findall(text):
             if any(c.isdigit() for c in token) and any(c.isalpha() for c in token):

@@ -119,3 +119,10 @@ class DoclingOptions(BaseModel):
     num_threads: int = 6  # CPU threads for processing
     debug_mode: bool = False  # Save debug visualizations
     log_level: str = "INFO"  # Logging verbosity
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # KEY-VALUE EXTRACTION CONFIDENCE THRESHOLDS
+    # ═══════════════════════════════════════════════════════════════════════
+    kv_hard_noise_floor: float = 0.20
+    kv_confident_value_floor: float = 0.50
+    kv_min_pair_confidence: float = 0.72

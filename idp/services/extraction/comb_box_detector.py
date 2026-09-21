@@ -468,13 +468,28 @@ class CombBoxDetector:
             ]
             med_pitch = statistics.median(raw_pitches) if raw_pitches else 0.0
 
+            # Determine whether all elements in this sequence are purely numeric.
+            # Numeric comb-box fields (e.g. salary amounts, loan amounts, Aadhaar last-4)
+            # never have intentional word breaks; a wider-than-normal gap is simply OCR
+            # geometry variance on the printed cell, NOT a blank spacer cell. Using the
+            # same thresholds as alpha names (1.55× pitch / 0.85× gap) turns a slightly
+            # wider '0' glyph into a space, producing "150000 0" instead of "1500000".
+            all_numeric = all(
+                (e.text.strip().isdigit() if e.text else False) for e in elements
+            )
+            # For numeric runs: only insert a space when pitch >= 2.0× median
+            # (a genuine multi-cell jump, not just glyph-width variance).
+            # For alpha/mixed: keep the existing thresholds.
+            pitch_space_threshold = 2.0 if all_numeric else 1.55
+            gap_space_threshold = 1.8 if all_numeric else 0.85
+
             parts = []
             for i, elem in enumerate(elements):
                 if i > 0 and med_pitch > 0:
                     gap = elements[i].bbox[0] - elements[i - 1].bbox[2]
                     pitch = x_centers[i] - x_centers[i - 1]
                     # If step represents 1 or more empty comb boxes between words
-                    if pitch >= 1.55 * med_pitch or gap >= 0.85 * med_pitch:
+                    if pitch >= pitch_space_threshold * med_pitch or gap >= gap_space_threshold * med_pitch:
                         parts.append(" ")
                 parts.append(elem.text.strip())
             merged_text = "".join(parts)

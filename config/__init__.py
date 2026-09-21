@@ -38,6 +38,7 @@ from config.settings import (
     SKIP_IDP,
     USE_EQUAL_FIELD_WEIGHTS,
     USE_REMOTE_IDP,
+    ENABLE_TIERED_KV_CONFIDENCE,
 )
 from config.doc_types import (
     DOC_TYPE_ALIASES,
@@ -111,4 +112,5 @@ __all__ = [
     "IDP_SERVICE_URL",
     "IDP_REQUEST_TIMEOUT",
     "USE_REMOTE_IDP",
+    "ENABLE_TIERED_KV_CONFIDENCE",
 ]

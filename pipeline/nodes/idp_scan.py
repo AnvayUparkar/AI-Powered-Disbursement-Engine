@@ -17,7 +17,9 @@ from config import (
     SKIP_IDP,
     USE_REMOTE_IDP,
     get_canonical_doc_type,
+    ENABLE_TIERED_KV_CONFIDENCE,
 )
+from config.docling_profiles import get_profile_for_document_type
 from pipeline.engines.key_value_extractor import KeyValueExtractor
 from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures, is_loan_agreement
 from pipeline.state import PipelineState
@@ -65,8 +67,38 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         elem_dict = elem.model_dump()
         raw_element_dicts.append(elem_dict)
 
-    kv_extractor = KeyValueExtractor()
+    is_scanned_pdf = None
+    if parsed:
+        if parsed.custom_metadata:
+            is_scanned_pdf = parsed.custom_metadata.get("is_scanned_pdf")
+        if is_scanned_pdf is None and hasattr(parsed, "processing") and parsed.processing:
+            if hasattr(parsed.processing, "custom_metadata") and parsed.processing.custom_metadata:
+                is_scanned_pdf = parsed.processing.custom_metadata.get("is_scanned_pdf")
+        if is_scanned_pdf is None and parsed.elements:
+            ocr_count = sum(1 for e in parsed.elements if getattr(e, "source", "") in ("docling_ocr", "rapidocr", "vlm_corrected") or (getattr(e, "confidence", 1.0) < 0.999))
+            if ocr_count > len(parsed.elements) * 0.3:
+                is_scanned_pdf = True
+
+    if ENABLE_TIERED_KV_CONFIDENCE:
+        profile = get_profile_for_document_type(doc_type, is_scanned=is_scanned_pdf)
+        kv_extractor = KeyValueExtractor(
+            hard_noise_floor=profile.kv_hard_noise_floor,
+            confident_value_floor=profile.kv_confident_value_floor,
+            min_pair_confidence=profile.kv_min_pair_confidence,
+            emit_unmatched_stubs=True,
+        )
+    else:
+        kv_extractor = KeyValueExtractor(
+            hard_noise_floor=0.50,
+            confident_value_floor=0.50,
+            min_pair_confidence=0.72,
+            emit_unmatched_stubs=False,
+        )
     spatial_results = kv_extractor.extract(raw_element_dicts, doc_type=doc_type)
+    kv_entries = spatial_results.get("key_values", {})
+    if parsed and hasattr(parsed, "processing") and parsed.processing and hasattr(parsed.processing, "metrics") and parsed.processing.metrics:
+        parsed.processing.metrics.kv_needs_review_count = sum(1 for v in kv_entries.values() if v.get("needs_review"))
+        parsed.processing.metrics.kv_unmatched_label_count = sum(1 for v in kv_entries.values() if v.get("reason") == "no_value_matched")
 
     tables_data = []
     for tbl in (parsed.tables or []):
@@ -128,6 +160,8 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         "_elements_count": len(parsed.elements),
         "_components": components,
         "_field_locations": field_locs_dict,
+        "_kv_needs_review_count": sum(1 for v in kv_entries.values() if v.get("needs_review")),
+        "_kv_unmatched_label_count": sum(1 for v in kv_entries.values() if v.get("reason") == "no_value_matched"),
     }
 
 
