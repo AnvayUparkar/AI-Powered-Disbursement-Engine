@@ -2,6 +2,10 @@
 from config.paths import (
     BASE_DIR,
     DMS_DIR,
+    IDP_PARSED_DIR,
+    IDP_RAW_DIR,
+    IDP_S3_MOCK_DIR,
+    IDP_TEMP_DIR,
     IST,
     LOS_DIR,
     LOS_LOANS_DIR,

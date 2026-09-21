@@ -27,6 +27,12 @@ S3_RESULT_DIR = POC_DATA_DIR / "s3_result"
 # Trusted Root Certificates (Indian CCA & PKI)
 TRUSTED_ROOTS_DIR = BASE_DIR / "config" / "trusted_roots"
 
+# IDP Storage Tiers (Mock S3 on disk)
+IDP_TEMP_DIR = POC_DATA_DIR / "idp_temp"
+IDP_S3_MOCK_DIR = IDP_TEMP_DIR / "s3_mock" / "disbursement-documents"
+IDP_PARSED_DIR = IDP_S3_MOCK_DIR / "parsed-documents"
+IDP_RAW_DIR = IDP_S3_MOCK_DIR / "raw-documents"
+
 # Ensure canonical directory structures exist
 for d in (
     POC_DATA_DIR,
@@ -40,6 +46,10 @@ for d in (
     S3_EXTRACTED_STRUCTURED_DIR,
     S3_RESULT_DIR,
     TRUSTED_ROOTS_DIR,
+    IDP_TEMP_DIR,
+    IDP_S3_MOCK_DIR,
+    IDP_PARSED_DIR,
+    IDP_RAW_DIR,
 ):
     d.mkdir(parents=True, exist_ok=True)
 

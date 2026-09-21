@@ -190,8 +190,18 @@ def parse_extracted_fields(
 ) -> List[Dict[str, Any]]:
     """Extract structured fields, paragraphs, and tables from parsing output."""
     extracted_fields: List[Dict[str, Any]] = []
-    field_locs = (parsed_result.get("custom_metadata") or {}).get("field_locations") or {}
-    ocr_tokens = (parsed_result.get("custom_metadata") or {}).get("ocr_tokens") or []
+    custom_meta = parsed_result.get("custom_metadata") or {}
+    field_locs = (
+        custom_meta.get("field_locations")
+        or parsed_result.get("_field_locations")
+        or parsed_result.get("_components", {}).get("field_locations")
+        or {}
+    )
+    ocr_tokens = (
+        custom_meta.get("ocr_tokens")
+        or parsed_result.get("_components", {}).get("ocr_tokens")
+        or []
+    )
 
     # 1. Key-value fields from LLM extracted metadata
     if llm_meta and isinstance(llm_meta, dict):
@@ -343,7 +353,12 @@ def normalize_uploaded_record(
         else (p_res.get("formatted_text") or p_res.get("formattedText") or "")
     )
 
-    field_locs = (p_res.get("custom_metadata") or {}).get("field_locations") or {}
+    field_locs = (
+        (p_res.get("custom_metadata") or {}).get("field_locations")
+        or p_res.get("_field_locations")
+        or p_res.get("_components", {}).get("field_locations")
+        or {}
+    )
     processing_steps = build_default_processing_steps(doc_id, status=effective_status, ocr_confidence=confidence if confidence > 0 else None)
 
     from config.doc_types import get_display_name
@@ -368,7 +383,16 @@ def normalize_uploaded_record(
         "formattedText": fmt_text_val,
         "debug": {
             "field_locations": field_locs if parsed_result else {},
-            "ocr_tokens": (p_res.get("custom_metadata") or {}).get("ocr_tokens") or [],
-            "page_dimensions": p_res.get("pages_dimensions") or [],
+            "ocr_tokens": (
+                (p_res.get("custom_metadata") or {}).get("ocr_tokens")
+                or p_res.get("_components", {}).get("ocr_tokens")
+                or []
+            ),
+            "page_dimensions": (
+                p_res.get("page_dimensions")
+                or p_res.get("pages_dimensions")
+                or p_res.get("_components", {}).get("page_dimensions")
+                or []
+            ),
         },
     }

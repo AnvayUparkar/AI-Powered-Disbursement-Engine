@@ -228,9 +228,8 @@ class DocumentRegistry:
     def _sync_parsed_doc_from_disk(self, doc_id: str) -> None:
         """Check if a freshly parsed JSON for doc_id exists on disk in mock S3 storage and update registry."""
         try:
-            from idp.core.config import settings as idp_settings
-            base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
-            parsed_path = base_dir / idp_settings.PARSED_DOCUMENT_PREFIX / f"{doc_id}.json"
+            from config.paths import IDP_PARSED_DIR
+            parsed_path = IDP_PARSED_DIR / f"{doc_id}.json"
             if parsed_path.exists() and parsed_path.is_file():
                 with open(parsed_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -314,11 +313,9 @@ class DocumentRegistry:
     @staticmethod
     def _delete_idp_temp_files(doc_id: str, filename: Optional[str]) -> None:
         """Remove a document's mock-S3 raw upload and parsed-document JSON from idp_temp."""
-        from idp.core.config import settings as idp_settings
+        from config.paths import IDP_PARSED_DIR, IDP_RAW_DIR
 
-        base = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
-
-        parsed_path = base / idp_settings.PARSED_DOCUMENT_PREFIX / f"{doc_id}.json"
+        parsed_path = IDP_PARSED_DIR / f"{doc_id}.json"
         if parsed_path.exists():
             try:
                 parsed_path.unlink()
@@ -326,7 +323,7 @@ class DocumentRegistry:
                 logger.warning("Failed deleting parsed doc %s: %s", parsed_path, e)
 
         if filename:
-            raw_path = base / idp_settings.RAW_DOCUMENT_PREFIX / f"{doc_id}_{filename}"
+            raw_path = IDP_RAW_DIR / f"{doc_id}_{filename}"
             if raw_path.exists():
                 try:
                     raw_path.unlink()

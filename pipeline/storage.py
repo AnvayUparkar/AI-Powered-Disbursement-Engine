@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from config import (
     DMS_DIR,
+    IDP_TEMP_DIR,
     IST,
     LOS_LOANS_DIR,
     LOS_RECEIVED_DIR,
@@ -299,9 +300,8 @@ def delete_loan_data(loan_id: str) -> Dict[str, List[str]]:
     # Mock-S3 uploaded files staged under idp_temp are named "{doc_id}_{filename}" where
     # doc_id commonly embeds the loan_id (e.g. "DOC-LOAN_005-9560-1_sanction_letter.pdf"),
     # not stored in a per-loan subfolder -- best-effort glob cleanup by loan_id substring.
-    idp_temp_dir = POC_DATA_DIR / "idp_temp"
-    if idp_temp_dir.exists():
-        for match in idp_temp_dir.rglob(f"*{loan_id}*"):
+    if IDP_TEMP_DIR.exists():
+        for match in IDP_TEMP_DIR.rglob(f"*{loan_id}*"):
             if match.is_file():
                 _remove(match)
 

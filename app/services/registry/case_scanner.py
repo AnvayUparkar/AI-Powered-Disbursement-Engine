@@ -209,8 +209,17 @@ def _build_case_document_record(
         except (ValueError, TypeError):
             pages = 1
 
-    field_locations = struct_data.get("field_locations") or {}
-    ocr_tokens = struct_data.get("ocr_tokens") or []
+    field_locations = (
+        struct_data.get("field_locations")
+        or ext_data.get("_field_locations")
+        or ext_data.get("_components", {}).get("field_locations")
+        or {}
+    )
+    ocr_tokens = (
+        struct_data.get("ocr_tokens")
+        or ext_data.get("_components", {}).get("ocr_tokens")
+        or []
+    )
 
     extracted_fields: List[Dict[str, Any]] = []
     for k, v in ext_data.items():
@@ -382,7 +391,11 @@ def _build_case_document_record(
         "debug": {
             "field_locations": field_locations,
             "ocr_tokens": ocr_tokens,
-            "page_dimensions": struct_data.get("page_dimensions", []),
+            "page_dimensions": (
+                struct_data.get("page_dimensions")
+                or ext_data.get("_components", {}).get("page_dimensions")
+                or []
+            ),
         },
         "processingSteps": [
             {
@@ -507,12 +520,57 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
                         except (ValueError, TypeError):
                             pass
 
+                    # Extract field locations, OCR tokens, and page dimensions from loaded canonical data
+                    loaded_field_locations = (
+                        loaded.get("_field_locations")
+                        or loaded.get("_components", {}).get("field_locations")
+                        or {}
+                    )
+                    loaded_ocr_tokens = loaded.get("_components", {}).get("ocr_tokens") or []
+                    loaded_page_dims = loaded.get("_components", {}).get("page_dimensions") or []
+
+                    if not isinstance(doc.get("debug"), dict):
+                        doc["debug"] = {}
+
+                    if loaded_field_locations:
+                        if not doc["debug"].get("field_locations"):
+                            doc["debug"]["field_locations"] = loaded_field_locations
+                        else:
+                            for k, fl_val in loaded_field_locations.items():
+                                doc["debug"]["field_locations"].setdefault(k, fl_val)
+
+                    if loaded_ocr_tokens and not doc["debug"].get("ocr_tokens"):
+                        doc["debug"]["ocr_tokens"] = loaded_ocr_tokens
+
+                    if loaded_page_dims and not doc["debug"].get("page_dimensions"):
+                        doc["debug"]["page_dimensions"] = loaded_page_dims
+
+                    debug_fls = doc["debug"].get("field_locations", {})
+
+                    # Backfill bbox and locationStatus for existing extractedFields if missing
+                    for field in doc.get("extractedFields", []):
+                        if not field.get("bbox"):
+                            fname = field.get("name", "")
+                            fkey = fname.lower().replace(" ", "_")
+                            fl = debug_fls.get(fkey) or debug_fls.get(fname)
+                            if fl and fl.get("bbox"):
+                                field["bbox"] = fl.get("bbox")
+                                field["locationStatus"] = fl.get("location_status", "resolved")
+                                if fl.get("page"):
+                                    field["page"] = fl.get("page")
+                                if fl.get("confidence") is not None:
+                                    try:
+                                        fc = float(fl["confidence"])
+                                        field["confidence"] = round(fc * 100.0, 1) if fc <= 1.0 else round(fc, 1)
+                                    except (ValueError, TypeError):
+                                        pass
+
                     # Also add canonical fields to extractedFields if missing
                     existing_fnames = {f.get("name") for f in doc.get("extractedFields", [])}
                     for tk, tv in tpl.items():
                         nice_name = tk.replace("_", " ").title()
                         if tv is not None and nice_name not in existing_fnames:
-                            fl = (doc.get("debug") or {}).get("field_locations", {}).get(tk) or {}
+                            fl = debug_fls.get(tk) or {}
                             f_raw_conf = fl.get("confidence")
                             if f_raw_conf is not None:
                                 try:
@@ -523,6 +581,9 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
                             else:
                                 f_conf = doc.get("confidence", 95.0)
 
+                            fl_bbox = fl.get("bbox")
+                            fl_status = fl.get("location_status", "resolved" if fl_bbox else "unresolved")
+
                             doc.setdefault("extractedFields", []).append({
                                 "id": f"llm-{tk}",
                                 "name": nice_name,
@@ -532,6 +593,13 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
                                 "page": fl.get("page", 1),
                                 "type": "key_value",
                                 "source": "OPENROUTER_LLM",
+                                "bbox": fl_bbox,
+                                "locationStatus": fl_status,
+                                "matchedText": fl.get("matched_text"),
+                                "matchConfidence": fl.get("match_confidence", 1.0),
+                                "reason": fl.get("reason"),
+                                "matchStrategy": fl.get("match_strategy"),
+                                "candidates": fl.get("candidates", []),
                             })
                     break
             except Exception:

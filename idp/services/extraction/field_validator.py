@@ -7,8 +7,8 @@ Provides confidence adjustment based on validation results.
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple
-from config.pipeline_checks import COMB_BOX_FIELDS
+from typing import List, Optional, Tuple, Union
+from config.comb_box import COMB_BOX_FIELDS
 from idp.core.logging import logger
 
 

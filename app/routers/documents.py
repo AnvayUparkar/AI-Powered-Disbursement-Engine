@@ -111,11 +111,10 @@ def preview_document(
         # Fallback 3: Search in IDP mock S3 raw documents storage
         if not target_path:
             try:
-                from idp.core.config import settings as idp_settings
-                idp_raw_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / idp_settings.RAW_DOCUMENT_PREFIX
-                if idp_raw_dir.exists():
+                from config.paths import IDP_RAW_DIR
+                if IDP_RAW_DIR.exists():
                     clean_doc_stem = Path(doc_name).stem.lower()
-                    for raw_f in idp_raw_dir.iterdir():
+                    for raw_f in IDP_RAW_DIR.iterdir():
                         if raw_f.is_file():
                             raw_stem = raw_f.stem.lower()
                             if (

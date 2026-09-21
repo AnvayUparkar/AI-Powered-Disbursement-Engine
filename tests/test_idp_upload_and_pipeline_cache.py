@@ -88,10 +88,10 @@ def test_idp_scan_cache_hit_skips_ocr(clean_test_case):
         "node_history": [],
     }
 
-    with patch("pipeline.nodes.idp_scan._process_single_document") as mock_process:
+    with patch("pipeline.nodes.idp_scan._call_idp_service") as mock_process:
         result_state = idp_scan(initial_state)
 
-        # _process_single_document must NOT have been called due to cache hit
+        # _call_idp_service must NOT have been called due to cache hit
         mock_process.assert_not_called()
 
         assert "sanction_letter" in result_state["extracted_data"]
@@ -122,7 +122,7 @@ def test_idp_scan_runs_ocr_on_cache_miss_or_stale(clean_test_case):
         "_components": {},
     }
 
-    with patch("pipeline.nodes.idp_scan._process_single_document", return_value=mock_return) as mock_process:
+    with patch("pipeline.nodes.idp_scan._call_idp_service", return_value=mock_return) as mock_process:
         result_state = idp_scan(initial_state)
 
         mock_process.assert_called_once()
@@ -136,9 +136,9 @@ def test_idp_scan_runs_ocr_on_cache_miss_or_stale(clean_test_case):
         assert saved_data["kfs_loan_amount"] == 750000.0
 
 
-def test_process_single_document_delegates_to_8001(tmp_path: Path):
-    """Verifies that _process_single_document makes HTTP requests to Port 8001 and parses ParsedDocument."""
-    from pipeline.nodes.idp_scan import _process_single_document
+def test_call_idp_service_delegates_to_8001(tmp_path: Path):
+    """Verifies that _call_idp_service makes HTTP requests to Port 8001 and retrieves canonical extraction."""
+    from pipeline.nodes.idp_scan import _call_idp_service
     import httpx
 
     doc_file = tmp_path / "pan.pdf"
@@ -146,30 +146,10 @@ def test_process_single_document_delegates_to_8001(tmp_path: Path):
     doc_id = "DOC_TEST_8001"
     doc_key = "pan"
 
-    parsed_payload = {
-        "document_id": doc_id,
-        "source": {"filename": "pan.pdf", "mime_type": "application/pdf"},
-        "pages": [{"page_number": 1, "width": 595.0, "height": 842.0, "elements": [], "tables": []}],
-        "tables": [],
-        "elements": [],
-        "text": "INCOME TAX DEPARTMENT GOVT OF INDIA\nPAN: ABCDE1234F\nName: Rajesh Sharma",
-        "processing": {
-            "document_id": doc_id,
-            "processing_id": f"proc-{doc_id}",
-            "file_type": "pdf",
-            "mime_type": "application/pdf",
-            "file_size_bytes": 1024,
-            "page_count": 1,
-            "docling_used": True,
-            "ocr_engine": "docling_rapidocr",
-            "ocr_model": "PP-OCRv6_MEDIUM",
-        },
-        "custom_metadata": {
-            "llm_extracted_fields": {
-                "pan_number": "ABCDE1234F",
-                "applicant_name": "Rajesh Sharma",
-            }
-        },
+    canonical_payload = {
+        "pan_number": "ABCDE1234F",
+        "applicant_name": "Rajesh Sharma",
+        "_raw_text": "INCOME TAX DEPARTMENT GOVT OF INDIA\nPAN: ABCDE1234F\nName: Rajesh Sharma",
     }
 
     class MockResponse:
@@ -197,23 +177,23 @@ def test_process_single_document_delegates_to_8001(tmp_path: Path):
         def post(self, url, json=None):
             assert "/api/v1/documents/process" in url
             assert json["document_id"] == doc_id
-            return MockResponse({"status": "completed", "result": parsed_payload})
+            return MockResponse({"status": "completed"})
 
         def get(self, url):
-            assert f"/api/v1/documents/{doc_id}" in url
-            return MockResponse(parsed_payload)
+            assert f"/api/v1/documents/{doc_id}/canonical" in url
+            return MockResponse(canonical_payload)
 
     with patch("httpx.Client", side_effect=MockClient):
-        result = _process_single_document(doc_file, doc_id=doc_id, doc_key=doc_key)
+        result = _call_idp_service(doc_file, doc_id=doc_id, doc_key=doc_key)
         assert result is not None
         assert result.get("pan_number") == "ABCDE1234F"
         assert result.get("applicant_name") == "Rajesh Sharma"
         assert "INCOME TAX DEPARTMENT" in result.get("_raw_text", "")
 
 
-def test_process_single_document_returns_none_on_remote_failure(tmp_path: Path):
+def test_call_idp_service_returns_none_on_remote_failure(tmp_path: Path):
     """Verifies that Port 8000 NEVER attempts local OCR if Port 8001 is unreachable or errors."""
-    from pipeline.nodes.idp_scan import _process_single_document
+    from pipeline.nodes.idp_scan import _call_idp_service
     import httpx
 
     doc_file = tmp_path / "kfs.pdf"
@@ -235,14 +215,15 @@ def test_process_single_document_returns_none_on_remote_failure(tmp_path: Path):
             raise httpx.ConnectError("Connection refused to 8001")
 
     with patch("httpx.Client", side_effect=FailingClient):
-        result = _process_single_document(doc_file, doc_id=doc_id, doc_key=doc_key)
+        result = _call_idp_service(doc_file, doc_id=doc_id, doc_key=doc_key)
         # MUST return None and NEVER initialize local Docling/RapidOCR
         assert result is None
 
 
-def test_process_single_document_xml_fast_path(tmp_path: Path):
-    """Verifies that XML documents run locally via DocumentSerializer fast-path without remote calls."""
-    from pipeline.nodes.idp_scan import _process_single_document
+def test_call_idp_service_xml_fast_path(tmp_path: Path):
+    """Verifies that XML documents route through IDP service and return canonical extraction."""
+    from pipeline.nodes.idp_scan import _call_idp_service
+    import httpx
 
     xml_content = """<?xml version="1.0" encoding="UTF-8"?>
 <OfflinePaperlessKyc>
@@ -253,12 +234,46 @@ def test_process_single_document_xml_fast_path(tmp_path: Path):
     xml_file = tmp_path / "aadhaar.xml"
     xml_file.write_text(xml_content, encoding="utf-8")
 
-    with patch("httpx.Client") as mock_http:
-        result = _process_single_document(xml_file, doc_id="DOC_XML_TEST", doc_key="aadhaar_xml")
-        # HTTP client must NOT be called for XML fast path
-        mock_http.assert_not_called()
+    canonical_xml_payload = {
+        "aadhaar_number": "xxxxxxxx5678",
+        "aadhaar_xml_present": True,
+        "_raw_text": "UidData: xxxxxxxx5678",
+    }
+
+    class MockResponse:
+        def __init__(self, json_data, status_code=200):
+            self._json_data = json_data
+            self.status_code = status_code
+
+        def json(self):
+            return self._json_data
+
+        def raise_for_status(self):
+            pass
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def post(self, url, json=None):
+            assert "/api/v1/documents/process" in url
+            return MockResponse({"status": "completed"})
+
+        def get(self, url):
+            assert "/canonical" in url
+            return MockResponse(canonical_xml_payload)
+
+    with patch("httpx.Client", side_effect=MockClient):
+        result = _call_idp_service(xml_file, doc_id="DOC_XML_TEST", doc_key="aadhaar_xml")
         assert result is not None
         assert result.get("aadhaar_number") == "xxxxxxxx5678"
+        assert result.get("aadhaar_xml_present") is True
 
 
 def test_celery_task_syncs_to_s3_extracted_tier(clean_test_case, tmp_path: Path):
@@ -298,6 +313,12 @@ def test_celery_task_syncs_to_s3_extracted_tier(clean_test_case, tmp_path: Path)
         },
     }
 
+    canonical_payload = {
+        "pan_number": "ABCDE1234F",
+        "applicant_name": "Sunita Sharma",
+        "_raw_text": "PAN: ABCDE1234F Name: Sunita Sharma",
+    }
+
     class MockResponse:
         def __init__(self, json_data, status_code=200):
             self._json_data = json_data
@@ -323,6 +344,8 @@ def test_celery_task_syncs_to_s3_extracted_tier(clean_test_case, tmp_path: Path)
             return MockResponse({"status": "completed", "result": parsed_payload})
 
         def get(self, url):
+            if "canonical" in url:
+                return MockResponse(canonical_payload)
             return MockResponse(parsed_payload)
 
     with patch("httpx.Client", side_effect=MockClient):

@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Set
 
 from datetime import datetime
 from config import IST
-from idp.core.config import settings as idp_settings
+from config.paths import IDP_PARSED_DIR, IDP_RAW_DIR
 
 logger = logging.getLogger("disbursement_pipeline.document_registry.idp_scanner")
 
@@ -21,9 +21,8 @@ def scan_idp_parsed_storage(
     and register them via the provided callback.
     """
     try:
-        base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
-        parsed_dir = base_dir / idp_settings.PARSED_DOCUMENT_PREFIX
-        raw_dir = base_dir / idp_settings.RAW_DOCUMENT_PREFIX
+        parsed_dir = IDP_PARSED_DIR
+        raw_dir = IDP_RAW_DIR
 
         # 1. Scan parsed documents JSONs
         if parsed_dir.exists():
