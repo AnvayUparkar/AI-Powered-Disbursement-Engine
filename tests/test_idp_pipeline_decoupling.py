@@ -55,6 +55,36 @@ def test_llm_structure_no_idp_imports():
         assert pattern not in content, f"Found forbidden import/symbol '{pattern}' in llm_structure.py"
 
 
+def test_idp_documents_no_pipeline_or_app_imports():
+    """Static analysis: ensures idp/api/routes/documents.py contains zero imports from pipeline or app."""
+    root_dir = Path(__file__).resolve().parent.parent
+    doc_route_path = root_dir / "idp" / "api" / "routes" / "documents.py"
+    content = doc_route_path.read_text(encoding="utf-8")
+
+    forbidden = [
+        "from pipeline",
+        "import pipeline",
+        "from app",
+        "import app",
+        "process_document_task",
+        "document_registry",
+        "SINGLETON_CANONICAL_TYPES",
+        "S3_RAW_DIR",
+    ]
+    for pattern in forbidden:
+        assert pattern not in content, f"Found forbidden import/symbol '{pattern}' in idp/api/routes/documents.py"
+
+
+def test_app_main_no_idp_routes_import():
+    """Static analysis: ensures app/main.py does not mount idp.api.routes.documents directly."""
+    root_dir = Path(__file__).resolve().parent.parent
+    main_path = root_dir / "app" / "main.py"
+    content = main_path.read_text(encoding="utf-8")
+
+    assert "idp_documents" not in content
+    assert "from idp.api.routes" not in content
+
+
 def test_call_idp_service_posts_then_gets_canonical(monkeypatch: pytest.MonkeyPatch):
     """Unit: _call_idp_service triggers /process POST and returns canonical GET JSON."""
     monkeypatch.setattr("pipeline.nodes.idp_scan.USE_REMOTE_IDP", True)

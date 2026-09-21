@@ -8,9 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import cases, dashboard_reports, documents, loans, reviews
-from idp.api.routes import documents as idp_documents
-from idp.core.exceptions import Node2BaseException
+from app.routers import cases, dashboard_reports, documents, gateway_documents, loans, reviews
 
 
 # Structured JSON Formatter
@@ -74,25 +72,12 @@ async def log_requests_middleware(request: Request, call_next):
     return response
 
 
-@app.exception_handler(Node2BaseException)
-async def node2_exception_handler(request: Request, exc: Node2BaseException):
-    root_logger.error(f"Node2BaseException caught in main app: {exc.message}")
-    return JSONResponse(
-        status_code=400,
-        content={
-            "error": exc.__class__.__name__,
-            "message": exc.message,
-            "details": exc.details,
-        },
-    )
-
-
 app.include_router(loans.router)
 app.include_router(cases.router)
 app.include_router(reviews.router)
 app.include_router(documents.router)
 app.include_router(dashboard_reports.router)
-app.include_router(idp_documents.router)
+app.include_router(gateway_documents.router)
 
 
 @app.get("/health", tags=["Health"])

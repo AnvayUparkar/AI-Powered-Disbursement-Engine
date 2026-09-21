@@ -1,10 +1,8 @@
-import uuid
-from pathlib import Path
-from typing import Optional
-from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, status
 from idp.schemas.document import ProcessDocumentRequest, DocumentStatusResponse
 from idp.schemas.response import ErrorResponse
 from idp.services.document_processor import processor
+from idp.services.output.canonical_builder import build_canonical_extracted_dict
 from idp.core.exceptions import Node2BaseException
 from idp.core.logging import logger, format_doc_log
 
@@ -63,130 +61,6 @@ async def process_document(request: ProcessDocumentRequest):
         )
 
 
-@router.post(
-    "/upload",
-    response_model=DocumentStatusResponse,
-    status_code=status.HTTP_200_OK,
-    responses={
-        400: {"model": ErrorResponse, "description": "Invalid upload format or processing failure"}
-    }
-)
-async def upload_and_process_document(
-    file: UploadFile = File(...),
-    document_id: Optional[str] = Form(None),
-    case_id: Optional[str] = Form(None),
-    doc_type: Optional[str] = Form(None),
-    s3_bucket: Optional[str] = Form(None),
-    run_idp: Optional[bool] = Form(None),
-):
-    """
-    Accept direct browser multipart document upload, store raw file, and run Node 2 IDP pipeline.
-    """
-    bucket = s3_bucket if isinstance(s3_bucket, str) and s3_bucket.strip() else None
-    case_val = case_id if isinstance(case_id, str) and case_id.strip() else None
-    dtype_val = doc_type if isinstance(doc_type, str) and doc_type.strip() else None
-    clean_filename = Path(file.filename or "uploaded_doc.pdf").name
-
-    if isinstance(document_id, str) and document_id.strip():
-        doc_id = document_id.strip()
-    elif case_val and case_val != "GENERAL":
-        from app.services.registry.dedup import SINGLETON_CANONICAL_TYPES
-        from config.doc_types import get_canonical_doc_type
-        canon = get_canonical_doc_type(dtype_val or clean_filename)
-        clean_stem = Path(clean_filename).stem.lower().replace(" ", "_")
-        if canon in SINGLETON_CANONICAL_TYPES and canon != "miscellaneous":
-            doc_id = f"{case_val}_{canon}"
-        else:
-            doc_id = f"{case_val}_{clean_stem}"
-    else:
-        doc_id = f"DOC-{uuid.uuid4().hex[:8].upper()}"
-
-    logger.info(format_doc_log(doc_id, f"Received direct file upload for {file.filename}"))
-
-    try:
-        file_bytes = await file.read()
-
-        from config import S3_RAW_DIR
-        raw_key = f"{doc_id}_{clean_filename}"
-
-        if case_val:
-            case_raw_dir = S3_RAW_DIR / case_val
-            case_raw_dir.mkdir(parents=True, exist_ok=True)
-            target_path = case_raw_dir / clean_filename
-            target_path.write_bytes(file_bytes)
-            logger.info(format_doc_log(doc_id, f"Saved uploaded document to case S3 raw store at {target_path}"))
-        else:
-            gen_raw_dir = S3_RAW_DIR / "GENERAL"
-            gen_raw_dir.mkdir(parents=True, exist_ok=True)
-            target_path = gen_raw_dir / clean_filename
-            target_path.write_bytes(file_bytes)
-
-        try:
-            from idp.services.storage.s3 import S3Storage
-            from idp.core.config import settings as idp_settings
-            s3_storage = S3Storage()
-            target_bucket = bucket or idp_settings.S3_BUCKET
-            output_url = await s3_storage.upload(
-                key=f"{idp_settings.RAW_DOCUMENT_PREFIX}/{raw_key}",
-                content=file_bytes,
-                bucket=target_bucket,
-                content_type="application/pdf",
-                doc_id=doc_id
-            )
-        except Exception as s3_err:
-            logger.debug(format_doc_log(doc_id, f"Mock S3 storage notification: {s3_err}"))
-            output_url = f"s3://disbursement-documents/raw-documents/{raw_key}"
-
-        # Determine whether to execute immediate background IDP extraction:
-        # 1. If run_idp is explicitly requested, honor it.
-        # 2. If uploaded directly to a specific loan case, default to False (pure S3 raw staging).
-        # 3. If uploaded to General / Documents tab, default to True (immediate IDP).
-        should_run_idp = run_idp if run_idp is not None else (not case_val or case_val == "GENERAL")
-        initial_status = "PROCESSING" if should_run_idp else "PENDING"
-
-        try:
-            from app.services.document_registry import document_registry
-            document_registry.register_uploaded_document(
-                doc_id=doc_id,
-                filename=clean_filename,
-                doc_type=dtype_val,
-                case_id=case_val,
-                file_size_bytes=len(file_bytes),
-                parsed_result=None,
-                status=initial_status,
-            )
-        except Exception as reg_err:
-            logger.debug(format_doc_log(doc_id, f"Document registry sync notification: {reg_err}"))
-
-        if should_run_idp:
-            try:
-                from pipeline.celery_app import process_document_task
-                process_document_task.delay(doc_id, str(target_path), case_val)
-            except Exception as celery_err:
-                logger.warning(format_doc_log(doc_id, f"Celery task enqueue notification: {celery_err}"))
-
-        return DocumentStatusResponse(
-            document_id=doc_id,
-            processing_id=f"proc-{doc_id}",
-            status="queued" if should_run_idp else "UPLOADED",
-            output_location=output_url,
-            processing_time_seconds=0.0,
-            result=None
-        )
-    except Node2BaseException as e:
-        logger.error(format_doc_log(doc_id, f"Upload error: {e.message}"))
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.__class__.__name__, "message": e.message, "details": e.details, "document_id": doc_id}
-        )
-    except Exception as e:
-        logger.error(format_doc_log(doc_id, f"Unhandled upload exception: {e}"))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "InternalServerError", "message": str(e), "document_id": doc_id}
-        )
-
-
 @router.get(
     "/{document_id}",
     status_code=status.HTTP_200_OK,
@@ -200,40 +74,12 @@ async def get_document_result(document_id: str):
     """
     parsed = await processor.get_parsed_document(document_id)
     if not parsed:
-        try:
-            from app.services.document_registry import document_registry
-            registry_doc = document_registry.get_by_id(document_id)
-            if registry_doc:
-                return registry_doc
-        except Exception as e:
-            logger.warning(f"Fallback to document_registry failed for {document_id}: {e}")
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "NotFound", "message": f"Parsed document for {document_id} not found."}
         )
 
-    parsed_dict = parsed.model_dump()
-    llm_fields = (parsed.custom_metadata or {}).get("llm_extracted_fields") if parsed.custom_metadata else None
-    if not llm_fields:
-        try:
-            from app.services.document_registry import document_registry
-            reg_doc = document_registry.get_by_id(document_id)
-            if reg_doc and (reg_doc.get("formattedText") or "").strip().startswith("{"):
-                import json
-                try:
-                    meta = json.loads(reg_doc["formattedText"])
-                    if not isinstance(parsed_dict.get("custom_metadata"), dict):
-                        parsed_dict["custom_metadata"] = {}
-                    parsed_dict["custom_metadata"]["llm_extracted_fields"] = meta
-                    parsed_dict["formatted_text"] = reg_doc["formattedText"]
-                    parsed_dict["extracted_fields"] = meta
-                except Exception:
-                    pass
-        except Exception as enrich_err:
-            logger.debug("Enrichment note for %s: %s", document_id, enrich_err)
-
-    return parsed_dict
+    return parsed.model_dump()
 
 
 @router.get(
@@ -259,7 +105,6 @@ async def get_document_canonical(document_id: str):
 
     try:
         doc_type = (parsed.custom_metadata or {}).get("doc_type") or "miscellaneous"
-        from idp.services.output.canonical_builder import build_canonical_extracted_dict
         return build_canonical_extracted_dict(parsed=parsed, doc_type=doc_type, doc_id=document_id)
     except Exception as e:
         logger.error(format_doc_log(document_id, f"Canonical build error: {e}"))
