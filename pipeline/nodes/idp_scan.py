@@ -2,10 +2,11 @@
 import asyncio
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
+from app.auth import internal_headers
 
 from config import (
     DISABLE_IDP_EXTRACTION_CACHE,
@@ -181,10 +182,11 @@ def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Opti
                 resp = client.post(
                     f"{IDP_SERVICE_URL}/api/v1/documents/process",
                     json={"document_id": doc_id, "s3_key": str(file_path)},
+                    headers=internal_headers(),
                 )
                 resp.raise_for_status()
 
-                get_resp = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}")
+                get_resp = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}", headers=internal_headers())
                 get_resp.raise_for_status()
 
                 parsed = ParsedDocument.model_validate(get_resp.json())

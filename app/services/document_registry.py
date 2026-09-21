@@ -5,6 +5,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from config.tenant import current_tenant_id
+
 from .registry.case_scanner import (
     enrich_document_record,
     invalidate_case_cache,
@@ -190,7 +192,7 @@ class DocumentRegistry:
         """Check if a freshly parsed JSON for doc_id exists on disk in mock S3 storage and update registry."""
         try:
             from idp.core.config import settings as idp_settings
-            base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
+            base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / current_tenant_id()
             parsed_path = base_dir / idp_settings.PARSED_DOCUMENT_PREFIX / f"{doc_id}.json"
             if parsed_path.exists() and parsed_path.is_file():
                 with open(parsed_path, "r", encoding="utf-8") as f:
@@ -277,7 +279,7 @@ class DocumentRegistry:
         """Remove a document's mock-S3 raw upload and parsed-document JSON from idp_temp."""
         from idp.core.config import settings as idp_settings
 
-        base = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
+        base = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / current_tenant_id()
 
         parsed_path = base / idp_settings.PARSED_DOCUMENT_PREFIX / f"{doc_id}.json"
         if parsed_path.exists():
@@ -301,5 +303,30 @@ class DocumentRegistry:
             return get_all_distinct_types(dynamic_types)
 
 
-# Global singleton instance
-document_registry = DocumentRegistry()
+class TenantDocumentRegistry:
+    """Holds one DocumentRegistry per tenant and routes every call to the current tenant's instance.
+
+    Keeps the `document_registry` import name stable for all callers while guaranteeing the
+    in-memory records/aliases of one tenant are never visible to another.
+    """
+
+    def __init__(self):
+        self._registries: Dict[str, DocumentRegistry] = {}
+        self._lock = threading.Lock()
+
+    def _current(self) -> DocumentRegistry:
+        tenant_id = current_tenant_id()
+        with self._lock:
+            registry = self._registries.get(tenant_id)
+            if registry is None:
+                registry = self._registries[tenant_id] = DocumentRegistry()
+            return registry
+
+    def __getattr__(self, name: str):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self._current(), name)
+
+
+# Global per-tenant registry facade
+document_registry = TenantDocumentRegistry()

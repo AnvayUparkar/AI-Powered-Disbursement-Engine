@@ -6,9 +6,7 @@ FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    DOCLING_OFFLINE=true \
-    DOCLING_ARTIFACTS_PATH=/opt/models/docling
+    PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
@@ -19,21 +17,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /srv/app
 
+# This image never uses a GPU (the GPU variant is docker/Dockerfile.backend-gpu), so install the CPU-only
+# torch build FIRST. The default PyPI wheel drags in ~3GB of CUDA libraries that would only bloat the
+# image and the airgap transfer. Docling then finds torch already satisfied when requirements install.
+# Versions match what the app was tested against; bump them together.
+RUN pip install --no-cache-dir torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Bake the Docling/RapidOCR weights into the image so pods start with zero
-# outbound network dependency (see DOCLING_OFFLINE in config/settings.py and
-# scripts/download_models.py).
+# Bake the Docling layout/TableFormer and RapidOCR weights into the image so pods start with zero
+# outbound network dependency. This is the only step that needs internet, and it runs at BUILD time.
+# It sits before `COPY . .` so ordinary code changes reuse the cached ~700MB layer. Weights are only
+# read at runtime, so they stay root-owned (world-readable) rather than being chown'd into a second layer.
 COPY scripts/download_models.py scripts/download_models.py
-COPY idp/services/docling/model_store.py idp/services/docling/model_store.py
-RUN mkdir -p idp/services/docling && touch idp/__init__.py idp/services/__init__.py idp/services/docling/__init__.py
+RUN python scripts/download_models.py --dest /opt/models/docling \
+    && chmod -R a+rX /opt/models
+
+# Runtime is fully offline. DOCLING_ARTIFACTS_PATH is Docling's own setting: with it set, Docling never
+# downloads and errors if a weight is missing. HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE stop any stray
+# Hugging Face lookups. Set AFTER the download step above, which needs the network.
+ENV DOCLING_ARTIFACTS_PATH=/opt/models/docling \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 COPY . .
-RUN python scripts/download_models.py --dest /opt/models/docling
 
 RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /srv/app /opt/models
+    && chown -R appuser:appuser /srv/app
 USER appuser
 
 EXPOSE 8000 8001

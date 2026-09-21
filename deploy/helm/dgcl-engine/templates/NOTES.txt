@@ -14,11 +14,22 @@ Check rollout status:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "dgcl.fullname" . }}-idp
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "dgcl.fullname" . }}-worker
 
+{{- if eq .Values.frontend.service.type "NodePort" }}
+
+Open the app at:  http://<any-node-ip>:{{ .Values.frontend.service.nodePort }}   (frontend Service, NodePort)
+{{- end }}
 {{- if .Values.ingress.enabled }}
 
-Ingress host: {{ .Values.ingress.host }} (scheme: {{ .Values.ingress.scheme }})
-Fetch the ALB address once the AWS Load Balancer Controller reconciles it:
+Ingress host: {{ .Values.ingress.host }} (class: {{ .Values.ingress.className }})
   kubectl -n {{ .Release.Namespace }} get ingress {{ include "dgcl.fullname" . }}
+{{- end }}
+
+Accounts: users sign up in the UI; each gets an isolated workspace. The auth database
+lives on PVC {{ include "dgcl.fullname" . }}-auth-data and is NOT removed by `helm uninstall` — back it up.
+{{- if and (eq (toString .Values.config.SESSION_COOKIE_SECURE) "true") (not (and .Values.ingress.enabled .Values.ingress.tls.enabled)) }}
+
+WARNING: SESSION_COOKIE_SECURE is "true" but users are not reaching the app over HTTPS (no ingress with TLS) —
+browsers will not send the login cookie over plain http and login will not work. Set config.SESSION_COOKIE_SECURE=false.
 {{- end }}
 
 See deploy/helm/README.md for the jump-server access path, secret bootstrap, and rollback steps.

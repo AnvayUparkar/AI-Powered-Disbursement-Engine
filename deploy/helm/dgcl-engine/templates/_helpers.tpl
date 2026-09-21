@@ -93,12 +93,13 @@ fetch_documents) is invisible to idp when it reads the same path back
 (idp/services/storage/s3.py's local-mode fallback only ever looks on its own
 pod's disk). Mounted at /srv/app/poc_data — the app's whole local "S3
 simulation" tree (config/paths.py's POC_DATA_DIR and everything under it).
+Every tenant's data lives under poc_data/tenants/<tenant_id>/ (config/tenant.py).
 
-An initContainer seeds the PVC from the image's baked-in poc_data fixtures
-(LOAN_001/002/003, etc.) the FIRST time only — mounting an empty PVC directly
-over that path would otherwise silently hide those fixtures the instant the
-volume is attached, since the mount replaces the container's view of that
-directory entirely.
+There is nothing to seed: the image ships no poc_data (.dockerignore excludes it)
+and tenants start empty, created on first signup. The initContainer only creates
+the tenants root and proves the volume is writable by the app's uid, so a
+permissions problem fails here with a clear message instead of as a 500 on the
+first upload.
 */}}
 {{- define "dgcl.sharedStorageVolume" -}}
 {{- if .Values.sharedStorage.enabled }}
@@ -110,7 +111,7 @@ directory entirely.
 
 {{- define "dgcl.sharedStorageInitContainer" -}}
 {{- if .Values.sharedStorage.enabled }}
-- name: seed-shared-storage
+- name: prepare-shared-storage
   image: {{ include "dgcl.backendImage" . }}
   imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
   command:
@@ -118,15 +119,27 @@ directory entirely.
     - -c
     - |
       set -e
-      if [ -z "$(ls -A /shared 2>/dev/null)" ]; then
-        echo "Shared PVC is empty — seeding from image's built-in poc_data fixtures"
-        cp -a /srv/app/poc_data/. /shared/
-      else
-        echo "Shared PVC already populated — skipping seed"
+      # Probe FIRST: if /shared is unwritable, mkdir would fail with a bare "Permission denied" and this
+      # explanation would never be printed.
+      probe="/shared/.write-probe-$$"
+      if ! touch "$probe" 2>/dev/null; then
+        echo "ERROR: /shared is not writable by uid $(id -u) gid $(id -g)." >&2
+        echo "Fix the PVC/NFS export permissions or set podSecurityContext.fsGroup in values." >&2
+        exit 1
       fi
+      rm -f "$probe"
+      mkdir -p /shared/tenants
+      echo "Shared storage ready (tenant data under /shared/tenants)"
   volumeMounts:
     - name: shared-poc-data
       mountPath: /shared
+{{- end }}
+{{- end -}}
+
+{{- define "dgcl.podSecurityContext" -}}
+{{- with .Values.podSecurityContext }}
+securityContext:
+  {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end -}}
 

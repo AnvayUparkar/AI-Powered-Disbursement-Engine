@@ -4,6 +4,9 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Document uploads (MAX_DOCUMENT_SIZE_MB is 50); nginx's 1m default would 413 anything larger.
+    client_max_body_size 60m;
+
     location /health {
         return 200 "ok\n";
         add_header Content-Type text/plain;
@@ -15,7 +18,14 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
+        # This nginx is the entry point when users come in via NodePort, so it must carry what the
+        # ingress annotations would otherwise enforce: long pipeline runs (/run, /run-ocr) and the
+        # server-sent-events progress stream (/stream) must not be cut at nginx's 60s defaults.
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_buffering off;
     }
 
     location / {

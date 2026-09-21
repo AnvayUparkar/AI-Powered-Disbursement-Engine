@@ -13,10 +13,12 @@ try:
 except Exception:
     pass
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from app.auth import require_tenant
 from idp.api.routes import health, documents
+from config.tenant import UnsafePathError
 from idp.core.config import settings
 from idp.core.exceptions import Node2BaseException
 from idp.core.logging import logger
@@ -59,9 +61,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
+# Include Routers. Document routes require an authenticated tenant (browser session cookie, or the
+# internal token + tenant headers sent by the Celery worker); health stays open. The auth DB schema is
+# created lazily on the first cookie lookup, so a cluster IDP that only sees internal calls never opens it.
 app.include_router(health.router)
-app.include_router(documents.router)
+app.include_router(documents.router, dependencies=[Depends(require_tenant)])
+
+
+@app.exception_handler(UnsafePathError)
+async def unsafe_path_handler(request: Request, exc: UnsafePathError):
+    return JSONResponse(status_code=400, content={"error": "InvalidIdentifier", "message": str(exc)})
 
 
 @app.exception_handler(Node2BaseException)

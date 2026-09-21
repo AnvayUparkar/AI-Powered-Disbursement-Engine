@@ -2,11 +2,14 @@
  * Centralized Type-safe API Client for FastAPI Backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+import { API_BASE_URL } from '@/config';
 
 export interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined | null>;
 }
+
+/** Fired when a data request comes back 401 (session expired / logged out elsewhere). */
+export const UNAUTHORIZED_EVENT = 'auth:unauthorized';
 
 export class ApiError extends Error {
   constructor(
@@ -39,6 +42,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
   const config: RequestInit = {
     method: 'GET',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -55,6 +59,9 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
       errorData = await response.json();
     } catch {
       errorData = await response.text();
+    }
+    if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
     throw new ApiError(response.status, response.statusText, errorData);
   }

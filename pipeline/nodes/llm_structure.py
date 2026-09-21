@@ -1,6 +1,6 @@
 """Node: LLM Structure — Structures raw extracted OCR text via LLM into S3 Extracted Structured tier."""
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from typing import Any, Dict
 
 from config import MAX_DOC_WORKERS, SKIP_IDP

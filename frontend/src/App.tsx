@@ -2,6 +2,8 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { AuthProvider } from '@/context/AuthContext';
+import { useAuth } from '@/context/auth';
 
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const CasesPage = lazy(() => import('@/pages/CasesPage'));
@@ -15,12 +17,20 @@ const HumanReviewPage = lazy(() => import('@/pages/HumanReviewPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const LoginPage = lazy(() => import('@/pages/LoginPage'));
 
 function PageFallback() {
   return <Skeleton className="h-96 w-full" />;
 }
 
-export default function App() {
+function AuthGate() {
+  const { status } = useAuth();
+
+  if (status === 'loading') return <div className="p-6"><PageFallback /></div>;
+  if (status === 'anonymous') {
+    return <Suspense fallback={<PageFallback />}><LoginPage /></Suspense>;
+  }
+
   return (
     <BrowserRouter>
       <Routes>
@@ -42,5 +52,13 @@ export default function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   );
 }

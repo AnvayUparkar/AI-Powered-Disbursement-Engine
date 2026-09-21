@@ -15,7 +15,7 @@ def test_health_endpoint():
 def test_process_document_api():
     payload = {
         "document_id": "TEST-API-999",
-        "s3_key": "raw-documents/loan_agreement.pdf"
+        "s3_key": "t_test/raw-documents/loan_agreement.pdf"
     }
     response = client.post("/api/v1/documents/process", json=payload)
     assert response.status_code == 200

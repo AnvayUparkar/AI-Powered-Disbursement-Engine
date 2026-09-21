@@ -1,3 +1,6 @@
+{{- if gt (int .Values.api.replicaCount) 1 }}
+{{- fail "api.replicaCount must be 1: accounts/sessions are stored in SQLite (see `auth` in values.yaml). Move the auth store to a shared database before scaling the API out." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,6 +9,10 @@ metadata:
     {{- include "dgcl.selectorLabels" (merge (dict "component" "api") .) | nindent 4 }}
 spec:
   replicas: {{ .Values.api.replicaCount }}
+  {{- if .Values.auth.persistence.enabled }}
+  strategy:
+    type: Recreate   # the ReadWriteOnce auth volume cannot be attached by an old and a new pod at once
+  {{- end }}
   selector:
     matchLabels:
       {{- include "dgcl.selectorLabels" (merge (dict "component" "api") .) | nindent 6 }}
@@ -17,6 +24,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "dgcl.serviceAccountName" . }}
+      {{- include "dgcl.podSecurityContext" . | nindent 6 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -41,9 +49,18 @@ spec:
                 name: {{ .Values.secrets.existingSecret }}
           env:
             {{- include "dgcl.redisEnv" . | nindent 12 }}
-          {{- if .Values.sharedStorage.enabled }}
+            {{- if .Values.auth.persistence.enabled }}
+            # Only the api pod owns the auth DB; idp/worker never open it (see app/auth.py).
+            - name: AUTH_DB_PATH
+              value: {{ printf "%s/%s" .Values.auth.mountPath .Values.auth.dbFile | quote }}
+            {{- end }}
+          {{- if or .Values.sharedStorage.enabled .Values.auth.persistence.enabled }}
           volumeMounts:
             {{- include "dgcl.sharedStorageVolumeMount" . | nindent 12 }}
+            {{- if .Values.auth.persistence.enabled }}
+            - name: auth-data
+              mountPath: {{ .Values.auth.mountPath }}
+            {{- end }}
           {{- end }}
           readinessProbe:
             httpGet: { path: /health, port: http }
@@ -55,7 +72,12 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
-      {{- if .Values.sharedStorage.enabled }}
+      {{- if or .Values.sharedStorage.enabled .Values.auth.persistence.enabled }}
       volumes:
         {{- include "dgcl.sharedStorageVolume" . | nindent 8 }}
+        {{- if .Values.auth.persistence.enabled }}
+        - name: auth-data
+          persistentVolumeClaim:
+            claimName: {{ include "dgcl.fullname" . }}-auth-data
+        {{- end }}
       {{- end }}

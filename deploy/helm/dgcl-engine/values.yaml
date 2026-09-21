@@ -1,3 +1,28 @@
+# =============================================================================
+# DGCL Engine values.  THIS IS THE FILE TO EDIT: copy it to values-airgap.yaml, fill in the lines marked
+# ">>> FILL IN", and install with:
+#     helm upgrade --install dgcl charts/dgcl-engine-<version>.tgz -n dgcl -f values-airgap.yaml
+#
+# MUST FILL IN (search this file for ">>> FILL IN"):
+#   1. global.imageRegistry                     the internal registry the images were pushed to
+#   2. sharedStorage.storageClassName           a ReadWriteMany class (NFS / CephFS)
+#   3. How users reach the UI. Default: NodePort 47777 on the frontend Service, NO ingress, plain http:
+#        http://<any-node-ip>:47777     (the cluster must allow nodePort 47777, see frontend.service below)
+#      and config.SESSION_COOKIE_SECURE stays "false" (a Secure cookie is never sent over http, so login
+#      would silently do nothing). To use an Ingress with TLS instead: ingress.enabled: true, fill in
+#      ingress.host and ingress.tls.secretName, set frontend.service.type: ClusterIP and
+#      config.SESSION_COOKIE_SECURE: "true".
+#   4. config.ALLOWED_ORIGINS / FRONTEND_ORIGIN  the URL users type, e.g. http://<node-ip>:47777
+#   5. config.LLM_BASE_URL                      the LiteLLM gateway (LLM_MODEL is already set to
+#      anthropic.claude-3-haiku-20240307-v1:0; change it only if LiteLLM lists a different name)
+#      (config.VLM_* only matters if config.VLM_ENABLED is "True")
+# Also required but NOT in this file: the namespace and three Kubernetes Secrets (INSTALL.md, step 3).
+#
+# LEAVE ALONE unless you know why; changing these breaks the deployment:
+#   api.replicaCount (must be 1), redis.image.tag (must equal the pushed image's tag), image.*.tag,
+#   podSecurityContext, config.DOCLING_ARTIFACTS_PATH / HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE.
+# =============================================================================
+
 # Default values for dgcl-engine. Override per environment with
 # `helm install -f values-staging.yaml` / `-f values-prod.yaml` / `-f values-poc.yaml`.
 #
@@ -11,10 +36,9 @@
 #   - global.imageRegistry — your internal registry host (images are docker
 #     save/load'd from tar and pushed here; no Docker Hub/Bitnami reachability
 #     assumed). See deploy/helm/README.md "Airgapped delivery".
-#   - redis.image.registry / redis.image.repository below — the Bitnami
-#     subchart's image is a SEPARATE pull from your own images and needs its
-#     own retag+push into the same internal registry; overriding
-#     global.imageRegistry alone does NOT cover it.
+#   - The Redis image is <global.imageRegistry>/bitnami/redis:<redis.image.tag>: global.imageRegistry
+#     already covers it (verified by installing from the bundle), so it only has to be pushed there
+#     under that exact name (scripts/load-and-push-images.sh does this).
 #   - ingress.className, ingress.host, ingress.tls.secretName — confirm the
 #     actual ingress controller installed on this cluster (nginx assumed).
 #   - secrets.existingSecret / redis.auth.existingSecret — created out of
@@ -26,8 +50,8 @@
 #     needs to survive a restart.
 
 global:
-  environment: production
-  imageRegistry: "<internal-registry>" # e.g. registry.internal.example.com — confirm real host
+  environment: uat
+  imageRegistry: "<internal-registry>" # >>> FILL IN: e.g. registry.internal.example.com
   # The Bitnami redis subchart reads this SAME global.imageRegistry and
   # applies it to every one of its own component images (redis, sentinel,
   # exporter, os-shell, kubectl) automatically — no separate override needed
@@ -59,6 +83,17 @@ image:
     tag: "v1.0.0"
     pullPolicy: IfNotPresent
 
+# Pod-level securityContext for api/idp/worker. The image runs as uid 10001; fsGroup makes mounted
+# volumes group-writable for it on CSI drivers that honour it (block storage, most CephFS). Plain NFS
+# exports ignore fsGroup — there, fix the export's ownership/permissions instead. The
+# prepare-shared-storage initContainer fails with a clear message if the volume is not writable.
+podSecurityContext:
+  # Numeric uid/gid: the image's `USER appuser` is by name, which the kubelet cannot verify under a
+  # runAsNonRoot policy, so the container would be refused. Must match the uid in docker/Dockerfile.backend.
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
 imagePullSecrets: []
 # If the internal registry requires basic-auth/token pulls, create a
 # `kubernetes.io/dockerconfigjson` secret out of band and list its name here
@@ -77,7 +112,10 @@ serviceAccount:
 # FastAPI backend (app/main.py, :8000) — the API + review UI backend.
 # ---------------------------------------------------------------------------
 api:
-  replicaCount: 2
+  # MUST stay 1 for now: accounts/sessions live in a SQLite file (see `auth` below), which supports one
+  # writer pod. The chart refuses to render with more than 1 replica. Scaling the API out first needs the
+  # auth store moved to a shared database (e.g. Postgres) — a code change, not a values change.
+  replicaCount: 1
   port: 8000
   service:
     # NodePort is IN ADDITION to the Ingress above, not a replacement for it
@@ -86,19 +124,44 @@ api:
     type: ClusterIP
     nodePort: null # e.g. 30800 — required if type: NodePort; also needs its own firewall/NetworkPolicy allow
   command: ["uvicorn"]
-  args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+  # ONE uvicorn worker on purpose: the document registry and case cache are per-process memory, so with
+  # two workers a document registered by one can be missing from a listing served by the other. This
+  # also halves memory (importing app.main alone peaks near 380MiB per process).
+  args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+  # /run, /run-ocr and /stream run the whole LangGraph pipeline (LLM + IDP calls) inside this pod, so it
+  # is sized for that, not for a thin API. Placeholder sizing: load-test before UAT sign-off.
   resources:
-    requests: { cpu: 250m, memory: 512Mi }
-    limits: { cpu: "1", memory: 1Gi }
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 2Gi }
 
   autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 6
+    enabled: false   # see replicaCount above
+    minReplicas: 1
+    maxReplicas: 1
     targetCPUUtilizationPercentage: 70
   podDisruptionBudget:
-    enabled: true
+    enabled: false   # a PDB on a single replica would block node drains
     minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# Accounts and sessions (username/password signup; app/auth.py). Every signup gets its own isolated
+# workspace under poc_data/tenants/<tenant_id>/ on the shared volume (sharedStorage below).
+#
+# The user/session database is a SQLite file. SQLite needs real POSIX file locking, which NFS/CephFS
+# (the RWX shared volume) do not reliably provide, so it gets its OWN small ReadWriteOnce volume mounted
+# only on the api pod. Because an RWO volume attaches to one node, the api Deployment uses the Recreate
+# strategy (a brief blip on each upgrade) and is limited to 1 replica.
+#
+# If persistence is disabled the DB lands on the shared RWX volume instead — acceptable for a throwaway
+# demo, but lock errors are possible and it must never run with more than one api pod.
+# ---------------------------------------------------------------------------
+auth:
+  persistence:
+    enabled: true
+    storageClassName: ""   # empty = the cluster's default block StorageClass; must support ReadWriteOnce
+    size: 1Gi
+  mountPath: /srv/auth
+  dbFile: auth.db
 
 # ---------------------------------------------------------------------------
 # IDP microservice (idp/main.py, :8001) — Docling/OCR/VLM. CPU + memory heavy
@@ -107,6 +170,8 @@ api:
 idp:
   replicaCount: 2
   port: 8001
+  # Model-load allowance before liveness applies: startupFailureThreshold x 10s (60 = 10 minutes).
+  startupFailureThreshold: 60
   command: ["uvicorn"]
   args: ["idp.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
   resources:
@@ -127,7 +192,7 @@ idp:
   # ---------------------------------------------------------------------
   # GPU acceleration. Only idp benefits from a GPU (Docling layout/TableFormer
   # are torch, RapidOCR's CUDA execution provider is opt-in via
-  # onnxruntime-gpu) — see idp/services/docling/accelerator.py. api/worker/
+  # onnxruntime-gpu). api/worker/
   # frontend never look at this block. Requires:
   #   1. A GPU-equipped node group in the cluster
   #   2. The NVIDIA device plugin DaemonSet installed on the cluster so
@@ -183,8 +248,11 @@ frontend:
   replicaCount: 2
   port: 8080
   service:
-    type: ClusterIP
-    nodePort: null # e.g. 30880 — required if type: NodePort
+    # Entry point for users: nginx serves the UI and proxies /api to the API pod. 47777 is outside
+    # Kubernetes' default nodePort range (30000-32767); the cluster's --service-node-port-range must include
+    # it (the LiteLLM UAT setup already uses 47777). Traffic is plain http: keep this on an internal network.
+    type: NodePort
+    nodePort: 47777
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 250m, memory: 128Mi }
@@ -206,7 +274,7 @@ frontend:
 # ---------------------------------------------------------------------------
 sharedStorage:
   enabled: true
-  storageClassName: "<rwx-storage-class>" # placeholder — confirm the platform team's RWX-capable StorageClass name
+  storageClassName: "<rwx-storage-class>" # >>> FILL IN: a ReadWriteMany-capable StorageClass
   size: 15Gi # POC-scale estimate (see README) — confirm allowVolumeExpansion on the StorageClass before treating this as fixed
 
 # ---------------------------------------------------------------------------
@@ -226,6 +294,16 @@ redis:
   # image:
   #   registry: "<internal-registry>"
   #   repository: "mirror/redis"  # only if your mirror doesn't keep the bitnami/redis path
+  # The subchart defaults to tag "latest", which is never what gets pushed to an internal registry.
+  # Pinned to the subchart's appVersion (charts/redis-28.2.1.tgz) and to the tag deploy/helm/README.md
+  # retags/pushes. Bump both together when the vendored chart is upgraded.
+  image:
+    tag: "8.10.2"
+  # The subchart ships its own NetworkPolicy named <release>-redis that admits any source on 6379 and
+  # allows all egress. It collides by name with this chart's restricted <release>-redis policy
+  # (templates/networkpolicy.yaml: api, worker and idp only), so it is turned off here.
+  networkPolicy:
+    enabled: false
   auth:
     enabled: true
     existingSecret: "dgcl-engine-redis-auth"
@@ -253,25 +331,38 @@ config:
   ENVIRONMENT: "production"
   LOG_LEVEL: "INFO"
   DEBUG: "False"
-  ALLOWED_ORIGINS: "https://dgcl.example.internal"
-  FRONTEND_ORIGIN: "https://dgcl.example.internal"
+  ALLOWED_ORIGINS: "http://<node-ip>:47777"   # >>> FILL IN: the URL users type (scheme + host + port)
+  FRONTEND_ORIGIN: "http://<node-ip>:47777"   # >>> FILL IN: same URL as ALLOWED_ORIGINS
   USE_EQUAL_FIELD_WEIGHTS: "false"
   SKIP_IDP: "false"
-  GEMINI_MODEL: "gemini-3.6-flash"
-  GEMINI_TEMPERATURE: "0.0"
-  LLM_MODEL: "google/gemini-2.5-flash-lite"
+  # LLM + VLM calls go through the self-hosted LiteLLM gateway (OpenAI-compatible).
+  # *_MODEL must be a model_name alias defined in the LiteLLM config.
+  LLM_BASE_URL: "https://tsguat1.hdbfs.com:560/v1"   # >>> FILL IN (confirm): the LiteLLM gateway URL, ending in /v1
+  LLM_MODEL: "anthropic.claude-3-haiku-20240307-v1:0"   # exact model name LiteLLM lists for this key (GET /v1/models); Claude 3 Haiku on Bedrock
   OCR_ENGINE: "docling_ocr"
   OCR_MODEL: "PP-OCRv6_medium"
   OCR_CONFIDENCE_THRESHOLD: "0.70"
   MAX_DOCUMENT_SIZE_MB: "50"
   TEMP_DIR: "/tmp/node2_idp"
   VLM_ENABLED: "False"
-  VLM_PROVIDER: "gemini"
+  VLM_PROVIDER: "openai"  # OpenAI-compatible protocol, served by LiteLLM via VLM_BASE_URL
+  VLM_BASE_URL: "https://tsguat1.hdbfs.com:560/v1"   # >>> FILL IN (confirm; only used if VLM_ENABLED is "True")
+  VLM_MODEL: "REPLACE_WITH_LITELLM_VISION_MODEL_ALIAS"  # >>> FILL IN (only if VLM_ENABLED is "True"): a vision-capable alias
   MAX_DOC_WORKERS: "4"
-  IDP_SERVICE_URL: "http://dgcl-engine-idp:8001"
+  # IDP_SERVICE_URL is NOT set here: templates/configmap.yaml derives it from the release name
+  # (http://<release>-idp:<idp.port>), because the Service is named after the release. Hard-coding it broke
+  # every install not named exactly "dgcl-engine". Set config.IDP_SERVICE_URL only to override it.
   IDP_REQUEST_TIMEOUT: "300"
   USE_REMOTE_IDP: "true"
-  DOCLING_OFFLINE: "true"
+  # Fully offline model loading. DOCLING_ARTIFACTS_PATH is Docling's own setting and must match where
+  # docker/Dockerfile.backend bakes the weights (scripts/download_models.py). The chart previously set
+  # DOCLING_OFFLINE, which nothing reads.
+  DOCLING_ARTIFACTS_PATH: "/opt/models/docling"
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  # The session cookie is only sent over HTTPS when true. "false" because the default access path is plain-http
+  # NodePort; set "true" only when users reach the app over HTTPS (ingress with TLS, or a TLS-terminating LB).
+  SESSION_COOKIE_SECURE: "false"
   # No AWS_REGION/S3_BUCKET/*_PREFIX set on purpose — object storage isn't
   # used for this deployment. idp/services/storage/s3.py's boto3 client
   # already falls back to a local filesystem mock (under TEMP_DIR/s3_mock/)
@@ -287,23 +378,35 @@ config:
 # ---------------------------------------------------------------------------
 secrets:
   existingSecret: "dgcl-engine-secrets"
-  # Expected keys inside that Secret: GEMINI_API_KEY, LLM_API_KEY, VLM_API_KEY.
+  # Expected keys inside that Secret: LLM_API_KEY, VLM_API_KEY (LiteLLM virtual keys), and
+  # INTERNAL_API_TOKEN — a long random string shared by api, idp and worker, used for their
+  # service-to-service calls (worker/pipeline -> idp). Generate one with `openssl rand -hex 32`.
+  # If it is missing, each process falls back to a token file on the shared volume, which only works
+  # while sharedStorage.enabled is true; set it explicitly.
   # No AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY — object storage isn't used
   # for this deployment (see the `config` block above). Add that pair back
   # here if real S3/object storage is introduced later.
 
 ingress:
-  enabled: true
+  # Off by default: users reach the UI through frontend.service (NodePort). The proxy* limits below only
+  # apply if you enable the ingress; with NodePort the same limits live in the frontend image's nginx.
+  enabled: false
   # "nginx" is this platform's actual convention (see the LiteLLM UAT values
   # this was cross-checked against) — confirm the IngressClass installed on
   # this cluster. "alb" (AWS ALB-specific annotations, scheme/certificateArn
   # below) does not apply here — this is a non-AWS cluster — kept only in
   # case a future connected/AWS environment reuses this same chart.
   className: nginx
-  host: "dgcl.internal.example.com" # placeholder — confirm real FQDN
+  # nginx-ingress defaults (1m body, 60s read) reject document uploads and cut long pipeline/SSE requests.
+  proxyBodySize: "60m"          # above MAX_DOCUMENT_SIZE_MB (50)
+  # /run, /run-ocr and /stream execute the whole pipeline inside the API request (IDP_REQUEST_TIMEOUT is
+  # 300s per document), so a multi-document run can exceed the 60s nginx default several times over.
+  proxyReadTimeoutSeconds: 600
+  proxyBuffering: "off"         # required for the server-sent-events progress stream (/api/cases/{id}/stream)
+  host: "dgcl.internal.example.com" # >>> FILL IN (only if ingress.enabled: true): the real hostname
   tls:
     enabled: true
-    secretName: "dgcl-engine-tls" # placeholder — confirm cert-manager Issuer or pre-created cert/key secret
+    secretName: "dgcl-engine-tls" # >>> FILL IN (only if ingress.enabled: true): TLS secret name in the namespace
   # --- only used when className: alb ---
   scheme: internal   # internal ALB — cluster is only reachable via the jump server/VPN
   certificateArn: "" # ACM cert ARN, e.g. arn:aws:acm:ap-south-1:...:certificate/...

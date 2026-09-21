@@ -12,8 +12,6 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    DOCLING_OFFLINE=true \
-    DOCLING_ARTIFACTS_PATH=/opt/models/docling \
     IDP_ACCELERATOR_DEVICE=cuda \
     DEBIAN_FRONTEND=noninteractive
 
@@ -39,15 +37,21 @@ COPY requirements.txt .
 RUN sed 's/^onnxruntime>=/onnxruntime-gpu>=/' requirements.txt > requirements-gpu.txt \
     && pip install --no-cache-dir -r requirements-gpu.txt
 
+# Bake model weights at BUILD time (see docker/Dockerfile.backend for the full rationale), before
+# `COPY . .` so code changes reuse the cached layer.
 COPY scripts/download_models.py scripts/download_models.py
-COPY idp/services/docling/model_store.py idp/services/docling/model_store.py
-RUN mkdir -p idp/services/docling && touch idp/__init__.py idp/services/__init__.py idp/services/docling/__init__.py
+RUN python scripts/download_models.py --dest /opt/models/docling \
+    && chmod -R a+rX /opt/models
+
+# Runtime is fully offline; set after the download step, which needs the network.
+ENV DOCLING_ARTIFACTS_PATH=/opt/models/docling \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 COPY . .
-RUN python scripts/download_models.py --dest /opt/models/docling
 
 RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /srv/app /opt/models
+    && chown -R appuser:appuser /srv/app
 USER appuser
 
 EXPOSE 8001

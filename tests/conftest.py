@@ -1,6 +1,70 @@
+import os
+import tempfile
+
+# Keep the auth database out of the repo's poc_data during test runs (must precede config imports).
+os.environ.setdefault("AUTH_DB_PATH", os.path.join(tempfile.mkdtemp(prefix="dgcl_test_auth_"), "auth.db"))
+
 import pytest
 
+from config.paths import POC_DATA_DIR
+from config.tenant import set_tenant, reset_tenant
 from pipeline.state import PipelineState
+
+DEFAULT_TEST_TENANT = "t_test"
+_TENANT_TIERS = (
+    "los", "dms", "s3_los", "s3_raw", "s3_extracted", "s3_extracted_structured", "s3_result",
+)
+
+
+@pytest.fixture(scope="session")
+def _shared_tenants_root(tmp_path_factory):
+    """Tenant root whose default test tenant maps onto the existing poc_data tiers (legacy fixtures)."""
+    root = tmp_path_factory.mktemp("tenants")
+    tenant_dir = root / DEFAULT_TEST_TENANT
+    tenant_dir.mkdir()
+    for tier in _TENANT_TIERS:
+        POC_DATA_DIR.joinpath(tier).mkdir(parents=True, exist_ok=True)
+        os.symlink(POC_DATA_DIR / tier, tenant_dir / tier)
+    return root
+
+
+@pytest.fixture(autouse=True)
+def _default_tenant(_shared_tenants_root, monkeypatch, request):
+    """Run every test as a default tenant unless it opts out with @pytest.mark.no_default_tenant."""
+    monkeypatch.setattr("config.tenant.TENANTS_ROOT", _shared_tenants_root)
+    if "no_default_tenant" in request.keywords:
+        yield
+        return
+    token = set_tenant(DEFAULT_TEST_TENANT)
+    try:
+        yield
+    finally:
+        reset_tenant(token)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_auth(request):
+    """API tests act as the default tenant; @pytest.mark.real_auth exercises the real login flow."""
+    if "real_auth" in request.keywords:
+        yield
+        return
+    from app.auth import require_tenant
+    from app.main import app as api_app
+
+    async def _as_default_tenant():
+        set_tenant(DEFAULT_TEST_TENANT)
+        return DEFAULT_TEST_TENANT
+
+    from idp.main import app as idp_app
+
+    apps = (api_app, idp_app)
+    for a in apps:
+        a.dependency_overrides[require_tenant] = _as_default_tenant
+    try:
+        yield
+    finally:
+        for a in apps:
+            a.dependency_overrides.pop(require_tenant, None)
 
 
 @pytest.fixture

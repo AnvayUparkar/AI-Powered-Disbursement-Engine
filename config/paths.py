@@ -2,6 +2,8 @@
 from datetime import timedelta, timezone
 from pathlib import Path
 
+from config.tenant import TenantPath
+
 # Indian Standard Time (IST, UTC+05:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -9,36 +11,31 @@ IST = timezone(timedelta(hours=5, minutes=30))
 BASE_DIR = Path(__file__).resolve().parent.parent
 POC_DATA_DIR = BASE_DIR / "poc_data"
 
+# Per-tenant storage tiers: each resolves to poc_data/tenants/<tenant_id>/<subdir> for the
+# tenant bound to the current request/task (see config/tenant.py). They are never shared.
+
 # LOS Storage Tiers
-LOS_DIR = POC_DATA_DIR / "los"
-LOS_LOANS_DIR = LOS_DIR / "loans"
-LOS_RECEIVED_DIR = LOS_DIR / "scorecards_received"
+LOS_DIR = TenantPath("los")
+LOS_LOANS_DIR = TenantPath("los/loans")
+LOS_RECEIVED_DIR = TenantPath("los/scorecards_received")
 
 # DMS Source Tier
-DMS_DIR = POC_DATA_DIR / "dms"
+DMS_DIR = TenantPath("dms")
 
 # Pipeline S3 Storage Tiers
-S3_LOS_DIR = POC_DATA_DIR / "s3_los"
-S3_RAW_DIR = POC_DATA_DIR / "s3_raw"
-S3_EXTRACTED_DIR = POC_DATA_DIR / "s3_extracted"
-S3_EXTRACTED_STRUCTURED_DIR = POC_DATA_DIR / "s3_extracted_structured"
-S3_RESULT_DIR = POC_DATA_DIR / "s3_result"
+S3_LOS_DIR = TenantPath("s3_los")
+S3_RAW_DIR = TenantPath("s3_raw")
+S3_EXTRACTED_DIR = TenantPath("s3_extracted")
+S3_EXTRACTED_STRUCTURED_DIR = TenantPath("s3_extracted_structured")
+S3_RESULT_DIR = TenantPath("s3_result")
 
 # Trusted Root Certificates (Indian CCA & PKI)
 TRUSTED_ROOTS_DIR = BASE_DIR / "config" / "trusted_roots"
 
-# Ensure canonical directory structures exist
+# Ensure shared (non-tenant) directory structures exist. Tenant directories are created lazily
+# on first access by TenantPath.
 for d in (
     POC_DATA_DIR,
-    LOS_DIR,
-    LOS_LOANS_DIR,
-    LOS_RECEIVED_DIR,
-    DMS_DIR,
-    S3_LOS_DIR,
-    S3_RAW_DIR,
-    S3_EXTRACTED_DIR,
-    S3_EXTRACTED_STRUCTURED_DIR,
-    S3_RESULT_DIR,
     TRUSTED_ROOTS_DIR,
 ):
     d.mkdir(parents=True, exist_ok=True)

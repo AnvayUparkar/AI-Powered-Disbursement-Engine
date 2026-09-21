@@ -93,7 +93,7 @@ def test_api_run_case_async_mode_enqueues_celery(monkeypatch):
     data = response.json()
     assert data["status"] == "queued"
     assert data["task_id"] == "test-task-uuid-1234"
-    mock_delay.assert_called_once_with("LOAN_001")
+    mock_delay.assert_called_once_with("LOAN_001", "t_test")
 
 
 def test_docling_multi_key_cache():

@@ -4,12 +4,15 @@ import os
 import sys
 import time
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.auth import init_db, require_tenant
+from app.routers import auth as auth_router
 from app.routers import cases, dashboard_reports, documents, loans, reviews
 from idp.api.routes import documents as idp_documents
+from config.tenant import UnsafePathError
 from idp.core.exceptions import Node2BaseException
 
 
@@ -74,6 +77,11 @@ async def log_requests_middleware(request: Request, call_next):
     return response
 
 
+@app.exception_handler(UnsafePathError)
+async def unsafe_path_handler(request: Request, exc: UnsafePathError):
+    return JSONResponse(status_code=400, content={"error": "InvalidIdentifier", "message": str(exc)})
+
+
 @app.exception_handler(Node2BaseException)
 async def node2_exception_handler(request: Request, exc: Node2BaseException):
     root_logger.error(f"Node2BaseException caught in main app: {exc.message}")
@@ -87,15 +95,22 @@ async def node2_exception_handler(request: Request, exc: Node2BaseException):
     )
 
 
-app.include_router(loans.router)
-app.include_router(cases.router)
-app.include_router(reviews.router)
-app.include_router(documents.router)
-app.include_router(dashboard_reports.router)
-app.include_router(idp_documents.router)
+init_db()
+
+# Every data router requires an authenticated tenant; /health and /api/auth/* stay open.
+_tenant_scoped = [Depends(require_tenant)]
+
+app.include_router(auth_router.router)
+app.include_router(loans.router, dependencies=_tenant_scoped)
+app.include_router(cases.router, dependencies=_tenant_scoped)
+app.include_router(reviews.router, dependencies=_tenant_scoped)
+app.include_router(documents.router, dependencies=_tenant_scoped)
+app.include_router(dashboard_reports.router, dependencies=_tenant_scoped)
+app.include_router(idp_documents.router, dependencies=_tenant_scoped)
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"], include_in_schema=False)
 def health_check():
     return {"status": "ok", "service": "disbursement-scorecard-poc"}
 

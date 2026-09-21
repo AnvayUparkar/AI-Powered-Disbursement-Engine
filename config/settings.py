@@ -1,5 +1,8 @@
 """Application and verification settings — thresholds, algorithms, and API configuration."""
 import os
+import secrets
+import time
+from pathlib import Path
 from dotenv import load_dotenv
 from config.paths import BASE_DIR
 
@@ -62,3 +65,37 @@ USE_REMOTE_IDP = os.getenv("USE_REMOTE_IDP", "true").lower() in ("true", "1", "y
 ENABLE_SCAN_PREPROCESSING = os.getenv("ENABLE_SCAN_PREPROCESSING", "true").lower() in ("true", "1", "yes")
 
 
+# Multi-tenant authentication (username/password signup, cookie sessions)
+AUTH_DB_PATH = os.getenv("AUTH_DB_PATH") or str(BASE_DIR / "poc_data" / "auth.db")
+SESSION_TTL_HOURS = float(os.getenv("SESSION_TTL_HOURS", "168"))  # 7 days
+# Set true when the app is served over HTTPS; leave false for plain-http airgapped POCs.
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+
+
+def _load_or_create_internal_token(path: Path) -> str:
+    """Shared secret file so the API, worker and IDP processes agree without manual setup.
+
+    Created atomically (O_EXCL) with owner-only permissions; concurrent starters read the winner's value.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        for _ in range(40):
+            token = path.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+            time.sleep(0.05)
+        raise RuntimeError(f"Internal token file {path} exists but is empty")
+    token = secrets.token_urlsafe(32)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(token)
+    return token
+
+
+# Shared secret for service-to-service calls (Celery worker / pipeline -> IDP service). Must be identical in
+# the API, worker and IDP processes. Set INTERNAL_API_TOKEN explicitly in deployed environments (e.g. from a
+# Kubernetes secret); otherwise a random one is generated once into poc_data/.internal_token.
+INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN") or _load_or_create_internal_token(
+    BASE_DIR / "poc_data" / ".internal_token"
+)

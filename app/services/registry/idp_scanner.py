@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Set
 
 from datetime import datetime
 from config import IST
+from config.tenant import current_tenant_id
 from idp.core.config import settings as idp_settings
 
 logger = logging.getLogger("disbursement_pipeline.document_registry.idp_scanner")
@@ -21,7 +22,7 @@ def scan_idp_parsed_storage(
     and register them via the provided callback.
     """
     try:
-        base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET
+        base_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / current_tenant_id()
         parsed_dir = base_dir / idp_settings.PARSED_DOCUMENT_PREFIX
         raw_dir = base_dir / idp_settings.RAW_DOCUMENT_PREFIX
 

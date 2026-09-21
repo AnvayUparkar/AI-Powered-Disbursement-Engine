@@ -9,9 +9,11 @@
 
 api:
   replicaCount: 1
+  # The API pod runs the whole pipeline in-process (/run, /run-ocr, /stream), so even the POC needs
+  # headroom over a thin API: importing app.main alone peaks near 380MiB.
   resources:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: 500m, memory: 512Mi }
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1536Mi }
   autoscaling:
     enabled: false
   podDisruptionBudget:
@@ -60,6 +62,9 @@ networkPolicy:
   enabled: false   # simplify first pass; re-enable once the POC works end-to-end
 
 config:
+  # The POC ingress may be plain http; a Secure cookie would never be sent back and login would loop.
+  # Set back to "true" as soon as TLS is on.
+  SESSION_COOKIE_SECURE: "false"
   ENVIRONMENT: "poc"
   APP_ENV: "poc"
   DEBUG: "True"

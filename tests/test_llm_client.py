@@ -75,3 +75,34 @@ def test_invoke_llm_missing_api_key_raises():
             api_key="",
             model="gemini-1.5-flash",
         )
+
+
+def test_detect_provider_base_url_overrides_gemini_heuristics():
+    litellm_url = "https://litellm.internal.example.com"
+    # Gateway aliases containing 'gemini' or Google-style keys must not bypass the base URL
+    assert detect_provider("gemini-1.5-flash", "sk-litellm-key", litellm_url) == "openai_compatible"
+    assert detect_provider("gemini-2.0-flash", "AIzaSyFake", litellm_url) == "openai_compatible"
+    assert detect_provider("gpt-4o", "sk-litellm-key", litellm_url) == "openai_compatible"
+    # Empty / whitespace-free absence of base URL keeps native Gemini routing
+    assert detect_provider("gemini-1.5-flash", "sk-custom", "") == "gemini"
+    assert detect_provider("gemini-1.5-flash", "sk-custom", None) == "gemini"
+
+
+def test_invoke_llm_gemini_alias_with_base_url_uses_litellm_endpoint():
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"choices": [{"message": {"content": '{"ok": true}'}}]}
+
+    with patch("httpx.Client.post", return_value=mock_response) as mock_post, \
+            patch("pipeline.engines.llm_client._invoke_gemini") as mock_gemini:
+        result = invoke_llm_json(
+            system_prompt="sys",
+            user_prompt="user",
+            model="gemini-1.5-flash",
+            api_key="sk-litellm-key",
+            base_url="https://litellm.internal.example.com",
+        )
+
+    assert result == {"ok": True}
+    mock_gemini.assert_not_called()
+    assert mock_post.call_args.args[0] == "https://litellm.internal.example.com/chat/completions"

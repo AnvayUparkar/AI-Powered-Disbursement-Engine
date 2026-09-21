@@ -1,6 +1,6 @@
 """Pipeline graph definition — LangGraph orchestration for disbursement verification."""
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from typing import Any, Dict, Iterator, List
 
 from langgraph.graph import END, StateGraph

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.services.document_registry import document_registry
 from config import DMS_DIR, S3_RAW_DIR
+from config.tenant import current_tenant_id
 
 logger = logging.getLogger("disbursement_pipeline.api.documents")
 
@@ -112,7 +113,7 @@ def preview_document(
         if not target_path:
             try:
                 from idp.core.config import settings as idp_settings
-                idp_raw_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / idp_settings.RAW_DOCUMENT_PREFIX
+                idp_raw_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / current_tenant_id() / idp_settings.RAW_DOCUMENT_PREFIX
                 if idp_raw_dir.exists():
                     clean_doc_stem = Path(doc_name).stem.lower()
                     for raw_f in idp_raw_dir.iterdir():

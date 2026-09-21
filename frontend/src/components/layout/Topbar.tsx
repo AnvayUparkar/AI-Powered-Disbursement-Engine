@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Search, Menu, Activity } from 'lucide-react';
+import { Search, Menu, Activity, LogOut } from 'lucide-react';
 import { useDebounced } from '@/hooks/useDebounced';
 import { useNavigate } from 'react-router-dom';
 import { node2Api } from '@/api/node2';
+import { useAuth } from '@/context/auth';
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
   const [q, setQ] = useState('');
   const [node2Status, setNode2Status] = useState<'connected' | 'offline' | 'checking'>('checking');
   const debounced = useDebounced(q, 350);
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     node2Api
@@ -64,6 +66,17 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             Node 2 IDP: {node2Status === 'connected' ? 'Connected' : node2Status === 'offline' ? 'Offline' : 'Connecting...'}
           </span>
         </div>
+
+        {user && (
+          <div className="flex items-center gap-1 pl-2 border-l border-ink-200">
+            <span className="hidden sm:inline text-sm text-ink-600 max-w-[10rem] truncate" title={user.username}>
+              {user.username}
+            </span>
+            <button onClick={() => void logout()} className="btn-ghost px-2 py-1.5" aria-label="Sign out" title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

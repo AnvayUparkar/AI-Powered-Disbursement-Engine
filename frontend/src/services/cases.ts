@@ -1,6 +1,7 @@
 import type { Case, CaseStatus, RiskLevel } from '@/types';
 import { cases as mockCases } from '@/mock';
 import { apiClient } from './apiClient';
+import { API_BASE_URL } from '@/config';
 
 export interface CaseFilters {
   query?: string;
@@ -128,9 +129,8 @@ export const casesService = {
     onEvent: (evt: import('@/types').PipelineEvent) => void,
     onError?: (err: any) => void,
   ): () => void {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
-    const url = `${baseUrl}/cases/${caseId}/stream`;
-    const eventSource = new EventSource(url);
+    const url = `${API_BASE_URL}/cases/${caseId}/stream`;
+    const eventSource = new EventSource(url, { withCredentials: true });
 
     eventSource.onmessage = (e) => {
       try {

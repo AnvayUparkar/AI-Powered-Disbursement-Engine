@@ -50,11 +50,14 @@ def detect_provider(
     if "openrouter.ai" in url_str or key_str.startswith("sk-or-"):
         return "openrouter"
 
-    if key_str.startswith("AQ.") or key_str.startswith("AIza") or "gemini" in model_str:
-        return "gemini"
-
+    # An explicit base URL (e.g. a self-hosted LiteLLM proxy) always wins over
+    # model/key heuristics, so gateway aliases like 'gemini-1.5-flash' are not
+    # diverted to the native Gemini client.
     if url_str:
         return "openai_compatible"
+
+    if key_str.startswith("AQ.") or key_str.startswith("AIza") or "gemini" in model_str:
+        return "gemini"
 
     # If model has provider prefix like 'deepseek/deepseek-chat' default to openrouter
     if "/" in model:

@@ -44,7 +44,7 @@ Phase 1-3 of that plan land.
                               └──────────────────────┘
                                               │
                                               ▼
-                                       Gemini/OpenRouter
+                                       LiteLLM gateway
                                      (egress, if permitted —
                                       confirm the firewall rule)
 ```
@@ -59,8 +59,8 @@ Phase 1-3 of that plan land.
   build machine with internet access (see §2).
 - Outbound firewall rule for the LLM provider's API host(s), if the cluster
   has any egress at all — confirm with the platform team whether this
-  airgapped cluster permits any egress, or whether Gemini/OpenRouter calls
-  need to go through an internal proxy instead.
+  airgapped cluster permits any egress, or whether calls to the LiteLLM
+  gateway (`tsguat1.hdbfs.com:560`) need to go through an internal proxy instead.
 - **A StorageClass that supports ReadWriteMany (RWX)** — required for the
   shared document volume in §3a. This is the one prerequisite most likely to
   need a real conversation with the platform team rather than a quick
@@ -111,51 +111,49 @@ connected registry — Harbor, Nexus, a plain Docker registry — the same
 `docker build`/`docker push` pair from the build step below works directly
 against it; skip the save/transfer/load steps in that case.)
 
-**On a machine WITH internet access** (a build box, laptop, or CI runner — not the jump server):
+**On a machine WITH internet access** (a build box, laptop, or CI runner — not the jump server), run the
+bundle builder from the repo root. It builds every image for **linux/amd64**, packages the chart, and writes
+`../airgap-bundle/` with checksums, a manifest and the load/verify scripts:
 
 ```bash
-export TAG=v1.0.0   # pin a real, meaningful tag — never "latest" for an airgapped rollout
-
-docker build -f docker/Dockerfile.backend  -t dgcl-engine-backend:$TAG  .
-docker build -f docker/Dockerfile.frontend -t dgcl-engine-frontend:$TAG .
-# Only if idp.gpu.enabled (§5a):
-docker build -f docker/Dockerfile.backend-gpu -t dgcl-engine-backend-gpu:$TAG .
-
-# This repo doesn't build the Bitnami redis image — pull once here so it
-# can be transferred and retagged the same way as our own images.
-docker pull bitnami/redis:8.10.2   # match the app version the vendored chart pins — check charts/redis-*.tgz's appVersion (8.10.2, at time of writing)
-
-docker save dgcl-engine-backend:$TAG  -o dgcl-engine-backend.tar
-docker save dgcl-engine-frontend:$TAG -o dgcl-engine-frontend.tar
-docker save bitnami/redis:8.10.2       -o bitnami-redis.tar
-# docker save dgcl-engine-backend-gpu:$TAG -o dgcl-engine-backend-gpu.tar   # if using GPU
+deploy/airgap/build-bundle.sh            # podman or docker, auto-detected; ~1h under emulation on Apple Silicon
+cd .. && zip -r -X dgcl-engine-airgap-bundle.zip airgap-bundle && shasum -a 256 dgcl-engine-airgap-bundle.zip
 ```
 
-**Transfer** `*.tar` (plus the packaged chart, see §2b below) across the airgap via
-your org's approved transfer process — this is a compliance/process step
-outside what any command here can automate.
-
-**On the jump server / a host with access to the internal registry:**
+The list of images is taken from the chart itself (`helm template`), so the bundle cannot miss one the chart
+pulls. Transfer the zip across the airgap through your org's approved process, then on the jump server /
+a host that can reach the internal registry, follow `airgap-bundle/INSTALL.md`:
 
 ```bash
-export INTERNAL_REGISTRY=<internal-registry>   # matches global.imageRegistry in values.yaml
-export TAG=v1.0.0
-
-docker load -i dgcl-engine-backend.tar
-docker load -i dgcl-engine-frontend.tar
-docker load -i bitnami-redis.tar
-
-docker tag dgcl-engine-backend:$TAG  $INTERNAL_REGISTRY/dgcl-engine-backend:$TAG
-docker tag dgcl-engine-frontend:$TAG $INTERNAL_REGISTRY/dgcl-engine-frontend:$TAG
-# Keep the bitnami/redis path unchanged so global.imageRegistry alone covers
-# it (see values.yaml's redis block) — only rename it if your registry uses
-# a different path convention for mirrored images.
-docker tag bitnami/redis:8.10.2 $INTERNAL_REGISTRY/bitnami/redis:8.10.2
-
-docker push $INTERNAL_REGISTRY/dgcl-engine-backend:$TAG
-docker push $INTERNAL_REGISTRY/dgcl-engine-frontend:$TAG
-docker push $INTERNAL_REGISTRY/bitnami/redis:8.10.2
+unzip dgcl-engine-airgap-bundle.zip && cd airgap-bundle
+scripts/verify-bundle.sh                                   # checksums, all images present, all amd64
+REGISTRY=<internal-registry> scripts/load-and-push-images.sh
 ```
+
+Things that have bitten this deployment before, all handled by the script:
+- **Architecture.** Images must be `linux/amd64`. `docker build` on an Apple-Silicon machine silently builds
+  arm64 unless `--platform linux/amd64` is given (the script always does).
+- **Redis.** Upstream Bitnami no longer publishes versioned tags — `bitnami/redis:8.10.2` does **not** exist;
+  only `:latest` does (which currently *is* 8.10.2). The script pulls `:latest`, requires its version label to
+  equal the tag pinned in `values.yaml`, and retags it, so the chart's tag and the pushed image always agree.
+  Its digest is recorded in `MANIFEST.txt`.
+- **Registry paths.** Paths are preserved (`<registry>/dgcl-engine-backend`, `<registry>/bitnami/redis`) so
+  `global.imageRegistry` alone resolves every image.
+
+<details><summary>Manual equivalent (only if you cannot use the script)</summary>
+
+```bash
+export TAG=v1.0.0 PLATFORM=linux/amd64
+docker build --platform $PLATFORM -f docker/Dockerfile.backend  -t localhost/dgcl-engine-backend:$TAG  .
+docker build --platform $PLATFORM -f docker/Dockerfile.frontend -t localhost/dgcl-engine-frontend:$TAG .
+docker pull  --platform $PLATFORM bitnami/redis:latest        # must report version 8.10.2:
+docker image inspect bitnami/redis:latest --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+docker tag bitnami/redis:latest localhost/bitnami/redis:8.10.2
+for i in dgcl-engine-backend:$TAG dgcl-engine-frontend:$TAG bitnami/redis:8.10.2; do
+  docker save -o "$(echo $i | tr '/:' '-_')_amd64.tar" localhost/$i; done
+# on the registry side: docker load -i each tar, then docker tag localhost/<name> $REGISTRY/<name> && docker push
+```
+</details>
 
 ### The chart itself also needs to cross the airgap
 
@@ -221,14 +219,15 @@ StorageClass** (see §0) — confirm this with the platform team before
 enabling it; a ReadWriteOnce StorageClass will fail to bind once a second
 pod tries to mount it.
 
-An initContainer on each of the three Deployments seeds the PVC from the
-image's own built-in `poc_data` fixtures **the first time only** — checking
-`ls -A` on the mount and copying only if it's empty. This matters because
-mounting an empty PVC directly over `/srv/app/poc_data` would otherwise
-instantly hide the `LOAN_001`/`LOAN_002`/`LOAN_003` fixtures baked into the
-image at build time (a volume mount replaces the container's view of that
-path entirely) — whichever of the three pods starts first "wins" the seed,
-and every pod after that just sees the already-populated shared volume.
+Each user's data lives under `poc_data/tenants/<tenant_id>/` on this volume
+(one isolated folder per signup — see §4a). **There is nothing to seed:** the
+image ships no `poc_data` (`.dockerignore` excludes it) and every account
+starts empty. The `prepare-shared-storage` initContainer on each of the three
+Deployments only creates `/shared/tenants` and proves the volume is writable
+by the app's uid (10001), so a permissions problem shows up as a clear
+`Init:Error` with a message instead of a 500 on the first upload. If it fails
+on NFS, fix the export's ownership; `podSecurityContext.fsGroup` covers CSI
+block/CephFS drivers but plain NFS ignores it.
 
 Set the StorageClass name before installing:
 ```bash
@@ -245,15 +244,49 @@ kubectl create namespace dgcl
 
 # Redis auth (referenced by redis.auth.existingSecret in values.yaml)
 kubectl -n dgcl create secret generic dgcl-engine-redis-auth \
-  --from-literal=redis-password="$(openssl rand -base64 24)"
+  --from-literal=redis-password="$(openssl rand -hex 24)"
 
 # Application secrets (referenced by secrets.existingSecret in values.yaml)
 kubectl -n dgcl create secret generic dgcl-engine-secrets \
-  --from-literal=GEMINI_API_KEY="<gemini-key>" \
-  --from-literal=LLM_API_KEY="<openrouter-or-gemini-key>" \
-  --from-literal=VLM_API_KEY="<gemini-or-openai-key>"
+  --from-literal=LLM_API_KEY="<litellm-virtual-key>" \
+  --from-literal=VLM_API_KEY="<litellm-virtual-key>" \
+  --from-literal=INTERNAL_API_TOKEN="$(openssl rand -hex 32)"
   # no AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY — see §3, object storage is not used here
 ```
+
+Use `-hex`, not `-base64`, for the Redis password: the pods splice it into
+`redis://:<password>@host:6379/0`, and base64 output can contain `/`, `+` and
+`=`, which corrupt that URL (roughly four passwords in ten contain a `/`).
+
+`INTERNAL_API_TOKEN` is the shared secret api, idp and worker use to call each
+other (worker/pipeline → idp). It must be the same in all three, which is
+automatic because they read the same Secret.
+
+## 4a. Accounts, isolation and login
+
+The app has built-in signup/login: each signup creates its own isolated
+workspace (`poc_data/tenants/<tenant_id>/`) and nobody can see another
+account's data. Users are stored in a SQLite file.
+
+- **The api runs as exactly one replica** (`api.replicaCount: 1`; the chart
+  refuses to render with more). SQLite supports a single writer, and the
+  in-memory caches are per process. Scaling the API out first needs the auth
+  store moved to a shared database — a code change.
+- **The auth database has its own small ReadWriteOnce volume** (`auth.persistence`
+  in `values.yaml`), mounted only on the api pod, *not* on the RWX shared
+  volume: SQLite needs real file locking, which NFS/CephFS don't reliably give.
+  The api Deployment therefore uses the `Recreate` strategy (a short outage per
+  upgrade, because an RWO volume can't attach to two pods at once). The PVC is
+  annotated `helm.sh/resource-policy: keep` — losing it loses every account.
+  Back it up.
+- **`SESSION_COOKIE_SECURE` is `"true"` by default** and needs HTTPS at the
+  ingress. On a plain-http POC set it to `"false"` (`values-poc.yaml` does), or
+  the browser will drop the login cookie and login will appear to do nothing.
+- **Signup is open**: anyone who can reach the ingress can create an account
+  and consume LLM credits and disk. Keep the ingress on an internal network or
+  behind the bank's SSO/VPN, and add an invite code before wider exposure.
+- There is **no password recovery** and no email; an operator resets a
+  password by editing the SQLite file.
 
 ## 5. Install / upgrade
 
@@ -369,8 +402,20 @@ helm -n dgcl rollback dgcl-engine <revision>
   request. This requires an RWX-capable StorageClass, which is not
   guaranteed to exist on every cluster (see §0) — if `sharedStorage.enabled`
   is turned off, the gap comes back: uploads only work through `idp`'s own
-  direct-upload endpoint (write and process in one request, one pod) or
-  against the `poc_data` fixtures baked into every image, and the normal
-  case pipeline (`app` → `worker` → `idp` over HTTP, passing a file path
-  rather than the file's bytes) will fail on any document written at
-  runtime by `api`/`worker`.
+  direct-upload endpoint (write and process in one request, one pod), and
+  the normal case pipeline (`app` → `worker` → `idp` over HTTP, passing a
+  file path rather than the file's bytes) will fail on any document written
+  at runtime by `api`/`worker`.
+- **Model weights are baked into the image, not fetched at runtime.**
+  `docker/Dockerfile.backend` runs `scripts/download_models.py` at *build*
+  time (needs internet on the build machine only) and sets
+  `DOCLING_ARTIFACTS_PATH`, `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE`, so
+  pods make no outbound calls. Before go-live, prove it: start the image on a
+  network-isolated node/namespace (no egress), upload a scanned PDF and confirm
+  OCR text comes back with no `HF`/download errors in the idp log. The `idp`
+  pod's `--workers 1` and ~2Gi memory limit should be re-checked with the real
+  weights loaded.
+- **The frontend is built once and is environment-independent.** It calls the
+  same-origin `/api` path; do **not** set `VITE_API_BASE_URL` for the
+  container build unless the API is on a different origin (then include the
+  `/api` prefix, e.g. `https://api.example.com/api`).
