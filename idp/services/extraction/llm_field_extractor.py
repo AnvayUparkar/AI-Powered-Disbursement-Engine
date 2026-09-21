@@ -1,36 +1,42 @@
-"""LLM Field Extractor — Raw OCR text → structured JSON via OpenRouter.
+"""LLM Field Extractor — Raw OCR text → structured JSON via OpenRouter / Gemini.
 
-Replaces the regex rulebook in Node 2.  The raw OCR output (ParsedDocument.text)
-is sent directly to an OpenRouter LLM with a universal field-extraction prompt.
-The LLM does NOT know the document type; it receives a fixed list of canonical
-field names and is instructed to return null for anything not explicitly present.
+Replaces regex heuristics in IDP canonical extraction. The raw OCR output
+(ParsedDocument.text) is sent directly to the configured LLM with a universal
+field-extraction prompt. The LLM does NOT know the document type; it receives
+a fixed list of canonical field names and is instructed to return null for
+anything not explicitly present.
 
 Large docs  (kfs, loan_agreement, sanction_letter, application_form, account_statement)
   → OCR text is written to a temp .md file; the file content is sent as the user message.
 Small docs  (aadhaar, pan, disbursal_memo)
   → OCR text is sent inline in the user message.
 
-The returned dict uses the exact canonical field names expected by
-extract_field_value() in comparison_utils, matching NODE3A/3B/3C_FIELD_CHECKS.
+The returned dict uses the exact canonical field names expected by the
+downstream 20-field canonical template schema.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import os
-import re
+import sys
 import tempfile
 from typing import Any
 
 import httpx
 
+from config.doc_types import TEMPLATE_FIELDS, format_template_json
 from config.settings import (
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MAX_TOKENS,
     LLM_MODEL,
+    LLM_TEMPERATURE,
 )
+from idp.services.extraction.llm_client import clean_json_response, invoke_llm_json
 
-logger = logging.getLogger("disbursement_pipeline.llm_field_extractor")
+logger = logging.getLogger("idp.services.extraction.llm_field_extractor")
 
 # ── Document type classification ───────────────────────────────────────────
 LARGE_DOC_TYPES: frozenset[str] = frozenset({
@@ -47,99 +53,8 @@ SMALL_DOC_TYPES: frozenset[str] = frozenset({
     "disbursal_memo",
 })
 
-# Ordered canonical field names strictly matching the required JSON template schema.
-TEMPLATE_FIELDS: tuple[str, ...] = (
-    "applicant_name",
-    "fathers_name",
-    "dob",
-    "mobile_no",
-    "gender",
-    "aadhaar_number",
-    "pan_number",
-    "address",
-    "current_address",
-    "bank_account_no",
-    "type_of_account",
-    "loan_amount",
-    "loan_validity",
-    "loan_type",
-    "application_no",
-    "application_date",
-    "BPI",
-    "irr_percent",
-    "emi",
-    "customer_consent",
-)
-
 _CANONICAL_KEYS: frozenset[str] = frozenset(TEMPLATE_FIELDS)
-
-
-def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
-    """Formats an arbitrary extracted dictionary into the exact 20-field canonical template.
-
-    Keys are returned in the exact canonical order with non-present fields as None,
-    and boolean flag (customer_consent) as False by default.
-    """
-    boolean_keys = {"customer_consent"}
-    norm = dict(extracted or {})
-
-    if norm.get("applicant_name") is None:
-        for alias in ("customer_name", "borrower_name", "full_name", "name"):
-            if norm.get(alias) is not None:
-                norm["applicant_name"] = norm[alias]
-                break
-    if norm.get("bank_account_no") is None and "account_no" in norm:
-        norm["bank_account_no"] = norm["account_no"]
-    if norm.get("application_no") is None:
-        for alias in ("loan_no", "loan_account_no", "application_id", "loan_id", "appl_no", "los_id"):
-            if norm.get(alias) is not None:
-                norm["application_no"] = norm[alias]
-                break
-    if norm.get("pan_number") is None and norm.get("pan") is not None:
-        norm["pan_number"] = norm["pan"]
-    if norm.get("aadhaar_number") is None and norm.get("aadhaar") is not None:
-        norm["aadhaar_number"] = norm["aadhaar"]
-    if norm.get("loan_amount") is None:
-        for alias in ("sanctioned_amount", "funding_amount", "disbursal_amount", "requested_loan_amount"):
-            if norm.get(alias) is not None:
-                norm["loan_amount"] = norm[alias]
-                break
-    if norm.get("loan_validity") is None:
-        for alias in ("tenure_months", "tenure", "tenor", "tenure_of_loan"):
-            if norm.get(alias) is not None:
-                norm["loan_validity"] = norm[alias]
-                break
-    if norm.get("loan_type") is None:
-        for alias in ("type_of_loan", "end_use", "purpose_of_loan"):
-            if norm.get(alias) is not None:
-                norm["loan_type"] = norm[alias]
-                break
-    if norm.get("BPI") is None:
-        for alias in ("bpi", "broken_period_interest"):
-            if norm.get(alias) is not None:
-                norm["BPI"] = norm[alias]
-                break
-    if norm.get("irr_percent") is None:
-        for alias in ("roi", "interest_rate", "irr"):
-            if norm.get(alias) is not None:
-                norm["irr_percent"] = norm[alias]
-                break
-    if norm.get("customer_consent") is None:
-        for alias in ("consent", "is_consented", "otp_consent", "borrower_consent", "customer_acceptance"):
-            if norm.get(alias) is not None:
-                norm["customer_consent"] = norm[alias]
-                break
-    if norm.get("address") is None and norm.get("address_text") is not None:
-        norm["address"] = norm["address_text"]
-
-    result: dict[str, Any] = {}
-    for k in TEMPLATE_FIELDS:
-        if k in boolean_keys:
-            val = norm.get(k, False)
-            result[k] = bool(val) if val is not None else False
-        else:
-            result[k] = norm.get(k, None)
-    return result
+_clean_json_response = clean_json_response
 
 # ── Universal extraction prompt ────────────────────────────────────────────
 _SYSTEM_PROMPT: str = (
@@ -172,12 +87,6 @@ _SYSTEM_PROMPT: str = (
     "- emi                     : Equated Monthly Installment (EMI / EPI) amount\n"
     "- customer_consent        : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
 )
-
-
-
-from pipeline.engines.llm_client import clean_json_response
-
-_clean_json_response = clean_json_response
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -242,11 +151,11 @@ def llm_extract_fields(
         fields not found in the document). Returns ``{}`` on any failure so
         the caller can proceed gracefully without a crash.
     """
-    from pipeline.engines import llm_field_extractor
-    effective_api_key = getattr(llm_field_extractor, "LLM_API_KEY", None)
-    effective_model = getattr(llm_field_extractor, "LLM_MODEL", None)
-    effective_base_url = getattr(llm_field_extractor, "LLM_BASE_URL", None)
-    effective_temperature = getattr(llm_field_extractor, "LLM_TEMPERATURE", 0.0)
+    this_mod = sys.modules[__name__]
+    effective_api_key = getattr(this_mod, "LLM_API_KEY", LLM_API_KEY)
+    effective_model = getattr(this_mod, "LLM_MODEL", LLM_MODEL)
+    effective_base_url = getattr(this_mod, "LLM_BASE_URL", LLM_BASE_URL)
+    effective_temperature = getattr(this_mod, "LLM_TEMPERATURE", LLM_TEMPERATURE)
 
     if not effective_api_key:
         logger.warning("[%s] LLM_API_KEY not set — skipping LLM field extraction", doc_id)
@@ -259,7 +168,6 @@ def llm_extract_fields(
     user_content = _build_user_content(doc_type, raw_text)
 
     try:
-        from pipeline.engines.llm_client import invoke_llm_json
         extracted = invoke_llm_json(
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_content,
@@ -282,7 +190,7 @@ def llm_extract_fields(
             non_null,
             len(TEMPLATE_FIELDS),
             doc_type,
-            LLM_MODEL,
+            effective_model,
         )
         return result
 

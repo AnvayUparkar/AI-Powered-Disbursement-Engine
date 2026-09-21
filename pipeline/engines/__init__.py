@@ -11,8 +11,6 @@ from pipeline.engines.comparison import (
     run_field_checks,
 )
 from pipeline.engines.llm_adjudicator import llm_adjudicate
-from pipeline.engines.llm_field_extractor import llm_extract_fields
-from pipeline.engines.key_value_extractor import KeyValueExtractor
 
 __all__ = [
     "clean_id",
@@ -25,6 +23,5 @@ __all__ = [
     "resolve_doc_data",
     "run_field_checks",
     "llm_adjudicate",
-    "llm_extract_fields",
-    "KeyValueExtractor",
 ]
+

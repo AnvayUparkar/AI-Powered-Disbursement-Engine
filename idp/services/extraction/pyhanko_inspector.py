@@ -31,7 +31,7 @@ from config import (
     get_canonical_doc_type,
 )
 
-logger = logging.getLogger("disbursement_pipeline.pyhanko_inspector")
+logger = logging.getLogger("disbursement_idp.pyhanko_inspector")
 
 # Silence noisy certvalidator logs on untrusted/self-signed chains
 logging.getLogger("pyhanko_certvalidator").setLevel(logging.CRITICAL)

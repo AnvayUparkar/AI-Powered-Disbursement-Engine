@@ -4,8 +4,14 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 
 from config import MAX_DOC_WORKERS, SKIP_IDP
-from pipeline.engines.llm_field_extractor import llm_extract_fields
 from pipeline.state import PipelineState
+
+
+def llm_extract_fields(doc_type: str, raw_text: str, doc_id: str) -> dict[str, Any]:
+    """Fallback stub: in decoupled mode, field extraction is executed upstream by IDP."""
+    logger.debug("[%s] llm_extract_fields called in pipeline for doc_type=%s", doc_id, doc_type)
+    return {}
+
 from pipeline.storage import (
     get_all_s3_extracted_structured,
     read_json,
@@ -18,7 +24,7 @@ logger = logging.getLogger("disbursement_pipeline.llm_structure")
 
 def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: str) -> dict[str, Any]:
     """Applies LLM field extraction or merges structured fields for a document."""
-    from pipeline.engines.llm_field_extractor import format_template_json
+    from config.doc_types import format_template_json
     raw_text = doc_data.get("_raw_text") or doc_data.get("rawText") or ""
     structured = {}
 

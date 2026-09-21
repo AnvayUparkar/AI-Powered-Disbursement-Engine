@@ -24,7 +24,7 @@ import logging
 from enum import Enum
 from typing import List, Dict, Any, Optional, Tuple, Set
 
-logger = logging.getLogger("disbursement_pipeline.key_value_extractor")
+logger = logging.getLogger("disbursement_idp.key_value_extractor")
 
 
 class ElementClassification(str, Enum):

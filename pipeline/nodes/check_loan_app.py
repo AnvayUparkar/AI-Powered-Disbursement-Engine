@@ -1,11 +1,9 @@
 """Parallel Checker C: Check Loan App — Verifies application form, KFS, and sanction letter against LOS records."""
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import LOAN_APP_FIELD_CHECKS
 from pipeline.engines.comparison import resolve_doc_data, run_field_checks
-from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures, is_loan_agreement
 from pipeline.state import PipelineState, compute_rollup
 from pipeline.storage import get_s3_los
 
@@ -23,19 +21,6 @@ def _evaluate_loan_agreement_signature(
 
     if agree_data and isinstance(agree_data, dict):
         pyhanko_info = agree_data.get("pyhanko_inspection")
-
-    # If not in extracted_data, check raw_doc_paths for a Loan Agreement PDF
-    if not pyhanko_info:
-        raw_paths = state.get("raw_doc_paths") or {}
-        for fname, fpath_str in raw_paths.items():
-            if is_loan_agreement(fname) and Path(fpath_str).suffix.lower() == ".pdf":
-                try:
-                    pyhanko_info = inspect_pdf_signatures(fpath_str, filename=fname)
-                    break
-                except Exception as e:
-                    logger.warning("pyHanko direct inspection failed for %s: %s", fname, e)
-                    pyhanko_info = {"is_signed": False, "is_acceptable": False, "error": str(e)}
-                    break
 
     # If no Loan Agreement was uploaded or found, do not create a spurious record (preserves INDETERMINATE)
     if not pyhanko_info and not agree_data:

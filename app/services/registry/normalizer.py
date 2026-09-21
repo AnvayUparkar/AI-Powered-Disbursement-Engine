@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import IST, S3_EXTRACTED_DIR
-from pipeline.engines.llm_field_extractor import format_template_json
+from config.doc_types import format_template_json
 
 
 def compute_dynamic_ocr_confidence(

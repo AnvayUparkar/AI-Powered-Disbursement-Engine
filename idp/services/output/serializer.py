@@ -1042,7 +1042,7 @@ class DocumentSerializer:
         Deterministic fast path for Loan Agreement PDFs: runs pyHanko digital signature inspection,
         bypassing Docling layout and OCR, and constructs a unified ParsedDocument.
         """
-        from pipeline.engines.pyhanko_inspector import inspect_pdf_signatures
+        from idp.services.extraction.pyhanko_inspector import inspect_pdf_signatures
 
         actual_filename = filename or os.path.basename(file_path)
         logger.info(format_doc_log(doc_id, f"Executing Loan Agreement signature fast-path for: {actual_filename}"))

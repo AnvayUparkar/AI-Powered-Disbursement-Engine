@@ -129,3 +129,98 @@ def is_tabular_or_misc_doc(doc_type: str) -> bool:
         return False
     return True
 
+
+# Ordered canonical field names strictly matching the required JSON template schema.
+TEMPLATE_FIELDS: tuple[str, ...] = (
+    "applicant_name",
+    "fathers_name",
+    "dob",
+    "mobile_no",
+    "gender",
+    "aadhaar_number",
+    "pan_number",
+    "address",
+    "current_address",
+    "bank_account_no",
+    "type_of_account",
+    "loan_amount",
+    "loan_validity",
+    "loan_type",
+    "application_no",
+    "application_date",
+    "BPI",
+    "irr_percent",
+    "emi",
+    "customer_consent",
+)
+
+_CANONICAL_KEYS: frozenset[str] = frozenset(TEMPLATE_FIELDS)
+
+
+def format_template_json(extracted: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Formats an arbitrary extracted dictionary into the exact 20-field canonical template.
+
+    Keys are returned in the exact canonical order with non-present fields as None,
+    and boolean flag (customer_consent) as False by default.
+    """
+    boolean_keys = {"customer_consent"}
+    norm = dict(extracted or {})
+
+    if norm.get("applicant_name") is None:
+        for alias in ("customer_name", "borrower_name", "full_name", "name"):
+            if norm.get(alias) is not None:
+                norm["applicant_name"] = norm[alias]
+                break
+    if norm.get("bank_account_no") is None and "account_no" in norm:
+        norm["bank_account_no"] = norm["account_no"]
+    if norm.get("application_no") is None:
+        for alias in ("loan_no", "loan_account_no", "application_id", "loan_id", "appl_no", "los_id"):
+            if norm.get(alias) is not None:
+                norm["application_no"] = norm[alias]
+                break
+    if norm.get("pan_number") is None and norm.get("pan") is not None:
+        norm["pan_number"] = norm["pan"]
+    if norm.get("aadhaar_number") is None and norm.get("aadhaar") is not None:
+        norm["aadhaar_number"] = norm["aadhaar"]
+    if norm.get("loan_amount") is None:
+        for alias in ("sanctioned_amount", "funding_amount", "disbursal_amount", "requested_loan_amount"):
+            if norm.get(alias) is not None:
+                norm["loan_amount"] = norm[alias]
+                break
+    if norm.get("loan_validity") is None:
+        for alias in ("tenure_months", "tenure", "tenor", "tenure_of_loan"):
+            if norm.get(alias) is not None:
+                norm["loan_validity"] = norm[alias]
+                break
+    if norm.get("loan_type") is None:
+        for alias in ("type_of_loan", "end_use", "purpose_of_loan"):
+            if norm.get(alias) is not None:
+                norm["loan_type"] = norm[alias]
+                break
+    if norm.get("BPI") is None:
+        for alias in ("bpi", "broken_period_interest"):
+            if norm.get(alias) is not None:
+                norm["BPI"] = norm[alias]
+                break
+    if norm.get("irr_percent") is None:
+        for alias in ("roi", "interest_rate", "irr"):
+            if norm.get(alias) is not None:
+                norm["irr_percent"] = norm[alias]
+                break
+    if norm.get("customer_consent") is None:
+        for alias in ("consent", "is_consented", "otp_consent", "borrower_consent", "customer_acceptance"):
+            if norm.get(alias) is not None:
+                norm["customer_consent"] = norm[alias]
+                break
+    if norm.get("address") is None and norm.get("address_text") is not None:
+        norm["address"] = norm["address_text"]
+
+    result: dict[str, Any] = {}
+    for k in TEMPLATE_FIELDS:
+        if k in boolean_keys:
+            val = norm.get(k, False)
+            result[k] = bool(val) if val is not None else False
+        else:
+            result[k] = norm.get(k, None)
+    return result
+

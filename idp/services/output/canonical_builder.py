@@ -11,8 +11,8 @@ from typing import Any, Dict
 
 from idp.models.document import ParsedDocument
 from idp.services.extraction.field_location_resolver import FieldLocationResolver
-from pipeline.engines.key_value_extractor import KeyValueExtractor
-from pipeline.engines.llm_field_extractor import format_template_json
+from config.doc_types import format_template_json
+from idp.services.extraction.key_value_extractor import KeyValueExtractor
 
 logger = logging.getLogger("disbursement_idp.canonical_builder")
 

@@ -228,7 +228,7 @@ def test_aadhaar_xml_zero_llm_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     from pipeline.nodes.llm_structure import _structure_single_document
 
     mock_llm = MagicMock(side_effect=RuntimeError("LLM should not be called for Aadhaar XML"))
-    monkeypatch.setattr("pipeline.engines.llm_field_extractor.llm_extract_fields", mock_llm)
+    monkeypatch.setattr("idp.services.extraction.llm_field_extractor.llm_extract_fields", mock_llm)
     monkeypatch.setattr("pipeline.nodes.llm_structure.llm_extract_fields", mock_llm)
 
 

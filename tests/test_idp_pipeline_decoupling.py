@@ -85,6 +85,36 @@ def test_app_main_no_idp_routes_import():
     assert "from idp.api.routes" not in content
 
 
+def test_global_zero_cross_imports_between_idp_and_pipeline():
+    """Static analysis: enforces zero cross-service imports between idp/ and pipeline/."""
+    root_dir = Path(__file__).resolve().parent.parent
+
+    # 1. idp/ must never import pipeline
+    idp_dir = root_dir / "idp"
+    for py_file in idp_dir.rglob("*.py"):
+        content = py_file.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            assert not (stripped.startswith("from pipeline") or stripped.startswith("import pipeline")), (
+                f"Forbidden pipeline import in {py_file.relative_to(root_dir)}: {line}"
+            )
+
+    # 2. pipeline/ must never import idp
+    pipeline_dir = root_dir / "pipeline"
+    for py_file in pipeline_dir.rglob("*.py"):
+        content = py_file.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            assert not (stripped.startswith("from idp") or stripped.startswith("import idp")), (
+                f"Forbidden idp import in {py_file.relative_to(root_dir)}: {line}"
+            )
+
+
+
 def test_call_idp_service_posts_then_gets_canonical(monkeypatch: pytest.MonkeyPatch):
     """Unit: _call_idp_service triggers /process POST and returns canonical GET JSON."""
     monkeypatch.setattr("pipeline.nodes.idp_scan.USE_REMOTE_IDP", True)

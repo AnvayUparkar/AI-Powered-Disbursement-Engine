@@ -17,7 +17,7 @@ import pytest
 
 from app.serializers.case_serializer import serialize_case
 from config import BASE_DIR, TRUSTED_ROOTS_DIR, get_canonical_doc_type
-from pipeline.engines.pyhanko_inspector import (
+from idp.services.extraction.pyhanko_inspector import (
     build_validation_context,
     inspect_pdf_signatures,
     is_loan_agreement,
@@ -170,12 +170,12 @@ def test_trusted_roots_loading_and_validation_context():
 def test_strict_trust_requirement_policy(monkeypatch: pytest.MonkeyPatch):
     """Validates that REQUIRE_TRUSTED_DIGITAL_SIGNATURE config strictly enforces CA root trust."""
     # When False (default), intact and valid self-signed signature is accepted
-    monkeypatch.setattr("pipeline.engines.pyhanko_inspector.REQUIRE_TRUSTED_DIGITAL_SIGNATURE", False)
+    monkeypatch.setattr("idp.services.extraction.pyhanko_inspector.REQUIRE_TRUSTED_DIGITAL_SIGNATURE", False)
     res_lenient = inspect_pdf_signatures(SIGNED_PDF, filename="sample_signed.pdf")
     assert res_lenient["is_acceptable"] is True
 
     # When True, if root is not in trusted CAs, is_acceptable becomes False
-    monkeypatch.setattr("pipeline.engines.pyhanko_inspector.REQUIRE_TRUSTED_DIGITAL_SIGNATURE", True)
+    monkeypatch.setattr("idp.services.extraction.pyhanko_inspector.REQUIRE_TRUSTED_DIGITAL_SIGNATURE", True)
     res_strict = inspect_pdf_signatures(SIGNED_PDF, filename="sample_signed.pdf")
     # If the sample is signed with an untrusted test certificate, is_acceptable must be False
     sig0 = res_strict["signatures"][0]

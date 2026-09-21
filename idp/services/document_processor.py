@@ -108,7 +108,7 @@ class DocumentProcessor:
                 }
 
             # Fast path for Loan Agreement PDFs (digital signature inspection via pyHanko)
-            from pipeline.engines.pyhanko_inspector import is_loan_agreement
+            from idp.services.extraction.pyhanko_inspector import is_loan_agreement
             if (is_loan_agreement(filename) or is_loan_agreement(doc_type_hint)) and local_file_path.lower().endswith(".pdf"):
                 parsed_doc = await asyncio.to_thread(
                     self.serializer.parse_loan_agreement_fast_path,
@@ -242,7 +242,7 @@ class DocumentProcessor:
             # Step 7: Run OpenRouter LLM Field Extraction on OCR text
             llm_fields: Dict[str, Any] = {}
             try:
-                from pipeline.engines.llm_field_extractor import llm_extract_fields
+                from idp.services.extraction.llm_field_extractor import llm_extract_fields
                 llm_fields = await asyncio.to_thread(
                     llm_extract_fields,
                     doc_type=doc_type_hint,
