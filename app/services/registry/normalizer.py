@@ -179,11 +179,13 @@ def parse_extracted_fields(
 
     tables = parsed_result.get("tables") or []
     for t_idx, tbl in enumerate(tables):
+        raw_tbl_conf = tbl.get("confidence") or 0.95
+        tbl_conf = round(raw_tbl_conf * 100) if raw_tbl_conf <= 1.0 else round(raw_tbl_conf)
         extracted_fields.append({
             "id": tbl.get("id") or f"table-{t_idx + 1}",
             "name": f"Table (Page {tbl.get('page_number', 1)})",
             "value": f"{tbl.get('num_rows', 0)} rows x {tbl.get('num_cols', 0)} cols",
-            "confidence": 95,
+            "confidence": tbl_conf,
             "sourceDocumentId": doc_id,
             "page": tbl.get("page_number", 1),
             "type": "table",
@@ -215,7 +217,7 @@ def normalize_uploaded_record(
     processing_steps = build_default_processing_steps(doc_id)
 
     pages_count = 1
-    confidence = 96.5
+    confidence = 95.0
     vlm_used = False
     extracted_fields: List[Dict[str, Any]] = []
     llm_meta: Dict[str, Any] = {}
@@ -224,13 +226,21 @@ def normalize_uploaded_record(
     if parsed_result:
         pages_count = len(parsed_result.get("pages") or []) or 1
         vlm_used = bool(parsed_result.get("processing", {}).get("vlm_used", False))
-        confidence = 91.0 if vlm_used else 97.5
 
         llm_meta = (parsed_result.get("custom_metadata") or {}).get("llm_extracted_fields") or {}
         if not llm_meta and assoc_case and assoc_case != "GENERAL":
             llm_meta = _lookup_disk_llm_meta(assoc_case, filename, detected_type)
 
         extracted_fields = parse_extracted_fields(doc_id, parsed_result, llm_meta)
+
+        avg_conf = (parsed_result.get("processing") or {}).get("metrics", {}).get("average_confidence")
+        if avg_conf is not None and avg_conf > 0:
+            confidence = round(avg_conf * 100, 1) if avg_conf <= 1.0 else round(avg_conf, 1)
+        elif extracted_fields:
+            valid_confs = [f.get("confidence") for f in extracted_fields if f.get("confidence") is not None and f.get("confidence") > 0]
+            confidence = round(sum(valid_confs) / len(valid_confs), 1) if valid_confs else (91.0 if vlm_used else 95.0)
+        else:
+            confidence = 91.0 if vlm_used else 95.0
 
     if not extracted_fields:
         extracted_fields = build_default_extracted_fields(doc_id, filename, "Verified & Indexed", is_status=True)

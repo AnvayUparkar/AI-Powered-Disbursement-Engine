@@ -13,6 +13,7 @@ class ProcessingMetrics(BaseModel):
     total_elements_extracted: int = 0
     kv_needs_review_count: int = 0
     kv_unmatched_label_count: int = 0
+    average_confidence: float = 0.0
 
 
 class ProcessingMetadata(BaseModel):

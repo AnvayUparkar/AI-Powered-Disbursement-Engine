@@ -7,6 +7,11 @@ from config.paths import BASE_DIR
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH, override=True)
 
+# Suppress HuggingFace transformers deprecation warning for image processors
+# (Docling uses transformers internally; this ensures use_fast=True)
+if "TRANSFORMERS_USE_FAST" not in os.environ:
+    os.environ["TRANSFORMERS_USE_FAST"] = "1"
+
 # Verification Algorithms & Fuzzy Match Thresholds
 NAME_MATCH_ALGO = "jaro_winkler"
 ADDRESS_MATCH_ALGO = "tfidf_cosine"

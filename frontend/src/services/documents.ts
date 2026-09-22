@@ -39,6 +39,14 @@ export function adaptNode2DocumentToRecord(
   const tables = parsed.tables || [];
   const vlmUsed = parsed.processing?.vlm_used || false;
 
+  // Real average confidence of VLM-corrected elements, for the VLM Fallback step badge
+  const vlmCorrectedConfs = elements
+    .filter((e: any) => e.source === 'vlm_corrected' && e.confidence !== undefined && e.confidence !== null)
+    .map((e: any) => (e.confidence <= 1.0 ? e.confidence * 100 : e.confidence));
+  const vlmFallbackConfidence = vlmCorrectedConfs.length > 0
+    ? Math.round((vlmCorrectedConfs.reduce((acc: number, c: number) => acc + c, 0) / vlmCorrectedConfs.length) * 10) / 10
+    : undefined;
+
   // Dynamically resolve caseId from source path or metadata if not explicitly provided
   let resolvedCaseId = caseId;
   if (!resolvedCaseId) {
@@ -69,18 +77,30 @@ export function adaptNode2DocumentToRecord(
     }
   }
 
+  const fieldLocations = (parsed as any).custom_metadata?.field_locations || (parsed as any).processing?.custom_metadata?.field_locations;
+
   if (llmFields && typeof llmFields === 'object') {
     Object.entries(llmFields).forEach(([k, v]) => {
       if (v !== null && v !== undefined && typeof v !== 'object') {
+        const fl = fieldLocations?.[k];
+        const rawConf = fl?.confidence ?? 0.98;
+        const llmConf = Math.round(rawConf <= 1.0 ? rawConf * 100 : rawConf);
         extractedFields.push({
           id: `llm-${docId}-${k}`,
           name: k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
           value: String(v),
-          confidence: 99.0,
+          confidence: llmConf,
           sourceDocumentId: docId,
-          page: 1,
+          page: fl?.page ?? 1,
           type: 'key_value',
           source: 'OPENROUTER_LLM',
+          bbox: fl?.bbox,
+          locationStatus: fl?.location_status,
+          matchedText: fl?.matched_text,
+          matchConfidence: fl?.match_confidence,
+          reason: fl?.reason,
+          matchStrategy: fl?.match_strategy,
+          candidates: fl?.candidates,
         });
       }
     });
@@ -90,7 +110,8 @@ export function adaptNode2DocumentToRecord(
   elements.forEach((e, idx) => {
     if (!e.text || !e.text.trim()) return;
 
-    const conf = Math.round(e.confidence <= 1.0 ? e.confidence * 100 : e.confidence);
+    const rawConf = e.confidence ?? 0.95;
+    const conf = Math.round(rawConf <= 1.0 ? rawConf * 100 : rawConf);
     const source = e.source || 'docling_ocr';
 
     if (e.text.includes(':') || e.text.includes('=')) {
@@ -132,11 +153,13 @@ export function adaptNode2DocumentToRecord(
 
   // 2. Process tables
   tables.forEach((tbl, tIdx) => {
+    const rawTblConf = (tbl as any).confidence ?? 0.95;
+    const conf = Math.round(rawTblConf <= 1.0 ? rawTblConf * 100 : rawTblConf);
     extractedFields.push({
       id: tbl.id || `table-${tIdx + 1}`,
       name: `Table (Page ${tbl.page_number})`,
       value: `${tbl.num_rows} rows x ${tbl.num_cols} cols`,
-      confidence: 95,
+      confidence: conf,
       sourceDocumentId: docId,
       page: tbl.page_number,
       type: 'table',
@@ -146,6 +169,17 @@ export function adaptNode2DocumentToRecord(
     });
   });
 
+  // Calculate dynamic average confidence
+  const avgConfFromMetrics = parsed.processing?.metrics?.average_confidence;
+  const computedFieldAvg = extractedFields.length > 0
+    ? extractedFields.reduce((acc, f) => acc + (f.confidence || 0), 0) / extractedFields.length
+    : (vlmUsed ? 91.0 : 95.0);
+  const docConfidence = (parsed as any).confidence
+    ? ((parsed as any).confidence <= 1.0 ? (parsed as any).confidence * 100 : (parsed as any).confidence)
+    : (avgConfFromMetrics
+      ? (avgConfFromMetrics <= 1.0 ? avgConfFromMetrics * 100 : avgConfFromMetrics)
+      : Math.round(computedFieldAvg * 10) / 10);
+
   return {
     id: docId,
     name: parsed.source?.filename || `${docId}.pdf`,
@@ -153,7 +187,7 @@ export function adaptNode2DocumentToRecord(
     pages: pageCount,
     ocrStatus: 'COMPLETED',
     extractionStatus: 'COMPLETED',
-    confidence: vlmUsed ? 91.0 : 96.5,
+    confidence: docConfidence,
     vlmUsed: vlmUsed,
     uploadedAt: new Date().toISOString().split('T')[0],
     caseId: resolvedCaseId || 'Unassigned',
@@ -166,6 +200,7 @@ export function adaptNode2DocumentToRecord(
         status: 'COMPLETED',
         detail: `Docling parsed layout structure (${parsed.processing?.metrics?.docling_processing_time ?? 0.15}s)`,
         startedAt: new Date().toLocaleTimeString(),
+        confidence: Math.round(docConfidence * 10) / 10,
       },
       {
         id: 'step-2',
@@ -173,7 +208,7 @@ export function adaptNode2DocumentToRecord(
         status: 'COMPLETED',
         detail: `RapidOCR PP-OCRv6 extracted text (${parsed.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
         startedAt: new Date().toLocaleTimeString(),
-        confidence: 95.0,
+        confidence: Math.round((parsed.processing?.metrics?.average_confidence ? (parsed.processing.metrics.average_confidence <= 1.0 ? parsed.processing.metrics.average_confidence * 100 : parsed.processing.metrics.average_confidence) : docConfidence) * 10) / 10,
       },
       {
         id: 'step-3',
@@ -183,6 +218,7 @@ export function adaptNode2DocumentToRecord(
           ? `VLM verified ${parsed.processing?.metrics?.vlm_fallback_count ?? 1} low-confidence region(s)`
           : 'Quality Router score passed threshold (VLM fallback not required)',
         startedAt: new Date().toLocaleTimeString(),
+        confidence: vlmUsed ? (vlmFallbackConfidence ?? docConfidence) : undefined,
       },
     ],
     rawText: (parsed as any).raw_text || (parsed as any).rawText || parsed.text || '',

@@ -69,7 +69,8 @@ class CombGridDetector:
     _COMMON_LABELS = {
         "APPLICANT", "NAME", "FATHER", "MOTHER", "APPLICATION", "ACCOUNT",
         "NUMBER", "DATE", "BIRTH", "MONTH", "YEAR", "SIGNATURE", "ADDRESS",
-        "BRANCH", "AMOUNT", "MOBILE", "PHONE", "GENDER", "AADHAAR", "PAN"
+        "BRANCH", "AMOUNT", "MOBILE", "PHONE", "GENDER", "AADHAAR", "PAN",
+        "DETAILS", "HEADER", "SECTION", "TITLE", "DECLARATION", "INSTRUCTIONS"
     }
 
     # ------------------------------------------------------------------ #
@@ -99,15 +100,13 @@ class CombGridDetector:
 
     @staticmethod
     def value_runs(text: str) -> List[str]:
-        """Ordered value runs inside a fused row (>= 4 chars, with >= 2 digits or non-header name run)."""
+        """Ordered value runs inside a fused row (>= 4 chars, with >= 2 digits)."""
         stripped = (text or "").strip()
         runs = []
         for r in _VALUE_RUN_RE.findall(stripped):
             if r == stripped:
                 continue
             if sum(c.isdigit() for c in r) >= 2:
-                runs.append(r)
-            elif len(r) >= 3 and r.isalpha() and r not in CombGridDetector._COMMON_LABELS:
                 runs.append(r)
         return runs
 
@@ -262,8 +261,15 @@ class CombGridDetector:
             fx1 = (cl + max(c[2] for c in cells)) / sx
             fy0 = (ct + min(c[1] for c in cells)) / sy
             fy1 = (ct + max(c[3] for c in cells)) / sy
-            if fx1 - fx0 <= 0 or fy1 - fy0 <= 0:
-                continue
+            is_valid_format, format_failure = self.validate_value_run_format(run)
+            elem_metadata = {
+                "recovery": "comb_grid",
+                "needs_vlm": True,
+                "num_cells": len(cells),
+            }
+            if not is_valid_format:
+                elem_metadata["needs_review"] = True
+                elem_metadata["validation_error"] = format_failure
 
             out.append(
                 LayoutElement(
@@ -277,15 +283,44 @@ class CombGridDetector:
                     source="comb_box_merged",
                     structure_source="comb_grid",
                     ocr_original=elem.text,
-                    metadata={"recovery": "comb_grid", "needs_vlm": True,
-                              "num_cells": len(cells)},
+                    metadata=elem_metadata,
                 )
             )
             logger.info(format_doc_log(
                 doc_id, f"comb-grid: {elem.id} recovered field {run!r} "
                         f"from {len(cells)} cells"
+                        f"{' [NEEDS REVIEW: ' + format_failure + ']' if not is_valid_format else ''}"
             ))
         return out
+
+    @staticmethod
+    def validate_value_run_format(text: str) -> Tuple[bool, Optional[str]]:
+        """Validate format consistency for common fixed-pattern form fields (IFSC, PIN, Mobile, PAN).
+
+        Returns (is_valid, failure_rationale).
+        """
+        import re
+        t = (text or "").strip().upper()
+        if not t:
+            return False, "empty_text"
+
+        # IFSC: 11 characters (or 10-char partials starting with bank code), 5th must be '0'
+        if len(t) in (10, 11) and t[:4].isalpha():
+            if not re.match(r"^[A-Z]{4}0[A-Z0-9]{6}$", t):
+                return False, "invalid_ifsc_shape"
+
+        # Pincode: 6 characters where digits predominate
+        if len(t) == 6 and any(c.isdigit() for c in t):
+            if not t.isdigit():
+                return False, "invalid_pincode_shape"
+
+        # Mobile / 10-digit number
+        if len(t) == 10 and any(c.isdigit() for c in t):
+            is_pan = bool(re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", t))
+            if not is_pan and not t.isdigit():
+                return False, "invalid_10char_field_shape"
+
+        return True, None
 
     @staticmethod
     def _run_is_clean(cells: List[Tuple[float, float, float, float]]) -> bool:

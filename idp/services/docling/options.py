@@ -75,6 +75,7 @@ class DoclingOptions(BaseModel):
     # IMAGE PREPROCESSING
     # ═══════════════════════════════════════════════════════════════════════
     images_scale: float = 2.0  # Image upscaling factor -> pipeline_options.images_scale (rasterization DPI for OCR/TableFormer input)
+    use_fast_image_processor: bool = True  # Use fast HuggingFace image processor (transformers v4.52+ default)
     # NOTE: enhance_contrast/denoise/deskew are not wired into the Docling path --
     # Docling rasterizes the PDF internally and has no such hooks. Equivalent logic
     # already exists in idp/services/ocr/preprocessing.py (OCRImagePreprocessor) but

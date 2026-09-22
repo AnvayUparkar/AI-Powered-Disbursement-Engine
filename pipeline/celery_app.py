@@ -22,10 +22,20 @@ from app.services.document_registry import document_registry
 
 logger = logging.getLogger("disbursement_pipeline.celery")
 
+def _is_redis_available(redis_url: str) -> bool:
+    try:
+        import redis
+        client = redis.Redis.from_url(redis_url, socket_timeout=1.0)
+        return client.ping()
+    except Exception:
+        return False
+
+redis_online = _is_redis_available(REDIS_URL)
+
 app = Celery(
     "disbursement_scorecard",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=REDIS_URL if redis_online else "memory://",
+    backend=REDIS_URL if redis_online else "cache+memory://",
 )
 
 app.conf.update(
@@ -39,6 +49,13 @@ app.conf.update(
     task_track_started=True,
     broker_connection_retry_on_startup=True,
 )
+
+if not redis_online:
+    logger.warning("Redis server is offline at %s. Enabling Celery ALWAYS_EAGER in-memory execution mode.", REDIS_URL)
+    app.conf.update(
+        task_always_eager=True,
+        task_eager_propagates=True,
+    )
 
 
 @app.task(bind=True, name="pipeline.tasks.run_pipeline_task")

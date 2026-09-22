@@ -351,6 +351,8 @@ def _build_processing_steps(
     loan_id: str,
     status_data: dict[str, Any],
     dgcl_score: float,
+    docs: dict[str, dict[str, Any]] | None = None,
+    records: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Generates the sequential workflow steps and formatted updated timestamp in IST."""
     history = status_data.get(
@@ -367,12 +369,45 @@ def _build_processing_steps(
             "done",
         ],
     )
+
+    # ctx.docs indexes each parsed document under both its canonical key and raw
+    # filename stem, so dedupe by object identity before aggregating telemetry.
+    unique_docs = list({id(d): d for d in (docs or {}).values()}.values())
+
+    def _confidences(entries: dict[str, Any]) -> list[float]:
+        vals = []
+        for v in entries.values():
+            if isinstance(v, dict) and isinstance(v.get("confidence"), (int, float)):
+                c = float(v["confidence"])
+                vals.append(c * 100.0 if c <= 1.0 else c)
+        return vals
+
+    # Real OCR/layout confidence: raw key-value extraction telemetry from docling/OCR (_components.key_values)
+    ocr_confs: list[float] = []
+    for d in unique_docs:
+        comp = d.get("_components") or {}
+        ocr_confs.extend(_confidences(comp.get("key_values") or {}))
+        if not comp.get("key_values") and isinstance(d.get("ocr_confidence"), (int, float)):
+            c = float(d["ocr_confidence"])
+            ocr_confs.append(c * 100.0 if c <= 1.0 else c)
+    idp_scan_conf = round(sum(ocr_confs) / len(ocr_confs), 1) if ocr_confs else 98.2
+
+    # Real field-structuring confidence: LLM field-to-location match telemetry (_field_locations)
+    llm_confs: list[float] = []
+    for d in unique_docs:
+        llm_confs.extend(_confidences(d.get("_field_locations") or {}))
+        llm_confs.extend(_confidences((d.get("_components") or {}).get("field_locations") or {}))
+    llm_structure_conf = round(sum(llm_confs) / len(llm_confs), 1) if llm_confs else 97.5
+
+    # Real check confidence: weighted average across comparison/check records
+    check_parallel_conf = compute_checkpoint_confidence([], records) if records else 96.8
+
     step_defs = [
         ("fetch_los", "System", "LOS Ingestion", 99.5),
         ("fetch_dms", "System", "DMS Document Fetch", 99.5),
-        ("idp_scan", "PaddleOCR", "Document OCR & Layout Scan", 98.2),
-        ("llm_structure", "LLM", "Field Structuring & Normalization", 97.5),
-        ("check_parallel", "Validation", "KYC, Financial & Loan Application Checks", 96.8),
+        ("idp_scan", "PaddleOCR", "Document OCR & Layout Scan", idp_scan_conf),
+        ("llm_structure", "LLM", "Field Structuring & Normalization", llm_structure_conf),
+        ("check_parallel", "Validation", "KYC, Financial & Loan Application Checks", check_parallel_conf),
         ("compile_report", "Engine", "Report Compilation & Aggregation", 99.0),
         ("generate_scorecard", "DGCL Engine", "Scorecard Generation", dgcl_score),
         ("push_results", "System", "LOS Result Push", 100.0),
@@ -473,6 +508,8 @@ def serialize_case(loan_id: str) -> dict[str, Any]:
         loan_id=loan_id,
         status_data=ctx.status_data,
         dgcl_score=dgcl_score,
+        docs=ctx.docs,
+        records=ctx.records,
     )
 
     proc_time_str, proc_time_sec = _compute_dynamic_processing_time(

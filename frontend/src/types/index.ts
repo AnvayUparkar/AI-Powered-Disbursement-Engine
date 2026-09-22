@@ -346,6 +346,7 @@ export interface Node2ProcessingMetadata {
     vlm_fallback_count: number;
     ocr_low_confidence_count: number;
     total_elements_extracted: number;
+    average_confidence?: number;
   };
 }
 
@@ -362,6 +363,8 @@ export interface Node2ParsedDocument {
   elements: Node2LayoutElement[];
   text: string;
   processing: Node2ProcessingMetadata;
+  extractedFields?: ExtractedField[];
+  confidence?: number;
 }
 
 export interface Node2ProcessResponse {

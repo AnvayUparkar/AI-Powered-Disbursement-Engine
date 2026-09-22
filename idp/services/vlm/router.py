@@ -7,16 +7,23 @@ from idp.core.config import settings
 from idp.core.logging import logger, format_doc_log
 
 
+from idp.services.ocr.confidence import OCRConfidenceEvaluator
+
+
 class ConfidenceRouter:
-    """Quality router deciding whether OCR elements or layout regions require VLM verification."""
+    """Quality router deciding whether OCR elements or layout regions require VLM or TrOCR verification."""
 
     def __init__(
         self,
         threshold: float = getattr(settings, "OCR_CONFIDENCE_THRESHOLD", 0.80),
-        vlm_enabled: Optional[bool] = None
+        vlm_enabled: Optional[bool] = None,
+        trocr_enabled: Optional[bool] = None,
     ):
         self.threshold = threshold
-        self.vlm_enabled = vlm_enabled if vlm_enabled is not None else getattr(settings, "VLM_ENABLED", True)
+        self.vlm_enabled = vlm_enabled if vlm_enabled is not None else getattr(settings, "VLM_ENABLED", False)
+        self.trocr_enabled = trocr_enabled if trocr_enabled is not None else getattr(settings, "TROCR_ENABLED", True)
+        self.fallback_enabled = self.vlm_enabled or self.trocr_enabled
+        self._evaluator = OCRConfidenceEvaluator()
 
     def should_use_vlm(self, ocr_result: OCRResult, doc_id: str = "DOC") -> bool:
         """Determines if any element in the OCRResult requires VLM fallback."""
@@ -44,17 +51,17 @@ class ConfidenceRouter:
     def get_low_confidence_layout_elements(
         self, elements: List[LayoutElement], doc_id: str = "DOC"
     ) -> List[LayoutElement]:
-        """Filter LayoutElements needing VLM fallback based on confidence or validation failure."""
-        if not self.vlm_enabled:
+        """Filter LayoutElements needing fallback based on confidence, garbled text, or validation failure."""
+        if not self.fallback_enabled:
             return []
 
         flagged: List[LayoutElement] = []
         for elem in elements:
             if not elem.text:
                 continue
-            
-            # Condition 1: Low confidence score
-            if elem.confidence < self.threshold:
+
+            # Condition 1: Low confidence score, garbled text, or flagged for review (e.g. comb-box/comb-grid outliers)
+            if elem.confidence < self.threshold or self._evaluator.is_garbled_text(elem.text) or (elem.metadata and elem.metadata.get("needs_review")):
                 flagged.append(elem)
                 continue
 

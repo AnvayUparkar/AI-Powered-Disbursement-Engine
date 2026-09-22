@@ -131,11 +131,14 @@ class DocumentRegistry:
             except (ValueError, TypeError):
                 pages_val = 1
 
+            valid_confs = [f.get("confidence") for f in (extracted_fields_list or []) if f.get("confidence") is not None and f.get("confidence") > 0]
+            avg_doc_conf = round(sum(valid_confs) / len(valid_confs), 1) if valid_confs else 95.0
+
             rec.update({
                 "status": "processed",
                 "ocrStatus": "COMPLETED",
                 "extractionStatus": "COMPLETED",
-                "confidence": 97.5,
+                "confidence": avg_doc_conf,
                 "pages": max(1, pages_val),
                 "rawText": raw_txt,
                 "formattedText": fmt_txt,

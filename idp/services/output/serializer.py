@@ -561,8 +561,11 @@ class DocumentSerializer:
                     if elem.source != "comb_box_merged" and self._is_element_inside_tables(elem.bbox, p.tables):
                         continue
                     
-                    if elem.source in ["vlm_corrected", "comb_box_merged"]:
+                    if elem.source == "vlm_corrected":
                         clean_txt = elem.text
+                    elif elem.source == "comb_box_merged":
+                        from idp.services.extraction.comb_box_validator import validate_comb_box_token
+                        clean_txt = validate_comb_box_token(elem)
                     else:
                         from idp.services.ocr.text_sanitizer import clean_ocr_text
                         clean_txt = clean_ocr_text(elem.text, document_type=None)
@@ -596,6 +599,11 @@ class DocumentSerializer:
             full_text = "\n".join(full_text_parts)
 
             metrics.total_elements_extracted = len(all_elements)
+            if all_elements:
+                valid_confs = [e.confidence for e in all_elements if getattr(e, "confidence", None) is not None and e.confidence > 0]
+                metrics.average_confidence = round(sum(valid_confs) / len(valid_confs), 4) if valid_confs else 0.95
+            else:
+                metrics.average_confidence = 0.95
 
             proc_meta = ProcessingMetadata(
                 document_id=doc_id,

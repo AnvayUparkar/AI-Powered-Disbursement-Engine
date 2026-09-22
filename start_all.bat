@@ -113,10 +113,12 @@ if %errorlevel% neq 0 (
 start "Disbursement Scorecard - WSL Keepalive" /min wsl sleep infinity
 echo   [OK] WSL keep-alive process spawned.
 
-:: Start Redis inside WSL
+:: Start Redis/Valkey inside WSL
 echo   Starting Redis server inside WSL...
 wsl -u root service redis-server start >nul 2>&1
+wsl -u root service valkey-server start >nul 2>&1
 wsl redis-server --daemonize yes --protected-mode no >nul 2>&1
+wsl -u root env LC_ALL=C LANG=C valkey-server --protected-mode no --bind 0.0.0.0 --daemonize yes >nul 2>&1
 
 :: Verify Redis is responding with a short retry loop for WSL port-forwarding
 set "REDIS_READY=0"
