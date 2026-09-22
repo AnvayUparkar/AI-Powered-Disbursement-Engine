@@ -70,25 +70,69 @@ class LightOnOCREngine:
                 logger.info(f"Loading LightOnOCR model: {self.model_name}")
                 start = time.time()
                 
-                from transformers import AutoProcessor, AutoModelForVision2Seq
                 import torch
                 
-                # Determine device
+                # Determine device and precision
                 if self.device == "auto":
                     device = "cuda" if torch.cuda.is_available() else "cpu"
                 else:
                     device = self.device
                 
-                logger.info(f"LightOnOCR will run on: {device}")
+                dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else (torch.float16 if device == "cuda" else torch.float32)
+                logger.info(f"LightOnOCR will run on: {device} (dtype={dtype})")
                 
-                # Load model and processor
-                self._processor = AutoProcessor.from_pretrained(
+                # Dynamically resolve model and processor classes across transformers versions
+                model_cls = None
+                processor_cls = None
+                
+                # 1. Specialized LightOnOCR classes (transformers >= 5.0)
+                try:
+                    from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor
+                    model_cls = LightOnOcrForConditionalGeneration
+                    processor_cls = LightOnOcrProcessor
+                except ImportError:
+                    pass
+                
+                # 2. Vision2Seq from auto modeling module (transformers 4.x / 5.x)
+                if model_cls is None:
+                    try:
+                        from transformers.models.auto.modeling_auto import AutoModelForVision2Seq
+                        model_cls = AutoModelForVision2Seq
+                    except ImportError:
+                        pass
+                
+                # 3. ImageTextToText auto class
+                if model_cls is None:
+                    try:
+                        from transformers.models.auto.modeling_auto import AutoModelForImageTextToText
+                        model_cls = AutoModelForImageTextToText
+                    except ImportError:
+                        pass
+                
+                # 4. Seq2SeqLM or generic AutoModel
+                if model_cls is None:
+                    try:
+                        from transformers import AutoModelForSeq2SeqLM
+                        model_cls = AutoModelForSeq2SeqLM
+                    except ImportError:
+                        from transformers import AutoModel
+                        model_cls = AutoModel
+                
+                if processor_cls is None:
+                    from transformers import AutoProcessor
+                    processor_cls = AutoProcessor
+                
+                logger.info(f"Using model class: {model_cls.__name__}, processor class: {processor_cls.__name__}")
+                
+                # Load processor and model with remote code trust
+                self._processor = processor_cls.from_pretrained(
                     self.model_name,
                     trust_remote_code=True
                 )
                 
-                self._model = AutoModelForVision2Seq.from_pretrained(
+                self._model = model_cls.from_pretrained(
                     self.model_name,
+                    torch_dtype=dtype,
                     trust_remote_code=True
                 ).to(device)
                 
@@ -169,7 +213,32 @@ class LightOnOCREngine:
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             
             # Prepare inputs
-            inputs = self._processor(images=image, return_tensors="pt").to(self._device)
+            inputs = None
+            if hasattr(self._processor, "apply_chat_template"):
+                try:
+                    conversation = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "image": image},
+                                {"type": "text", "text": "Extract the text from this document."}
+                            ]
+                        }
+                    ]
+                    inputs = self._processor.apply_chat_template(
+                        conversation,
+                        add_generation_prompt=True,
+                        tokenize=True,
+                        return_dict=True,
+                        return_tensors="pt"
+                    )
+                    import torch
+                    inputs = {k: v.to(device=self._device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+                except Exception:
+                    inputs = None
+
+            if inputs is None:
+                inputs = self._processor(images=image, return_tensors="pt").to(self._device)
             
             # Run inference with timeout protection
             result = self._run_inference_with_timeout(inputs, doc_id)
@@ -224,8 +293,20 @@ class LightOnOCREngine:
             try:
                 import torch
                 with torch.no_grad():
-                    outputs = self._model.generate(**inputs, max_new_tokens=512)
-                    text = self._processor.batch_decode(outputs, skip_special_tokens=True)[0]
+                    outputs = self._model.generate(**inputs, max_new_tokens=1024)
+                    
+                    input_ids = inputs.get("input_ids") if isinstance(inputs, dict) else None
+                    if input_ids is not None and hasattr(outputs, "shape") and len(outputs.shape) > 1 and outputs.shape[-1] > input_ids.shape[-1]:
+                        generated_ids = outputs[0, input_ids.shape[1]:]
+                    else:
+                        generated_ids = outputs[0] if hasattr(outputs, "__getitem__") else outputs
+                    
+                    if hasattr(self._processor, "decode"):
+                        text = self._processor.decode(generated_ids, skip_special_tokens=True)
+                    elif hasattr(self._processor, "batch_decode"):
+                        text = self._processor.batch_decode(outputs, skip_special_tokens=True)[0]
+                    else:
+                        text = str(generated_ids)
                     
                     # Extract bboxes if available (model-specific)
                     bboxes: List[List[float]] = []

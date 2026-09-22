@@ -161,3 +161,63 @@ class TestQualityScoreComputation:
         engine = LightOnOCREngine()
         score = engine._compute_quality_score("A1", 0.50, b"")
         assert score < 0.40
+
+    def test_quality_score_none_text(self):
+        """Failure mode: text=None must not raise and must score as empty."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score(None, 0.90, b"")
+        assert score == 0.0
+
+    def test_quality_score_whitespace_only_text(self):
+        """Edge case: whitespace-only text strips to empty and scores as empty."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("   ", 0.90, b"")
+        assert score == 0.0
+
+    def test_quality_score_length_gate_below_five_chars(self):
+        """Boundary: 4 chars falls into the <5 'severe fragment' bracket (+0.05 base)."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("ABCD", 1.0, b"")
+        assert score == 0.51
+
+    def test_quality_score_length_gate_at_five_chars(self):
+        """Boundary: 5 chars crosses into the >=5 bracket (+0.2 base), jumping the score."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("ABCDE", 1.0, b"")
+        assert score == 0.70
+
+    def test_quality_score_length_gate_below_ten_chars(self):
+        """Boundary: 9 chars stays in the >=5,<10 bracket, matching the 5-char score."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("ABCDEFGHI", 1.0, b"")
+        assert score == 0.70
+
+    def test_quality_score_length_gate_at_ten_chars(self):
+        """Boundary: 10 chars crosses both the base-score and content-depth gates at once."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("ABCDEFGHIJ", 1.0, b"")
+        assert score == 0.90
+
+    def test_quality_score_content_depth_below_twenty_five_chars(self):
+        """Boundary: 24 chars stays below the full content-depth bonus."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("A" * 24, 1.0, b"")
+        assert score == 0.90
+
+    def test_quality_score_content_depth_at_twenty_five_chars(self):
+        """Boundary: 25 chars unlocks the full content-depth bonus, reaching the max score."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("A" * 25, 1.0, b"")
+        assert score == 1.0
+
+    def test_quality_score_confidence_clamped_when_negative(self):
+        """Failure mode: a negative confidence must clamp to 0 contribution, never go negative."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("A" * 25, -1.0, b"")
+        assert score == 0.70
+
+    def test_quality_score_confidence_clamped_above_one(self):
+        """Edge case: confidence > 1.0 must clamp to 1.0 contribution, not overshoot."""
+        engine = LightOnOCREngine()
+        score = engine._compute_quality_score("ABCDE", 2.0, b"")
+        assert score == 0.70
