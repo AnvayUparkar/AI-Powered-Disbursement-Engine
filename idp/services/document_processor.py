@@ -8,7 +8,7 @@ from idp.services.docling.parser import DoclingParser, DoclingParseResult
 from idp.services.docling.options import DoclingOptions
 from config.doc_types import get_canonical_doc_type
 from config.docling_profiles import get_profile_for_document_type
-from idp.models.ocr import OCRResult
+from idp.models.ocr import OCRResult, OCRElement
 from idp.models.layout import LayoutElement
 from idp.services.vlm.router import ConfidenceRouter
 from idp.services.vlm.client import VLMClient, VLMResult
@@ -182,27 +182,161 @@ class DocumentProcessor:
                     ))
                     docling_input_path = local_file_path
 
-            docling_start = time.time()
-            docling_result: Optional[DoclingParseResult] = None
-            try:
-                docling_result = await asyncio.to_thread(
-                    docling_profile.parse, docling_input_path, doc_id=document_id
-                )
-            except Exception as e:
-                logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
-            metrics.docling_processing_time = round(time.time() - docling_start, 3)
+            # ROUTING DECISION: LightOnOCR vs Docling for scanned pages
+            # LightOnOCR receives the SAME preprocessed images as Docling would have
+            if prep_doc.is_scanned_pdf and settings.LIGHTONOCR_ENABLED:
+                # ═══════════════════════════════════════════════════════════════
+                # LightOnOCR Route for Scanned Pages
+                # ═══════════════════════════════════════════════════════════════
+                from idp.services.ocr.lightonocr_adapter import LightOnOCRAdapter
 
-            # Step 4: Capture page images for VLM region cropping (no standalone OCR)
+                lightonocr_adapter = LightOnOCRAdapter()
+                ocr_results: List[OCRResult] = []
+
+                logger.info(format_doc_log(
+                    document_id,
+                    f"Routing {prep_doc.page_count} scanned pages to LightOnOCR-2-1B"
+                    f"{' (preprocessed)' if docling_input_path != local_file_path else ' (raw)'}"
+                ))
+
+                lightonocr_start = time.time()
+                lightonocr_pages_processed = 0
+                lightonocr_pages_failed = 0
+
+                # Extract page images from the PREPROCESSED PDF (same images Docling would use)
+                page_image_data_for_ocr = await self._get_page_images(docling_input_path, prep_doc)
+
+                for page_idx, (page_bytes, img_w, img_h) in enumerate(page_image_data_for_ocr):
+                    page_num = page_idx + 1
+
+                    try:
+                        ocr_res = lightonocr_adapter.process_page_to_ocr_result(
+                            image_bytes=page_bytes,
+                            page_number=page_num,
+                            image_width=img_w,
+                            image_height=img_h,
+                            doc_id=document_id
+                        )
+
+                        if ocr_res and not ocr_res.extraction_failed:
+                            ocr_results.append(ocr_res)
+                            lightonocr_pages_processed += 1
+                        else:
+                            ocr_results.append(OCRResult(
+                                page_number=page_num,
+                                elements=[],
+                                extraction_failed=True,
+                                image_width=img_w,
+                                image_height=img_h
+                            ))
+                            lightonocr_pages_failed += 1
+                            logger.warning(format_doc_log(
+                                document_id,
+                                f"LightOnOCR failed on page {page_num} - will use VLM fallback"
+                            ))
+
+                    except Exception as e:
+                        logger.error(format_doc_log(
+                            document_id,
+                            f"LightOnOCR exception on page {page_num}: {e}"
+                        ))
+                        ocr_results.append(OCRResult(
+                            page_number=page_num,
+                            elements=[],
+                            extraction_failed=True,
+                            image_width=img_w,
+                            image_height=img_h
+                        ))
+                        lightonocr_pages_failed += 1
+
+                metrics.lightonocr_processing_time = round(time.time() - lightonocr_start, 3)
+                metrics.lightonocr_pages_processed = lightonocr_pages_processed
+                metrics.lightonocr_pages_failed = lightonocr_pages_failed
+
+                logger.info(format_doc_log(
+                    document_id,
+                    f"LightOnOCR completed: {lightonocr_pages_processed}/{prep_doc.page_count} pages, "
+                    f"{lightonocr_pages_failed} failures, {metrics.lightonocr_processing_time:.2f}s"
+                ))
+
+                docling_result = None
+                metrics.docling_processing_time = 0.0
+
+            else:
+                # ═══════════════════════════════════════════════════════════════
+                # EXISTING: Docling Path (digital PDFs and scanned when LightOnOCR disabled)
+                # ═══════════════════════════════════════════════════════════════
+                ocr_results = []
+                docling_start = time.time()
+                docling_result = None
+                try:
+                    docling_result = await asyncio.to_thread(
+                        docling_profile.parse, docling_input_path, doc_id=document_id
+                    )
+                except Exception as e:
+                    logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
+                metrics.docling_processing_time = round(time.time() - docling_start, 3)
+
+            # Step 4: Capture page images for VLM region cropping
+            # For LightOnOCR route: use the ORIGINAL file (not preprocessed) for VLM
             page_image_data = await self._get_page_images(local_file_path, prep_doc)
             page_images: List[bytes] = [item[0] for item in page_image_data]
-            ocr_results: List[OCRResult] = []
 
-            # Step 5: Selective VLM Fallback Routing on Docling layout/OCR elements
+            # Step 5: Selective VLM Fallback Routing
             vlm_start = time.time()
             vlm_corrections: Dict[str, VLMResult] = {}
             vlm_used = False
 
-            if docling_result and docling_result.elements:
+            if prep_doc.is_scanned_pdf and settings.LIGHTONOCR_ENABLED and ocr_results:
+                for ocr_res in ocr_results:
+                    pno = ocr_res.page_number
+                    page_bytes = page_images[pno - 1] if pno <= len(page_images) else b""
+
+                    # Check if page needs VLM (extraction_failed or low quality elements)
+                    needs_vlm_page = ocr_res.extraction_failed or ocr_res.low_confidence_count > 0
+
+                    if needs_vlm_page and page_bytes:
+                        logger.info(format_doc_log(
+                            document_id,
+                            f"Routing page {pno} to VLM (LightOnOCR quality insufficient)"
+                        ))
+
+                        vlm_res = await self.vlm_client.analyze_region(
+                            image_bytes=page_bytes,
+                            ocr_element=OCRElement(
+                                id=f"lightonocr-fallback-p{pno}",
+                                text="",
+                                bbox=[0.0, 0.0, ocr_res.image_width, ocr_res.image_height],
+                                confidence=0.0,
+                                page_number=pno,
+                                source="lightonocr"
+                            ),
+                            context_hint=f"Full page {pno} OCR fallback",
+                            doc_id=document_id
+                        )
+
+                        if vlm_res:
+                            vlm_elem = OCRElement(
+                                id=f"vlm-p{pno}-full",
+                                text=vlm_res.text,
+                                bbox=[0.0, 0.0, ocr_res.image_width, ocr_res.image_height],
+                                confidence=vlm_res.confidence,
+                                page_number=pno,
+                                source="vlm_corrected",
+                                ocr_original=ocr_res.elements[0].text if ocr_res.elements else "",
+                                needs_vlm=False
+                            )
+
+                            ocr_res.elements = [vlm_elem]
+                            ocr_res.extraction_failed = False
+                            ocr_res.average_confidence = vlm_res.confidence
+                            ocr_res.low_confidence_count = 0
+                            metrics.vlm_fallback_count += 1
+                            vlm_used = True
+
+                        await asyncio.sleep(0.25)
+
+            elif docling_result and docling_result.elements:
                 flagged_elements = self.router.get_low_confidence_layout_elements(
                     docling_result.elements, doc_id=document_id
                 )
@@ -220,7 +354,6 @@ class DocumentProcessor:
                     cropped_bytes = crop_image_region(
                         image_bytes=page_bytes,
                         bbox=elem.bbox
-                        
                     )
 
                     vlm_res = await self.vlm_client.analyze_region(
@@ -248,20 +381,21 @@ class DocumentProcessor:
             # Step 5.5: Recover comb-box fields that Docling welded into one line
             # element by reading the printed cell-divider grid off the page image
             # and assigning the value characters back to their cells.
-            try:
-                n_grid = await asyncio.to_thread(
-                    self._recover_comb_grids,
-                    docling_result, page_image_data, document_id
-                )
-                if n_grid:
-                    logger.info(format_doc_log(
-                        document_id,
-                        f"Recovered {n_grid} comb-grid cell elements from the page image"
+            if docling_result is not None:
+                try:
+                    n_grid = await asyncio.to_thread(
+                        self._recover_comb_grids,
+                        docling_result, page_image_data, document_id
+                    )
+                    if n_grid:
+                        logger.info(format_doc_log(
+                            document_id,
+                            f"Recovered {n_grid} comb-grid cell elements from the page image"
+                        ))
+                except Exception as grid_err:
+                    logger.warning(format_doc_log(
+                        document_id, f"Comb-grid recovery skipped (non-fatal): {grid_err}"
                     ))
-            except Exception as grid_err:
-                logger.warning(format_doc_log(
-                    document_id, f"Comb-grid recovery skipped (non-fatal): {grid_err}"
-                ))
 
             metrics.total_processing_time = round(time.time() - start_time, 3)
 
