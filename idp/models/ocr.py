@@ -31,7 +31,11 @@ class OCRElement(BaseModel):
     confidence: float
     page_number: int
     line_number: Optional[int] = None
-    source: Literal["ocr", "vlm", "docling", "docling_ocr", "xml", "vlm_corrected", "lightonocr"] = "docling_ocr"
+    source: str = "docling_ocr"
+    engine_version: Optional[str] = None
+    route: Optional[str] = None
+    region_class: Optional[str] = None
+    alternates: List[dict] = Field(default_factory=list)
     ocr_original: Optional[str] = None  # Preserved if VLM modified the text
     verified: bool = True
     needs_vlm: bool = False

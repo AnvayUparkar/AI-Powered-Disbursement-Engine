@@ -293,6 +293,7 @@ class DocumentProcessor:
                         temp_dir,
                     )
                     docling_input_path = scan_result.processed_path
+                    scan_deskewed_path = getattr(scan_result, "deskewed_path", None)
                     logger.info(format_doc_log(
                         document_id,
                         f"Scan preprocessing done: {scan_result.pages_processed} page(s) "
@@ -314,9 +315,10 @@ class DocumentProcessor:
                         f"Scan preprocessing failed (non-fatal), using original file: {scan_err}"
                     ))
                     docling_input_path = local_file_path
+                    scan_deskewed_path = None
 
             # ROUTING DECISION: LightOnOCR vs Docling for scanned pages
-            # LightOnOCR receives the SAME preprocessed images as Docling would have
+            # LightOnOCR receives the deskewed/geometric-only images (before binarization)
             if prep_doc.is_scanned_pdf and settings.LIGHTONOCR_ENABLED:
                 # ═══════════════════════════════════════════════════════════════
                 # LightOnOCR Route for Scanned Pages
@@ -326,18 +328,19 @@ class DocumentProcessor:
                 lightonocr_adapter = LightOnOCRAdapter()
                 ocr_results: List[OCRResult] = []
 
+                lightonocr_input_path = scan_deskewed_path or docling_input_path
                 logger.info(format_doc_log(
                     document_id,
                     f"Routing {prep_doc.page_count} scanned pages to LightOnOCR-2-1B"
-                    f"{' (preprocessed)' if docling_input_path != local_file_path else ' (raw)'}"
+                    f"{' (deskewed)' if lightonocr_input_path != local_file_path else ' (raw)'}"
                 ))
 
                 lightonocr_start = time.time()
                 lightonocr_pages_processed = 0
                 lightonocr_pages_failed = 0
 
-                # Extract page images from the PREPROCESSED PDF (same images Docling would use)
-                page_image_data_for_ocr = await self._get_page_images(docling_input_path, prep_doc)
+                # Extract page images from the deskewed PDF/image
+                page_image_data_for_ocr = await self._get_page_images(lightonocr_input_path, prep_doc)
 
                 for page_idx, (page_bytes, img_w, img_h) in enumerate(page_image_data_for_ocr):
                     page_num = page_idx + 1

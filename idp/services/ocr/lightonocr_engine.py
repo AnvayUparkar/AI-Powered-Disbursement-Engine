@@ -24,6 +24,7 @@ class LightOnOCRResult(BaseModel):
     bboxes: List[List[float]] = Field(default_factory=list)  # List of [x1, y1, x2, y2]
     inference_time_ms: float = 0.0
     quality_score: float = 0.0  # Custom quality metric
+    hard_fail_reason: Optional[str] = None  # "truncated" | "repetition" | "empty"
 
 
 class LightOnOCREngine:
@@ -173,6 +174,37 @@ class LightOnOCREngine:
                 
                 logger.info("LightOnOCR model unloaded from memory")
     
+    @staticmethod
+    def _prepare_image(image: Image.Image) -> Image.Image:
+        """
+        Normalize input image for LightOnOCR:
+        - Ensure RGB mode
+        - Downscale so longest edge <= LIGHTONOCR_MAX_EDGE_PX using LANCZOS
+        - Never upscale
+        """
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        max_edge = getattr(settings, "LIGHTONOCR_MAX_EDGE_PX", 1540)
+        w, h = image.size
+        if max(w, h) > max_edge:
+            image = image.copy()
+            image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+        return image
+
+    @staticmethod
+    def _compute_ink_ratio(image: Optional[Image.Image]) -> float:
+        """Estimate ink ratio (fraction of dark foreground pixels) on page."""
+        if image is None:
+            return 0.05
+        try:
+            import numpy as np
+            gray = np.array(image.convert("L"))
+            ink_pixels = np.sum(gray < 200)
+            total_pixels = gray.size
+            return float(ink_pixels / max(1, total_pixels))
+        except Exception:
+            return 0.05
+
     def process_page(
         self,
         image_bytes: bytes,
@@ -209,10 +241,11 @@ class LightOnOCREngine:
             
             start_time = time.time()
             
-            # Convert bytes to PIL Image
-            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            # Convert bytes to PIL Image and normalize
+            raw_image = Image.open(io.BytesIO(image_bytes))
+            image = self._prepare_image(raw_image)
             
-            # Prepare inputs
+            # Prepare inputs - image-only user turn (no text prefix prompt)
             inputs = None
             if hasattr(self._processor, "apply_chat_template"):
                 try:
@@ -220,8 +253,7 @@ class LightOnOCREngine:
                         {
                             "role": "user",
                             "content": [
-                                {"type": "image", "image": image},
-                                {"type": "text", "text": "Extract the text from this document."}
+                                {"type": "image", "image": image}
                             ]
                         }
                     ]
@@ -241,7 +273,7 @@ class LightOnOCREngine:
                 inputs = self._processor(images=image, return_tensors="pt").to(self._device)
             
             # Run inference with timeout protection
-            result = self._run_inference_with_timeout(inputs, doc_id)
+            result = self._run_inference_with_timeout(inputs, doc_id, image=image)
             
             if result is None:
                 return None
@@ -252,14 +284,21 @@ class LightOnOCREngine:
             text = result.get("text", "")
             confidence = float(result.get("confidence", 0.0))
             bboxes = result.get("bboxes", [])
+            hard_fail_reason = result.get("hard_fail_reason")
+            ink_ratio = result.get("ink_ratio")
             
-            quality_score = self._compute_quality_score(text, confidence, image_bytes)
+            quality_score = self._compute_quality_score(
+                text=text,
+                confidence=confidence,
+                image=image,
+                ink_ratio=ink_ratio
+            )
             
             logger.info(format_doc_log(
                 doc_id,
                 f"LightOnOCR page {page_number}: {len(text)} chars, "
                 f"conf={confidence:.2f}, quality={quality_score:.2f}, "
-                f"time={inference_time:.0f}ms"
+                f"hard_fail={hard_fail_reason}, time={inference_time:.0f}ms"
             ))
             
             return LightOnOCRResult(
@@ -267,7 +306,8 @@ class LightOnOCREngine:
                 confidence=confidence,
                 bboxes=bboxes,
                 inference_time_ms=inference_time,
-                quality_score=quality_score
+                quality_score=quality_score,
+                hard_fail_reason=hard_fail_reason
             )
             
         except Exception as e:
@@ -280,7 +320,8 @@ class LightOnOCREngine:
     def _run_inference_with_timeout(
         self,
         inputs: Any,
-        doc_id: str
+        doc_id: str,
+        image: Optional[Image.Image] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Run model inference with timeout protection.
@@ -293,14 +334,36 @@ class LightOnOCREngine:
             try:
                 import torch
                 with torch.no_grad():
-                    outputs = self._model.generate(**inputs, max_new_tokens=1024)
+                    max_new_tokens = getattr(settings, "LIGHTONOCR_MAX_NEW_TOKENS", 4096)
+                    gen_kwargs: Dict[str, Any] = {
+                        "max_new_tokens": max_new_tokens,
+                        "output_scores": True,
+                        "return_dict_in_generate": True,
+                    }
+                    if getattr(settings, "LIGHTONOCR_DETERMINISTIC", False):
+                        gen_kwargs["do_sample"] = False
+                    else:
+                        gen_kwargs["do_sample"] = True
+                        gen_kwargs["temperature"] = 0.2
+                        gen_kwargs["top_p"] = 0.9
+
+                    outputs = self._model.generate(**inputs, **gen_kwargs)
                     
                     input_ids = inputs.get("input_ids") if isinstance(inputs, dict) else None
-                    if input_ids is not None and hasattr(outputs, "shape") and len(outputs.shape) > 1 and outputs.shape[-1] > input_ids.shape[-1]:
-                        generated_ids = outputs[0, input_ids.shape[1]:]
+                    if hasattr(outputs, "sequences"):
+                        seq = outputs.sequences
+                        if input_ids is not None and len(seq.shape) > 1 and seq.shape[-1] > input_ids.shape[-1]:
+                            generated_ids = seq[0, input_ids.shape[1]:]
+                        else:
+                            generated_ids = seq[0]
                     else:
-                        generated_ids = outputs[0] if hasattr(outputs, "__getitem__") else outputs
+                        if input_ids is not None and hasattr(outputs, "shape") and len(outputs.shape) > 1 and outputs.shape[-1] > input_ids.shape[-1]:
+                            generated_ids = outputs[0, input_ids.shape[1]:]
+                        else:
+                            generated_ids = outputs[0] if hasattr(outputs, "__getitem__") else outputs
                     
+                    num_generated_tokens = len(generated_ids) if hasattr(generated_ids, "__len__") else 0
+
                     if hasattr(self._processor, "decode"):
                         text = self._processor.decode(generated_ids, skip_special_tokens=True)
                     elif hasattr(self._processor, "batch_decode"):
@@ -308,14 +371,67 @@ class LightOnOCREngine:
                     else:
                         text = str(generated_ids)
                     
-                    # Extract bboxes if available (model-specific)
+                    # Compute real confidence from token probabilities
+                    conf_mean = 0.95
+                    conf_p05 = 0.95
+                    try:
+                        if hasattr(self._model, "compute_transition_scores") and hasattr(outputs, "scores") and outputs.scores:
+                            import numpy as np
+                            seq_to_score = outputs.sequences if hasattr(outputs, "sequences") else outputs
+                            transition_scores = self._model.compute_transition_scores(
+                                seq_to_score, outputs.scores, normalize_logits=True
+                            )
+                            probs = torch.exp(transition_scores[0]).cpu().float().numpy()
+                            probs = np.clip(probs, 0.0, 1.0)
+                            if len(probs) > 0:
+                                conf_mean = float(np.mean(probs))
+                                if len(probs) >= 8:
+                                    window_means = [float(np.mean(probs[i:i+8])) for i in range(len(probs) - 7)]
+                                    conf_p05 = float(np.percentile(window_means, 5))
+                                else:
+                                    conf_p05 = float(np.percentile(probs, 5))
+                    except Exception as score_err:
+                        logger.debug(format_doc_log(doc_id, f"Transition score calculation fallback: {score_err}"))
+
+                    # Hard-fail checks
+                    hard_fail_reason = None
+
+                    # 1. Truncation
+                    if num_generated_tokens >= max_new_tokens:
+                        hard_fail_reason = "truncated"
+
+                    # 2. Repetition
+                    words = text.split()
+                    ngram_size = getattr(settings, "LIGHTONOCR_REPETITION_NGRAM", 6)
+                    max_reps = getattr(settings, "LIGHTONOCR_REPETITION_MAX", 5)
+                    if hard_fail_reason is None and len(words) >= ngram_size:
+                        from collections import Counter
+                        ngrams = [tuple(words[i:i+ngram_size]) for i in range(len(words) - ngram_size + 1)]
+                        counts = Counter(ngrams)
+                        if any(c >= max_reps for c in counts.values()):
+                            hard_fail_reason = "repetition"
+
+                    if hard_fail_reason is None and len(text) >= 100:
+                        import zlib
+                        compressed = zlib.compress(text.encode("utf-8", errors="ignore"))
+                        comp_ratio = len(compressed) / max(1, len(text.encode("utf-8", errors="ignore")))
+                        if comp_ratio < 0.15:
+                            hard_fail_reason = "repetition"
+
+                    # 3. Empty on high ink page
+                    non_ws_chars = len(re.sub(r"\s+", "", text))
+                    ink_ratio = self._compute_ink_ratio(image) if image is not None else 0.05
+                    if hard_fail_reason is None and non_ws_chars < 5 and ink_ratio > 0.02:
+                        hard_fail_reason = "empty"
+
                     bboxes: List[List[float]] = []
-                    confidence = 0.95  # Default if not provided by model
-                    
                     result_container["result"] = {
                         "text": text,
-                        "confidence": confidence,
-                        "bboxes": bboxes
+                        "confidence": float(conf_p05),
+                        "conf_mean": float(conf_mean),
+                        "bboxes": bboxes,
+                        "hard_fail_reason": hard_fail_reason,
+                        "ink_ratio": ink_ratio,
                     }
             except Exception as e:
                 result_container["error"] = str(e)
@@ -343,54 +459,56 @@ class LightOnOCREngine:
     
     def _compute_quality_score(
         self,
-        text: str,
+        text: Optional[str],
         confidence: float,
-        image_bytes: bytes
+        image: Optional[Image.Image] = None,
+        ink_ratio: Optional[float] = None
     ) -> float:
         """
-        Compute quality score for LightOnOCR result.
-        
-        Quality heuristics:
-        - Non-empty text with length gating: up to +0.3
-        - Text depth (sufficient content for a full-page document): up to +0.2
-        - Engine confidence: up to +0.3
-        - Valid character ratio (scaled by length confidence): up to +0.2
-        
-        Returns: 0.0 to 1.0
+        Compute quality score for LightOnOCR result:
+        quality = conf_p05 * (1 - garble_ratio) * coverage_factor
+        coverage_factor = min(1, chars_out / expected_chars(ink_ratio, page_area))
+        where expected_chars = 0.6 * ink_pixels / avg_glyph_area.
+        garble_ratio from OCRConfidenceEvaluator.is_garbled_text over lines.
         """
-        cleaned = text.strip() if text else ""
-        total_chars = len(cleaned)
-        if total_chars == 0:
+        if not text or not text.strip():
             return 0.0
 
-        score = 0.0
+        cleaned = text.strip()
+        chars_out = len(cleaned)
+        if chars_out == 0:
+            return 0.0
 
-        # Check 1: Non-empty & minimum usable length for a scanned document page
-        # Scanned pages containing fewer than 5 characters are severe truncations/fragments
-        if total_chars >= 10:
-            score += 0.3
-        elif total_chars >= 5:
-            score += 0.2
+        # Garble ratio from lines
+        lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
+        if lines:
+            from idp.services.ocr.confidence import OCRConfidenceEvaluator
+            evaluator = OCRConfidenceEvaluator()
+            garbled_count = sum(1 for l in lines if evaluator.is_garbled_text(l))
+            garble_ratio = garbled_count / len(lines)
         else:
-            score += 0.05
+            garble_ratio = 0.0
 
-        # Check 2: Content depth (reasonable document volume)
-        if total_chars >= 25:
-            score += 0.2
-        elif total_chars >= 10:
-            score += 0.1
+        # Page area and ink pixels
+        if image is not None:
+            w, h = image.size
+            page_area = float(w * h)
+            if ink_ratio is None:
+                ink_ratio = self._compute_ink_ratio(image)
+            ink_pixels = ink_ratio * page_area
+        else:
+            page_area = 1500.0 * 2000.0
+            if ink_ratio is None:
+                ink_ratio = 0.05
+            ink_pixels = ink_ratio * page_area
 
-        # Check 3: Confidence contribution (up to 0.3)
-        score += min(max(confidence, 0.0), 1.0) * 0.3
+        avg_glyph_area = 250.0  # approximate glyph area in pixels at ~150-200 DPI
+        expected_chars = max(10.0, (0.6 * ink_pixels) / avg_glyph_area)
+        coverage_factor = min(1.0, chars_out / expected_chars)
 
-        # Check 4: Valid character ratio scaled by sample length
-        # A 1-2 char fragment cannot establish character distribution validity
-        valid_chars = len(re.findall(r'[a-zA-Z0-9\s।,\.\'"\-/]', cleaned))
-        valid_ratio = valid_chars / total_chars
-        length_weight = min(1.0, total_chars / 5.0)
-        score += valid_ratio * length_weight * 0.2
-
-        return min(round(score, 4), 1.0)
+        conf_p05 = min(max(confidence, 0.0), 1.0)
+        quality = conf_p05 * (1.0 - garble_ratio) * coverage_factor
+        return min(max(round(float(quality), 4), 0.0), 1.0)
 
 
 # Singleton instance

@@ -23,7 +23,7 @@ inside Docling merely upsamples an already-raster image for no benefit.
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple,Optional
 
 from pydantic import BaseModel
 
@@ -38,6 +38,7 @@ class ScanPreprocessingResult(BaseModel):
     original_path: str
     pages_processed: int
     per_page_metadata: List[Dict[str, Any]]
+    deskewed_path: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ def _process_pdf(
     doc_id: str,
     output_path: str,
     preprocessor: OCRImagePreprocessor,
+    deskewed_path: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Rasterise every page of *file_path* at *target_scale*, run each page
@@ -100,12 +102,17 @@ def _process_pdf(
 
     # Reassemble into a new PDF, preserving original point dimensions.
     out_doc = fitz.open()
+    deskewed_doc = fitz.open() if deskewed_path else None
     per_page_metadata: List[Dict[str, Any]] = []
     for idx, entry in enumerate(results):
         _, cleaned_bytes, meta = entry
         orig_rect = raw_pages[idx][2]  # page.rect (point coordinates)
         new_page = out_doc.new_page(width=orig_rect.width, height=orig_rect.height)
         new_page.insert_image(orig_rect, stream=cleaned_bytes)
+        if deskewed_doc is not None:
+            d_bytes = meta.get("deskewed_bytes") or cleaned_bytes
+            d_page = deskewed_doc.new_page(width=orig_rect.width, height=orig_rect.height)
+            d_page.insert_image(orig_rect, stream=d_bytes)
         per_page_metadata.append(meta)
         logger.debug(
             format_doc_log(
@@ -120,6 +127,9 @@ def _process_pdf(
 
     out_doc.save(output_path, garbage=4, deflate=True)
     out_doc.close()
+    if deskewed_doc is not None:
+        deskewed_doc.save(deskewed_path, garbage=4, deflate=True)
+        deskewed_doc.close()
     return per_page_metadata
 
 
@@ -128,6 +138,7 @@ def _process_image(
     doc_id: str,
     output_path: str,
     preprocessor: OCRImagePreprocessor,
+    deskewed_path: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Run the single image through OCRImagePreprocessor and write the result
@@ -143,6 +154,11 @@ def _process_image(
     with open(output_path, "wb") as fh:
         fh.write(cleaned_bytes)
 
+    if deskewed_path:
+        d_bytes = meta.get("deskewed_bytes") or cleaned_bytes
+        with open(deskewed_path, "wb") as fh:
+            fh.write(d_bytes)
+
     return [meta]
 
 
@@ -157,6 +173,7 @@ def preprocess_scanned_document(
     target_scale: float,
     doc_id: str,
     output_dir: str,
+    return_stage: Optional[str] = None,
 ) -> ScanPreprocessingResult:
     """
     Pre-clean a scanned document at the pixel level before Docling ingestion.
@@ -177,13 +194,15 @@ def preprocess_scanned_document(
         Directory where the cleaned output file will be written.
         Must already exist (``create_temp_dir`` in document_processor.py
         ensures this).
+    return_stage:
+        Optional stage to return as primary ``processed_path`` (e.g. ``"deskewed"``).
 
     Returns
     -------
     ScanPreprocessingResult
         ``processed_path`` points to the cleaned file that should be passed
         to ``docling_parser.parse()``.  ``original_path`` is ``file_path``
-        unchanged.
+        unchanged.  ``deskewed_path`` points to the deskewed-only version.
 
     Raises
     ------
@@ -205,6 +224,7 @@ def preprocess_scanned_document(
 
     if file_category == "pdf":
         output_path = os.path.join(output_dir, f"{doc_id}_preprocessed.pdf")
+        deskewed_path = os.path.join(output_dir, f"{doc_id}_deskewed.pdf")
         logger.info(
             format_doc_log(
                 doc_id,
@@ -217,11 +237,13 @@ def preprocess_scanned_document(
             doc_id=doc_id,
             output_path=output_path,
             preprocessor=preprocessor,
+            deskewed_path=deskewed_path,
         )
 
     else:  # image
         ext = os.path.splitext(file_path)[1] or ".png"
         output_path = os.path.join(output_dir, f"{doc_id}_preprocessed{ext}")
+        deskewed_path = os.path.join(output_dir, f"{doc_id}_deskewed{ext}")
         logger.info(
             format_doc_log(
                 doc_id,
@@ -233,6 +255,7 @@ def preprocess_scanned_document(
             doc_id=doc_id,
             output_path=output_path,
             preprocessor=preprocessor,
+            deskewed_path=deskewed_path,
         )
 
     logger.info(
@@ -242,9 +265,12 @@ def preprocess_scanned_document(
         )
     )
 
+    primary_path = deskewed_path if return_stage == "deskewed" else output_path
+
     return ScanPreprocessingResult(
-        processed_path=output_path,
+        processed_path=primary_path,
         original_path=file_path,
         pages_processed=len(per_page_metadata),
         per_page_metadata=per_page_metadata,
+        deskewed_path=deskewed_path,
     )

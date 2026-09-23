@@ -72,7 +72,8 @@ class OCRImagePreprocessor:
         self,
         image_bytes: bytes,
         doc_id: str = "DOC",
-        skip_preprocessing: bool = False
+        skip_preprocessing: bool = False,
+        return_stage: Optional[str] = None
     ) -> Tuple[bytes, Dict[str, Any]]:
         """
         Evaluate image characteristics and apply conditional preprocessing:
@@ -149,6 +150,17 @@ class OCRImagePreprocessor:
                     logger.info(f"[{doc_id}] Applied fine deskew rotation of {angle:.2f} degrees")
             except Exception as e:
                 logger.debug(f"[{doc_id}] Fine deskew failed: {e}")
+
+            # Capture geometric-only deskewed state (before blur/CLAHE/denoise/binarize)
+            if len(img.shape) == 3:
+                _, d_enc = cv2.imencode(".png", img)
+            else:
+                _, d_enc = cv2.imencode(".png", cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR))
+            deskewed_bytes = d_enc.tobytes()
+            metadata["deskewed_bytes"] = deskewed_bytes
+
+            if return_stage == "deskewed":
+                return deskewed_bytes, metadata
 
             # 4. Blur detection and unsharp masking sharpening
             try:

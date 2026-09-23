@@ -9,6 +9,7 @@ Verifies:
 5. LightOnOCR timeout -> None (safe degradation)
 6. LightOnOCR result deduplication in serializer
 """
+import io
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from idp.services.ocr.lightonocr_engine import LightOnOCREngine, LightOnOCRResult
@@ -140,84 +141,189 @@ class TestLightOnOCRRouting:
         assert is_dup is True
 
 
+    def test_lightonocr_hard_fail_truncated_marks_extraction_failed(self):
+        """Truncated output from LightOnOCR must mark extraction_failed=True for VLM fallback."""
+        mock_result = LightOnOCRResult(
+            text="Truncated text...",
+            confidence=0.95,
+            bboxes=[],
+            inference_time_ms=100.0,
+            quality_score=0.95,
+            hard_fail_reason="truncated"
+        )
+        adapter = LightOnOCRAdapter()
+        with patch.object(adapter.engine, 'process_page', return_value=mock_result):
+            ocr_result = adapter.process_page_to_ocr_result(
+                image_bytes=b"fake_image_bytes",
+                page_number=1,
+                image_width=595.0,
+                image_height=842.0,
+                doc_id="TEST-TRUNC"
+            )
+        assert ocr_result is not None
+        assert ocr_result.extraction_failed is True
+        assert len(ocr_result.elements) == 0
+
+    def test_lightonocr_hard_fail_repetition_marks_extraction_failed(self):
+        """Repetitive looped output from LightOnOCR must mark extraction_failed=True."""
+        mock_result = LightOnOCRResult(
+            text="loop loop loop loop loop loop",
+            confidence=0.95,
+            bboxes=[],
+            inference_time_ms=100.0,
+            quality_score=0.95,
+            hard_fail_reason="repetition"
+        )
+        adapter = LightOnOCRAdapter()
+        with patch.object(adapter.engine, 'process_page', return_value=mock_result):
+            ocr_result = adapter.process_page_to_ocr_result(
+                image_bytes=b"fake_image_bytes",
+                page_number=1,
+                image_width=595.0,
+                image_height=842.0,
+                doc_id="TEST-REP"
+            )
+        assert ocr_result is not None
+        assert ocr_result.extraction_failed is True
+
+    def test_lightonocr_hard_fail_empty_marks_extraction_failed(self):
+        """Empty text on high ink page must mark extraction_failed=True."""
+        mock_result = LightOnOCRResult(
+            text="",
+            confidence=0.0,
+            bboxes=[],
+            inference_time_ms=50.0,
+            quality_score=0.0,
+            hard_fail_reason="empty"
+        )
+        adapter = LightOnOCRAdapter()
+        with patch.object(adapter.engine, 'process_page', return_value=mock_result):
+            ocr_result = adapter.process_page_to_ocr_result(
+                image_bytes=b"fake_image_bytes",
+                page_number=1,
+                image_width=595.0,
+                image_height=842.0,
+                doc_id="TEST-EMPTY"
+            )
+        assert ocr_result is not None
+        assert ocr_result.extraction_failed is True
+
+    def test_prepare_image_downscale_and_rgb(self):
+        """Input image must be converted to RGB and downscaled if longest edge > 1540."""
+        from PIL import Image
+        engine = LightOnOCREngine()
+
+        # Large grayscale image 2000x1000
+        large_gray = Image.new("L", (2000, 1000), color=255)
+        prepared = engine._prepare_image(large_gray)
+        assert prepared.mode == "RGB"
+        assert max(prepared.size) <= 1540
+        assert prepared.size[0] == 1540
+        assert prepared.size[1] == 770
+
+        # Small RGBA image 500x400 (should not upscale)
+        small_rgba = Image.new("RGBA", (500, 400), color=(255, 255, 255, 255))
+        prepared_small = engine._prepare_image(small_rgba)
+        assert prepared_small.mode == "RGB"
+        assert prepared_small.size == (500, 400)
+
+    def test_conversation_prompt_is_image_only(self):
+        """Assert no text prompt ('Extract the text from this document.') in user conversation."""
+        from PIL import Image
+        engine = LightOnOCREngine()
+        dummy_img = Image.new("RGB", (100, 100), color=(255, 255, 255))
+        img_byte_arr = io.BytesIO()
+        dummy_img.save(img_byte_arr, format='PNG')
+        img_bytes = img_byte_arr.getvalue()
+
+        mock_processor = Mock()
+        mock_processor.apply_chat_template = Mock(return_value={"input_ids": [1, 2, 3]})
+        
+        with patch.object(engine, 'is_loaded', return_value=True), \
+             patch.object(engine, '_processor', mock_processor), \
+             patch.object(engine, '_run_inference_with_timeout', return_value={"text": "Hello", "confidence": 0.9, "bboxes": []}), \
+             patch.object(settings, 'LIGHTONOCR_ENABLED', True):
+            engine.process_page(img_bytes, page_number=1, doc_id="TEST-PROMPT")
+
+        assert mock_processor.apply_chat_template.called
+        call_args = mock_processor.apply_chat_template.call_args[0][0]
+        # Inspect conversation structure
+        user_content = call_args[0]["content"]
+        types = [item["type"] for item in user_content]
+        assert "image" in types
+        assert "text" not in types, "Prompt must be image-only without text prompt"
+
+    def test_adapter_splits_lines_and_aligns_boxes(self):
+        """Adapter splits multiline text and assigns line numbers and estimated bboxes."""
+        mock_result = LightOnOCRResult(
+            text="Line 1: Loan Application\nLine 2: Account Number\nLine 3: IFSC Code",
+            confidence=0.92,
+            bboxes=[],
+            inference_time_ms=120.0,
+            quality_score=0.88
+        )
+        adapter = LightOnOCRAdapter()
+        with patch.object(adapter.engine, 'process_page', return_value=mock_result), \
+             patch.object(adapter, '_detect_line_boxes', return_value=[
+                 [10.0, 10.0, 200.0, 30.0],
+                 [10.0, 40.0, 200.0, 60.0]
+             ]):
+            ocr_result = adapter.process_page_to_ocr_result(
+                image_bytes=b"fake_image",
+                page_number=1,
+                image_width=595.0,
+                image_height=842.0,
+                doc_id="TEST-LINES"
+            )
+
+        assert ocr_result is not None
+        assert len(ocr_result.elements) == 3
+        assert ocr_result.elements[0].text == "Line 1: Loan Application"
+        assert ocr_result.elements[0].line_number == 1
+        assert ocr_result.elements[0].metadata.get("bbox_estimated") is False
+        assert ocr_result.elements[1].line_number == 2
+        assert ocr_result.elements[1].metadata.get("bbox_estimated") is False
+        # 3rd line had no detected box, falls back to full page with bbox_estimated=True
+        assert ocr_result.elements[2].line_number == 3
+        assert ocr_result.elements[2].metadata.get("bbox_estimated") is True
+
+
 class TestQualityScoreComputation:
-    """Test heuristic quality score computation in LightOnOCREngine."""
+    """Test real coverage-based quality score computation in LightOnOCREngine."""
     
     def test_quality_score_empty_text(self):
         engine = LightOnOCREngine()
-        score = engine._compute_quality_score("", 0.95, b"")
+        score = engine._compute_quality_score("", 0.95)
         assert score == 0.0
     
-    def test_quality_score_clean_english_text(self):
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score(
-            "State Bank of India Loan Application Form Account Number 1234567890",
-            0.98,
-            b""
-        )
-        assert score >= 0.80
-    
-    def test_quality_score_short_fragment(self):
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score("A1", 0.50, b"")
-        assert score < 0.40
-
     def test_quality_score_none_text(self):
-        """Failure mode: text=None must not raise and must score as empty."""
         engine = LightOnOCREngine()
-        score = engine._compute_quality_score(None, 0.90, b"")
+        score = engine._compute_quality_score(None, 0.90)
         assert score == 0.0
 
     def test_quality_score_whitespace_only_text(self):
-        """Edge case: whitespace-only text strips to empty and scores as empty."""
         engine = LightOnOCREngine()
-        score = engine._compute_quality_score("   ", 0.90, b"")
+        score = engine._compute_quality_score("   \n   ", 0.90)
         assert score == 0.0
 
-    def test_quality_score_length_gate_below_five_chars(self):
-        """Boundary: 4 chars falls into the <5 'severe fragment' bracket (+0.05 base)."""
+    def test_quality_score_clean_english_text(self):
         engine = LightOnOCREngine()
-        score = engine._compute_quality_score("ABCD", 1.0, b"")
-        assert score == 0.51
+        text = "State Bank of India Loan Application Form Account Number 1234567890" * 5
+        score = engine._compute_quality_score(text, 0.95)
+        assert score > 0.50
 
-    def test_quality_score_length_gate_at_five_chars(self):
-        """Boundary: 5 chars crosses into the >=5 bracket (+0.2 base), jumping the score."""
+    def test_quality_score_penalizes_garbled_text(self):
         engine = LightOnOCREngine()
-        score = engine._compute_quality_score("ABCDE", 1.0, b"")
-        assert score == 0.70
+        # All lines garbled
+        garbled_text = "3T9T3πT&T\nHRTRR\nRROR"
+        score = engine._compute_quality_score(garbled_text, 0.95)
+        # garble_ratio is high -> quality should be heavily penalized
+        assert score < 0.30
 
-    def test_quality_score_length_gate_below_ten_chars(self):
-        """Boundary: 9 chars stays in the >=5,<10 bracket, matching the 5-char score."""
+    def test_quality_score_penalizes_low_confidence(self):
         engine = LightOnOCREngine()
-        score = engine._compute_quality_score("ABCDEFGHI", 1.0, b"")
-        assert score == 0.70
-
-    def test_quality_score_length_gate_at_ten_chars(self):
-        """Boundary: 10 chars crosses both the base-score and content-depth gates at once."""
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score("ABCDEFGHIJ", 1.0, b"")
-        assert score == 0.90
-
-    def test_quality_score_content_depth_below_twenty_five_chars(self):
-        """Boundary: 24 chars stays below the full content-depth bonus."""
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score("A" * 24, 1.0, b"")
-        assert score == 0.90
-
-    def test_quality_score_content_depth_at_twenty_five_chars(self):
-        """Boundary: 25 chars unlocks the full content-depth bonus, reaching the max score."""
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score("A" * 25, 1.0, b"")
-        assert score == 1.0
-
-    def test_quality_score_confidence_clamped_when_negative(self):
-        """Failure mode: a negative confidence must clamp to 0 contribution, never go negative."""
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score("A" * 25, -1.0, b"")
-        assert score == 0.70
-
-    def test_quality_score_confidence_clamped_above_one(self):
-        """Edge case: confidence > 1.0 must clamp to 1.0 contribution, not overshoot."""
-        engine = LightOnOCREngine()
-        score = engine._compute_quality_score("ABCDE", 2.0, b"")
-        assert score == 0.70
+        text = "Standard loan sanction letter text with good content length." * 5
+        high_conf_score = engine._compute_quality_score(text, 0.95)
+        low_conf_score = engine._compute_quality_score(text, 0.20)
+        assert low_conf_score < high_conf_score
+        assert low_conf_score <= 0.20

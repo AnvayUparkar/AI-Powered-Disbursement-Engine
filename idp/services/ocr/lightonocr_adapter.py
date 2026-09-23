@@ -42,7 +42,12 @@ class LightOnOCRAdapter:
         # Run LightOnOCR
         lightonocr_result = self.engine.process_page(image_bytes, page_number, doc_id)
         
-        if lightonocr_result is None:
+        if lightonocr_result is None or lightonocr_result.hard_fail_reason is not None:
+            if lightonocr_result and lightonocr_result.hard_fail_reason:
+                logger.warning(format_doc_log(
+                    doc_id,
+                    f"LightOnOCR page {page_number} hard fail: '{lightonocr_result.hard_fail_reason}' - marking extraction failed"
+                ))
             return self._create_failed_ocr_result(page_number, image_width, image_height)
         
         # Check quality
@@ -58,6 +63,7 @@ class LightOnOCRAdapter:
                 page_number, 
                 image_width, 
                 image_height,
+                image_bytes=image_bytes,
                 low_quality=True
             )
         
@@ -67,62 +73,145 @@ class LightOnOCRAdapter:
             page_number,
             image_width,
             image_height,
+            image_bytes=image_bytes,
             low_quality=False
         )
     
+    def _split_into_logical_lines(self, text: str) -> List[str]:
+        """
+        Split OCR output into logical lines.
+        Preserves markdown table rows as single elements per row.
+        """
+        raw_lines = text.split("\n")
+        logical_lines: List[str] = []
+        for line in raw_lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            logical_lines.append(stripped)
+        return logical_lines
+
+    def _detect_line_boxes(
+        self,
+        image_bytes: bytes,
+        image_width: float,
+        image_height: float
+    ) -> List[List[float]]:
+        """
+        Run PP-OCR detection only (RapidOCR(det=True, rec=False)) on the page image
+        to obtain line bounding boxes [l, t, r, b].
+        """
+        boxes: List[List[float]] = []
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            import cv2
+            import numpy as np
+
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is not None:
+                engine = RapidOCR(det=True, rec=False)
+                det_results, _ = engine(img)
+                if det_results:
+                    for quad in det_results:
+                        xs = [pt[0] for pt in quad]
+                        ys = [pt[1] for pt in quad]
+                        l = max(0.0, float(min(xs)))
+                        t = max(0.0, float(min(ys)))
+                        r = min(float(image_width), float(max(xs)))
+                        b = min(float(image_height), float(max(ys)))
+                        if r > l and b > t:
+                            boxes.append([l, t, r, b])
+        except Exception as e:
+            logger.debug(f"RapidOCR line detection failed/skipped: {e}")
+
+        # Sort detected boxes by top coordinate, then left
+        boxes.sort(key=lambda b: (b[1], b[0]))
+        return boxes
+
     def _convert_to_ocr_result(
         self,
         lightonocr_result: LightOnOCRResult,
         page_number: int,
         image_width: float,
         image_height: float,
+        image_bytes: Optional[bytes] = None,
         low_quality: bool = False
     ) -> OCRResult:
         """
         Convert LightOnOCRResult to OCRResult format.
         
         Strategy:
-        - If LightOnOCR provides bboxes -> create OCRElement per bbox
-        - If no bboxes -> create single OCRElement with full-page bbox
+        - Split text into lines (keeping markdown table rows intact)
+        - If bboxes provided by engine -> map to lines
+        - Otherwise, align lines with PP-OCR line detections; unmatched lines get full-page bbox with bbox_estimated=True
         """
         elements: List[OCRElement] = []
         
         text = lightonocr_result.text.strip()
         confidence = lightonocr_result.confidence
-        
-        # If quality is low or confidence < threshold, mark for VLM review
         needs_vlm = low_quality or confidence < self.confidence_threshold
-        
-        if lightonocr_result.bboxes and len(lightonocr_result.bboxes) > 0:
-            # LightOnOCR provided bounding boxes
-            for idx, bbox in enumerate(lightonocr_result.bboxes):
-                # Extract text segment (if text segmentation info available)
-                elem_text = text if idx == 0 else ""
-                
-                if elem_text:  # Skip empty segments
-                    elem = OCRElement(
-                        id=f"lightonocr-p{page_number}-{idx}",
-                        text=elem_text,
-                        bbox=bbox,  # [x1, y1, x2, y2]
-                        confidence=confidence,
-                        page_number=page_number,
-                        source="lightonocr",
-                        needs_vlm=needs_vlm
-                    )
-                    elements.append(elem)
+
+        lines = self._split_into_logical_lines(text)
+        if not lines and text:
+            lines = [text]
+
+        if lightonocr_result.bboxes and len(lightonocr_result.bboxes) == len(lines):
+            for idx, (line_text, bbox) in enumerate(zip(lines, lightonocr_result.bboxes)):
+                elem = OCRElement(
+                    id=f"lightonocr-p{page_number}-{idx}",
+                    text=line_text,
+                    bbox=bbox,
+                    confidence=confidence,
+                    page_number=page_number,
+                    line_number=idx + 1,
+                    source="lightonocr",
+                    needs_vlm=needs_vlm,
+                    metadata={"bbox_estimated": False}
+                )
+                elements.append(elem)
         else:
-            # No bboxes provided - create single full-page element
-            elem = OCRElement(
-                id=f"lightonocr-p{page_number}-full",
-                text=text,
-                bbox=[0.0, 0.0, float(image_width), float(image_height)],
-                confidence=confidence,
-                page_number=page_number,
-                source="lightonocr",
-                needs_vlm=needs_vlm
+            detected_boxes: List[List[float]] = []
+            if image_bytes:
+                detected_boxes = self._detect_line_boxes(image_bytes, image_width, image_height)
+
+            full_page_bbox = [0.0, 0.0, float(image_width), float(image_height)]
+
+            for idx, line_text in enumerate(lines):
+                if idx < len(detected_boxes):
+                    bbox = detected_boxes[idx]
+                    bbox_estimated = False
+                else:
+                    bbox = full_page_bbox
+                    bbox_estimated = True
+
+                elem = OCRElement(
+                    id=f"lightonocr-p{page_number}-{idx}",
+                    text=line_text,
+                    bbox=bbox,
+                    confidence=confidence,
+                    page_number=page_number,
+                    line_number=idx + 1,
+                    source="lightonocr",
+                    needs_vlm=needs_vlm,
+                    metadata={"bbox_estimated": bbox_estimated}
+                )
+                elements.append(elem)
+
+        if not elements and text:
+            elements.append(
+                OCRElement(
+                    id=f"lightonocr-p{page_number}-full",
+                    text=text,
+                    bbox=[0.0, 0.0, float(image_width), float(image_height)],
+                    confidence=confidence,
+                    page_number=page_number,
+                    source="lightonocr",
+                    needs_vlm=needs_vlm,
+                    metadata={"bbox_estimated": True}
+                )
             )
-            elements.append(elem)
-        
+
         # Compute statistics
         total_elements = len(elements)
         low_conf_count = sum(1 for e in elements if e.needs_vlm)

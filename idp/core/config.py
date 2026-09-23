@@ -103,7 +103,12 @@ class Settings(BaseSettings):
     LIGHTONOCR_DEVICE: str = "auto"  # "auto", "cpu", "cuda"
     LIGHTONOCR_LAZY_LOAD: bool = True
     LIGHTONOCR_TIMEOUT_SECONDS: int = 60
-    LIGHTONOCR_QUALITY_THRESHOLD: float = 0.40  # Below this -> VLM fallback
+    LIGHTONOCR_QUALITY_THRESHOLD: float = 0.55  # Below this -> VLM fallback
+    LIGHTONOCR_MAX_NEW_TOKENS: int = 4096
+    LIGHTONOCR_MAX_EDGE_PX: int = 1540
+    LIGHTONOCR_DETERMINISTIC: bool = False
+    LIGHTONOCR_REPETITION_NGRAM: int = 6
+    LIGHTONOCR_REPETITION_MAX: int = 5
 
 
 settings = Settings()
