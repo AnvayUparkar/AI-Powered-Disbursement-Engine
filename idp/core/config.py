@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     VLM_MODEL: str = "gpt-4o-mini"
     VLM_API_KEY: Optional[str] = None
 
+    # Redis Distributed Lock Configuration
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_LOCK_TIMEOUT_SECONDS: int = 900
+
     # Parallel Worker Concurrency
     MAX_PAGE_WORKERS: int = 2
     MAX_DOC_WORKERS: int = 2

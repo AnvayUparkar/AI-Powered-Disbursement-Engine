@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import asyncio
 from typing import Optional, Dict, List, Tuple, Any
 from idp.services.storage.s3 import S3Storage
@@ -37,6 +38,8 @@ class DocumentProcessor:
         self.router = ConfidenceRouter()
         self.vlm_client = VLMClient()
         self.serializer = DocumentSerializer()
+        self._in_flight_tasks: Dict[str, asyncio.Task] = {}
+        self._redis_client = None
 
     def _get_docling_parser(self, doc_type: str, is_scanned: Optional[bool] = None) -> DoclingParser:
         """Return the cached DoclingParser tuned for this canonical document type.
@@ -55,14 +58,144 @@ class DocumentProcessor:
             self._docling_parsers[cache_key] = parser
         return parser
 
+    async def _get_redis_client(self):
+        """Lazily initialize and return Redis async client, or None if unavailable."""
+        if not hasattr(self, "_redis_client") or self._redis_client is None:
+            try:
+                import redis.asyncio as aioredis
+                client = aioredis.from_url(
+                    getattr(settings, "REDIS_URL", "redis://127.0.0.1:6379/0"),
+                    socket_connect_timeout=1.0,
+                    socket_timeout=2.0
+                )
+                await client.ping()
+                self._redis_client = client
+            except Exception as e:
+                logger.debug(f"Redis is unavailable for distributed locking: {e}")
+                self._redis_client = None
+        return self._redis_client
+
+    async def _poll_existing_job(
+        self,
+        document_id: str,
+        bucket: str,
+        max_timeout: int = getattr(settings, "REDIS_LOCK_TIMEOUT_SECONDS", 900),
+        poll_interval: float = 1.0
+    ) -> Dict[str, Any]:
+        """Poll Redis and S3 for completion of an in-flight document processing task."""
+        start_poll = time.time()
+        redis_client = await self._get_redis_client()
+        result_key = f"result:idp:process:{document_id}"
+        lock_key = f"lock:idp:process:{document_id}"
+
+        while time.time() - start_poll < max_timeout:
+            # 1. Check Redis for completed result payload
+            if redis_client:
+                try:
+                    cached_bytes = await redis_client.get(result_key)
+                    if cached_bytes:
+                        logger.info(format_doc_log(document_id, f"In-flight task completed; retrieved result from Redis after {time.time() - start_poll:.1f}s"))
+                        return json.loads(cached_bytes)
+                except Exception as r_err:
+                    logger.debug(format_doc_log(document_id, f"Redis poll note: {r_err}"))
+
+            # 2. Check S3 storage for completed parsed document
+            try:
+                parsed_s3_key = f"{settings.PARSED_DOCUMENT_PREFIX}{document_id}.json"
+                if await self.storage.exists(parsed_s3_key, bucket=bucket):
+                    temp_res_dir = create_temp_dir(prefix=f"poll_{document_id}_")
+                    dest_file = os.path.join(temp_res_dir, f"{document_id}.json")
+                    try:
+                        await self.storage.download(key=parsed_s3_key, dest_path=dest_file, bucket=bucket, doc_id=document_id)
+                        with open(dest_file, "r", encoding="utf-8") as f:
+                            parsed_data = json.load(f)
+                        logger.info(format_doc_log(document_id, f"In-flight task completed; retrieved parsed document from S3 after {time.time() - start_poll:.1f}s"))
+                        return {
+                            "document_id": document_id,
+                            "status": "completed",
+                            "output_location": f"s3://{bucket}/{parsed_s3_key}",
+                            "processing_time_seconds": round(time.time() - start_poll, 3),
+                            "raw_text": parsed_data.get("text") or parsed_data.get("raw_text", ""),
+                            "formatted_text": parsed_data.get("formatted_text", ""),
+                            "extracted_fields": (parsed_data.get("custom_metadata") or {}).get("llm_extracted_fields", {}),
+                            "field_locations": (parsed_data.get("custom_metadata") or {}).get("field_locations", {}),
+                            "ocr_tokens": (parsed_data.get("custom_metadata") or {}).get("ocr_tokens", []),
+                        }
+                    finally:
+                        cleanup_temp_dir(temp_res_dir)
+            except Exception as s3_err:
+                logger.debug(format_doc_log(document_id, f"S3 poll note: {s3_err}"))
+
+            # 3. Check if lock was released without storing result (worker crashed or failed)
+            if redis_client:
+                try:
+                    still_locked = await redis_client.exists(lock_key)
+                    if not still_locked:
+                        logger.warning(format_doc_log(document_id, "In-flight Redis lock released without result. Retrying processing directly."))
+                        break
+                except Exception:
+                    pass
+
+            await asyncio.sleep(poll_interval)
+
+        # Fallback: if polling timed out or lock was dropped, run processing directly
+        return await self._process_document_internal(document_id, s3_key="", s3_bucket=bucket)
+
     async def process_document(
         self,
         document_id: str,
         s3_key: str,
         s3_bucket: Optional[str] = None
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         """
-        Executes end-to-end processing lifecycle for a single document.
+        Executes end-to-end processing lifecycle for a single document with in-flight deduplication
+        and Redis distributed mutex locking (Singleflight Pattern).
+        """
+        # Level 1: In-process task deduplication (same event loop)
+        if document_id in self._in_flight_tasks:
+            logger.info(format_doc_log(document_id, "Document is already actively being processed by in-flight task. Awaiting existing task..."))
+            return await asyncio.shield(self._in_flight_tasks[document_id])
+
+        # Level 2: Distributed Redis lock (across multi-process workers)
+        redis_client = await self._get_redis_client()
+        lock_key = f"lock:idp:process:{document_id}"
+        lock_acquired = False
+
+        if redis_client:
+            try:
+                lock_acquired = bool(await redis_client.set(
+                    lock_key, "processing", nx=True, ex=getattr(settings, "REDIS_LOCK_TIMEOUT_SECONDS", 900)
+                ))
+                if not lock_acquired:
+                    logger.info(format_doc_log(document_id, "Another worker holds Redis distributed lock for this document. Polling for completion..."))
+                    bucket = s3_bucket if (isinstance(s3_bucket, str) and s3_bucket.strip()) else settings.S3_BUCKET
+                    return await self._poll_existing_job(document_id, bucket)
+            except Exception as r_err:
+                logger.debug(format_doc_log(document_id, f"Redis lock check note: {r_err}"))
+
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(self._process_document_internal(document_id, s3_key, s3_bucket, redis_client=redis_client))
+        self._in_flight_tasks[document_id] = task
+
+        try:
+            return await task
+        finally:
+            self._in_flight_tasks.pop(document_id, None)
+            if redis_client and lock_acquired:
+                try:
+                    await redis_client.delete(lock_key)
+                except Exception:
+                    pass
+
+    async def _process_document_internal(
+        self,
+        document_id: str,
+        s3_key: str,
+        s3_bucket: Optional[str] = None,
+        redis_client: Any = None
+    ) -> Dict[str, Any]:
+        """
+        Internal implementation of end-to-end processing lifecycle for a single document.
 
         Returns:
             Dict containing document_id, status, output_location, and processing_time.
@@ -287,7 +420,7 @@ class DocumentProcessor:
             vlm_corrections: Dict[str, VLMResult] = {}
             vlm_used = False
 
-            if prep_doc.is_scanned_pdf and settings.LIGHTONOCR_ENABLED and ocr_results:
+            if prep_doc.is_scanned_pdf and settings.LIGHTONOCR_ENABLED and settings.VLM_ENABLED and ocr_results:
                 for ocr_res in ocr_results:
                     pno = ocr_res.page_number
                     page_bytes = page_images[pno - 1] if pno <= len(page_images) else b""
@@ -336,7 +469,7 @@ class DocumentProcessor:
 
                         await asyncio.sleep(0.25)
 
-            elif docling_result and docling_result.elements:
+            elif docling_result and docling_result.elements and settings.VLM_ENABLED:
                 flagged_elements = self.router.get_low_confidence_layout_elements(
                     docling_result.elements, doc_id=document_id
                 )
@@ -478,7 +611,7 @@ class DocumentProcessor:
             elapsed = time.time() - start_time
             logger.info(format_doc_log(document_id, f"Node 2 processing completed successfully in {elapsed:.2f}s -> {output_location}"))
 
-            return {
+            res_dict = {
                 "document_id": document_id,
                 "status": "completed",
                 "output_location": output_location,
@@ -489,6 +622,18 @@ class DocumentProcessor:
                 "field_locations": parsed_doc.custom_metadata.get("field_locations", {}),
                 "ocr_tokens": parsed_doc.custom_metadata.get("ocr_tokens", []),
             }
+
+            if redis_client:
+                try:
+                    await redis_client.set(
+                        f"result:idp:process:{document_id}",
+                        json.dumps(res_dict),
+                        ex=getattr(settings, "REDIS_LOCK_TIMEOUT_SECONDS", 900)
+                    )
+                except Exception as r_save_err:
+                    logger.debug(format_doc_log(document_id, f"Redis result save note: {r_save_err}"))
+
+            return res_dict
 
         finally:
             cleanup_temp_dir(temp_dir)

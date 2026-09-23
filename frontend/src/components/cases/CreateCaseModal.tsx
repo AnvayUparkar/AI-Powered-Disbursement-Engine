@@ -122,20 +122,20 @@ export function CreateCaseModal({
         case_id: caseId,
       });
 
-      // 2. Upload and OCR each queued document
+      // 2. Upload each queued document (stage to raw store without redundant background OCR, as pipeline autoRun executes immediately)
       const pendingFiles = queue.filter((f) => f.status === 'QUEUED');
       for (const [index, qf] of pendingFiles.entries()) {
-        setStatusMessage(`Uploading & OCR processing ${index + 1}/${pendingFiles.length}: ${qf.file.name}...`);
+        setStatusMessage(`Staging document ${index + 1}/${pendingFiles.length}: ${qf.file.name}...`);
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 50 } : f)));
 
         try {
-          const docId = `DOC-${caseId}-${Date.now().toString().slice(-4)}-${index + 1}`;
           await node2Api.uploadAndProcess(
             qf.file,
-            docId,
+            undefined, // Let backend derive canonical ID matching pipeline ({caseId}_{docType})
             undefined,
             caseId,
             qf.docType,
+            false // enqueueTask=false: avoids dual Celery execution since LangGraph autoRun executes immediately
           );
           setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
         } catch (err) {

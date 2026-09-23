@@ -97,15 +97,15 @@ export function UploadModal({
     for (const qf of pending) {
       setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 40 } : f)));
       try {
-        const docId = `DOC-${Date.now().toString().slice(-6)}`;
         const res = await node2Api.uploadAndProcess(
           qf.file,
-          docId,
+          undefined, // Let backend derive canonical ID matching pipeline conventions
           undefined,
           selectedCase || undefined,
           qf.docType,
         );
 
+        const resolvedDocId = res.document_id;
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
 
         // Create DocumentRecord from actual Node 2 pipeline response
@@ -120,7 +120,7 @@ export function UploadModal({
           const pageCount = 1;
           const vlmUsed = false;
           newDoc = {
-            id: docId,
+            id: resolvedDocId,
             name: qf.file.name,
             type: qf.docType,
             pages: pageCount,
@@ -132,7 +132,7 @@ export function UploadModal({
             caseId: selectedCase || 'GENERAL',
             sizeKb: Math.round(qf.file.size / 1024),
             extractedFields: [
-              { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: docId, page: 1 },
+              { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: resolvedDocId, page: 1 },
             ],
             processingSteps: [
               {

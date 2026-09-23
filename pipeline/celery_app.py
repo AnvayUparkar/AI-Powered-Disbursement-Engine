@@ -160,9 +160,12 @@ def process_document_task(self, doc_id: str, file_path: str, case_id: str | None
         logger.info("process_document_task %s completed for doc: %s", self.request.id, doc_id)
         return {"doc_id": doc_id, "status": "completed", "result": result}
 
-    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+    except httpx.ConnectError as exc:
         logger.error("process_document_task: 8001 unreachable for %s: %s", doc_id, exc)
         raise self.retry(exc=exc)
+    except httpx.TimeoutException as exc:
+        logger.error("process_document_task timed out waiting for 8001 for %s after %ss: %s. Not retrying to prevent duplicate OCR execution.", doc_id, IDP_REQUEST_TIMEOUT, exc)
+        return {"doc_id": doc_id, "status": "failed", "error": f"IDP processing timed out after {IDP_REQUEST_TIMEOUT}s"}
     except Exception as exc:
         logger.exception("process_document_task failed for %s: %s", doc_id, exc)
         return {"doc_id": doc_id, "status": "failed", "error": str(exc)}
