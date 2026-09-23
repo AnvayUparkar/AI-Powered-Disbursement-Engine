@@ -141,6 +141,7 @@ class FieldLocationResolver:
             pw, ph = page_dims_map.get(pno, (0.0, 0.0))
             norm_bbox, pix_bbox = _ensure_normalized_bbox(raw_bbox, pw, ph)
 
+            elem_meta = elem.get("metadata") or {}
             token_item = {
                 "id": elem.get("id") or f"tok-{len(tokens_by_page.get(pno, []))}",
                 "text": txt,
@@ -152,6 +153,8 @@ class FieldLocationResolver:
                 "page": pno,
                 "confidence": float(elem.get("confidence", 1.0)),
                 "source": elem.get("source") or "docling_ocr",
+                "bbox_estimated": bool(elem_meta.get("bbox_estimated", False)),
+                "location_available": bool(elem_meta.get("location_available", True)),
             }
             tokens_by_page.setdefault(pno, []).append(token_item)
 
@@ -470,10 +473,13 @@ class FieldLocationResolver:
                         ))
 
         # 4. Key-Anchor Proximity Fallback Search (if direct text matching finds no candidates)
+        # Note: only spatially localized tokens can participate in geometry/distance checks
         if not candidates:
             field_words = field_name.replace("_", " ").lower().split()
             for pno, tokens in tokens_by_page.items():
                 for tok_idx, tok in enumerate(tokens):
+                    if tok.get("bbox_estimated"):
+                        continue
                     tok_txt = tok["clean_text"]
                     if any(fw in tok_txt for fw in field_words if len(fw) >= 3):
                         key_box = tok["bbox"]
@@ -481,7 +487,7 @@ class FieldLocationResolver:
                         best_neighbor = None
                         min_dist = 999.0
                         for neighbor in tokens:
-                            if neighbor["id"] == tok["id"]:
+                            if neighbor["id"] == tok["id"] or neighbor.get("bbox_estimated"):
                                 continue
                             n_box = neighbor["bbox"]
                             # Right neighbor (same row y-band) or bottom neighbor (vertical alignment)
@@ -528,16 +534,17 @@ class FieldLocationResolver:
 
         candidates.sort(key=_rank_candidate, reverse=True)
         best = candidates[0]
+        is_unlocalized = getattr(best, "location_available", True) is False
 
         return FieldLocation(
             field_name=field_name,
             value=value,
             page=best.page,
-            bbox=best.bbox,
+            bbox=best.bbox if not is_unlocalized else [0.0, 0.0, 1.0, 1.0],
             matched_text=best.text,
             confidence=round(best.ocr_confidence, 3),
             match_confidence=round(best.score, 3),
-            location_status="resolved",
+            location_status="resolved" if not is_unlocalized else "resolved_unlocalized",
             source=getattr(best, "source", "docling_ocr") or "docling_ocr",
             match_strategy=best.match_strategy,
             candidates=candidates[:5] if debug_mode else []

@@ -140,6 +140,33 @@ class TestLightOnOCRRouting:
         )
         assert is_dup is True
 
+    def test_unlocalized_elements_dedupe_on_text_and_keep_distinct_lines(self):
+        """Unlocalized elements (bbox_estimated=True) deduplicate on text, not fake IoU."""
+        serializer = DocumentSerializer()
+        full_box = [0.0, 0.0, 1.0, 1.0]
+
+        existing_elements = [
+            Mock(bbox=full_box, text="Header OSV Stamp", metadata={"bbox_estimated": True})
+        ]
+
+        # 1. Distinct line with identical [0, 0, 1, 1] box must NOT be dropped as duplicate
+        pan_dup = serializer._is_duplicate(
+            ocr_bbox=full_box,
+            existing_elements=existing_elements,
+            text="INCOME TAX DEPARTMENT DCJPD9154G",
+            bbox_estimated=True
+        )
+        assert pan_dup is False, "Distinct text must be preserved despite identical full-page boxes"
+
+        # 2. Duplicate line with identical text MUST be dropped
+        stamp_dup = serializer._is_duplicate(
+            ocr_bbox=full_box,
+            existing_elements=existing_elements,
+            text="Header OSV Stamp",
+            bbox_estimated=True
+        )
+        assert stamp_dup is True, "Identical unlocalized text must be deduplicated"
+
 
     def test_lightonocr_hard_fail_truncated_marks_extraction_failed(self):
         """Truncated output from LightOnOCR must mark extraction_failed=True for VLM fallback."""

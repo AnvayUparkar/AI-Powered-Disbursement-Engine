@@ -181,9 +181,13 @@ class LightOnOCRAdapter:
                 if idx < len(detected_boxes):
                     bbox = detected_boxes[idx]
                     bbox_estimated = False
+                    location_available = True
                 else:
+                    # Do not invent synthetic spatial bands. Keep unlocalized bounding box
+                    # and explicitly flag as estimated/unavailable to exclude from spatial logic
                     bbox = full_page_bbox
                     bbox_estimated = True
+                    location_available = False
 
                 elem = OCRElement(
                     id=f"lightonocr-p{page_number}-{idx}",
@@ -194,7 +198,10 @@ class LightOnOCRAdapter:
                     line_number=idx + 1,
                     source="lightonocr",
                     needs_vlm=needs_vlm,
-                    metadata={"bbox_estimated": bbox_estimated}
+                    metadata={
+                        "bbox_estimated": bbox_estimated,
+                        "location_available": location_available
+                    }
                 )
                 elements.append(elem)
 
@@ -208,7 +215,10 @@ class LightOnOCRAdapter:
                     page_number=page_number,
                     source="lightonocr",
                     needs_vlm=needs_vlm,
-                    metadata={"bbox_estimated": True}
+                    metadata={
+                        "bbox_estimated": True,
+                        "location_available": False
+                    }
                 )
             )
 

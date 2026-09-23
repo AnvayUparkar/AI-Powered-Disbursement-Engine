@@ -397,7 +397,17 @@ class DocumentSerializer:
                                 if not final_text:
                                     continue
 
-                                if self._is_duplicate(norm_box, page_info.elements, iou_threshold=0.50, text=final_text):
+                                is_estimated = bool(
+                                    getattr(ocr_elem, "metadata", None) and ocr_elem.metadata.get("bbox_estimated") is True
+                                )
+
+                                if self._is_duplicate(
+                                    norm_box,
+                                    page_info.elements,
+                                    iou_threshold=0.50,
+                                    text=final_text,
+                                    bbox_estimated=is_estimated
+                                ):
                                     continue
 
                                 page_info.elements.append(
@@ -411,7 +421,10 @@ class DocumentSerializer:
                                         source=src,
                                         structure_source="none",
                                         ocr_original=ocr_orig,
-                                        metadata={"needs_vlm": ocr_elem.needs_vlm} if getattr(ocr_elem, "needs_vlm", False) else {}
+                                        metadata={
+                                            **(ocr_elem.metadata or {}),
+                                            **({"needs_vlm": ocr_elem.needs_vlm} if getattr(ocr_elem, "needs_vlm", False) else {})
+                                        }
                                     )
                                 )
 
@@ -734,15 +747,42 @@ class DocumentSerializer:
         ocr_bbox: List[float],
         existing_elements: List[LayoutElement],
         iou_threshold: float = 0.75,
-        text: Optional[str] = None
+        text: Optional[str] = None,
+        bbox_estimated: bool = False
     ) -> bool:
         """
         Check if an OCR element's bounding box spatially overlaps any existing
         element on the same page with IoU >= threshold and matching text content.
+        
+        For unlocalized / estimated elements (bbox_estimated=True or bbox is None):
+        - Never use spatial IoU (computing overlap between unlocalized boxes is meaningless).
+        - Deduplicate strictly on normalized text match to prevent identical lines appearing twice.
         """
         norm_txt = text.strip().lower() if text and text.strip() else None
 
+        # 1. Unlocalized / estimated element deduplication: purely textual
+        if bbox_estimated or not ocr_bbox or len(ocr_bbox) < 4:
+            if not norm_txt:
+                return False
+            for elem in existing_elements:
+                elem_txt = elem.text.strip().lower() if elem.text and elem.text.strip() else None
+                if elem_txt and norm_txt == elem_txt:
+                    return True
+            return False
+
+        # 2. Localized element deduplication: text-assisted spatial IoU
         for elem in existing_elements:
+            # Skip spatial comparison if the existing element itself is unlocalized/estimated
+            elem_is_estimated = (
+                getattr(elem, "metadata", None) and elem.metadata.get("bbox_estimated") is True
+            ) or not elem.bbox or len(elem.bbox) < 4
+            if elem_is_estimated:
+                # If exact duplicate text was already added as estimated, drop this one
+                elem_txt = elem.text.strip().lower() if elem.text and elem.text.strip() else None
+                if norm_txt and elem_txt and norm_txt == elem_txt:
+                    return True
+                continue
+
             elem_txt = elem.text.strip().lower() if elem.text and elem.text.strip() else None
             iou = DocumentSerializer._compute_iou(ocr_bbox, elem.bbox)
             overlap = DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox)

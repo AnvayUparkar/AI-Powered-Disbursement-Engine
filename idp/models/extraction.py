@@ -26,7 +26,7 @@ class FieldLocation(BaseModel):
     matched_text: Optional[str] = None
     confidence: float = 1.0  # OCR confidence
     match_confidence: float = 1.0  # Matching score
-    location_status: Literal["resolved", "unresolved"] = "resolved"
+    location_status: Literal["resolved", "unresolved", "resolved_unlocalized"] = "resolved"
     reason: Optional[str] = None
     source: str = "docling_ocr"
     match_strategy: Optional[str] = None

@@ -193,15 +193,30 @@ class LightOnOCREngine:
 
     @staticmethod
     def _compute_ink_ratio(image: Optional[Image.Image]) -> float:
-        """Estimate ink ratio (fraction of dark foreground pixels) on page."""
+        """
+        Estimate ink ratio (fraction of foreground ink pixels) on page.
+        Uses Otsu's thresholding on grayscale image to robustly distinguish 
+        actual text ink from colored backgrounds (e.g. green PAN cards, blue Aadhaar).
+        """
         if image is None:
             return 0.05
         try:
             import numpy as np
+            import cv2
             gray = np.array(image.convert("L"))
-            ink_pixels = np.sum(gray < 200)
-            total_pixels = gray.size
-            return float(ink_pixels / max(1, total_pixels))
+            # Otsu's thresholding separates background from foreground ink
+            thresh_val, binarized = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # The smaller partition between dark and light represents the text/drawings,
+            # clamped within realistic document bounds [0.01, 0.30]
+            dark_ratio = float(np.sum(binarized == 0) / max(1, binarized.size))
+            if dark_ratio > 0.50:
+                # Inverted document (dark background with light text)
+                ink_ratio = 1.0 - dark_ratio
+            else:
+                ink_ratio = dark_ratio
+                
+            return float(min(max(ink_ratio, 0.01), 0.30))
         except Exception:
             return 0.05
 
@@ -489,21 +504,50 @@ class LightOnOCREngine:
         else:
             garble_ratio = 0.0
 
-        # Page area and ink pixels
-        if image is not None:
-            w, h = image.size
-            page_area = float(w * h)
-            if ink_ratio is None:
-                ink_ratio = self._compute_ink_ratio(image)
-            ink_pixels = ink_ratio * page_area
-        else:
-            page_area = 1500.0 * 2000.0
-            if ink_ratio is None:
-                ink_ratio = 0.05
-            ink_pixels = ink_ratio * page_area
+        # Expected characters estimation:
+        # Instead of guessing foreground ink pixels from colored background luminance,
+        # compute expected text volume directly from detected text box areas.
+        # This is completely invariant to background color (e.g. green PAN card, blue Aadhaar).
+        expected_chars = 0.0
+        try:
+            if image is not None:
+                from rapidocr_onnxruntime import RapidOCR
+                import cv2
+                import numpy as np
+                gray_np = np.array(image.convert("L"))
+                bgr_img = cv2.cvtColor(gray_np, cv2.COLOR_GRAY2BGR)
+                det_engine = RapidOCR(det=True, rec=False)
+                det_results, _ = det_engine(bgr_img)
+                if det_results:
+                    total_box_area = 0.0
+                    for quad in det_results:
+                        xs = [pt[0] for pt in quad]
+                        ys = [pt[1] for pt in quad]
+                        w_box = max(0.0, max(xs) - min(xs))
+                        h_box = max(0.0, max(ys) - min(ys))
+                        total_box_area += (w_box * h_box)
+                    # Average character glyph area inside detected line bounding box
+                    avg_glyph_box_area = 220.0
+                    expected_chars = max(10.0, total_box_area / avg_glyph_box_area)
+        except Exception:
+            expected_chars = 0.0
 
-        avg_glyph_area = 250.0  # approximate glyph area in pixels at ~150-200 DPI
-        expected_chars = max(10.0, (0.6 * ink_pixels) / avg_glyph_area)
+        if expected_chars <= 0.0:
+            # Fallback to ink pixel heuristic if detection fails
+            if image is not None:
+                w, h = image.size
+                page_area = float(w * h)
+                if ink_ratio is None:
+                    ink_ratio = self._compute_ink_ratio(image)
+                ink_pixels = ink_ratio * page_area
+            else:
+                page_area = 1500.0 * 2000.0
+                if ink_ratio is None:
+                    ink_ratio = 0.05
+                ink_pixels = ink_ratio * page_area
+            avg_glyph_area = 250.0
+            expected_chars = max(10.0, (0.6 * ink_pixels) / avg_glyph_area)
+
         coverage_factor = min(1.0, chars_out / expected_chars)
 
         conf_p05 = min(max(confidence, 0.0), 1.0)
