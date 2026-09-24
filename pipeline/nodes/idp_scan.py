@@ -24,8 +24,6 @@ from pipeline.storage import (
     save_s3_extracted,
     update_status,
 )
-from pipeline.utils.image_normalizer import ensure_png_for_idp
-
 logger = logging.getLogger("disbursement_pipeline.idp_scan")
 
 
@@ -33,6 +31,7 @@ def _call_idp_service(
     file_path: Path,
     doc_id: str,
     doc_key: str,
+    loan_id: str = "",
 ) -> Optional[Dict[str, Any]]:
     """Delegates document extraction to the IDP HTTP microservice (Port 8001).
 
@@ -40,8 +39,6 @@ def _call_idp_service(
     all others → Docling + OCR. Returns the canonical extracted dict ready for
     s3_extracted/, or None on failure.
     """
-    file_path = ensure_png_for_idp(file_path)
-
     if not USE_REMOTE_IDP:
         logger.warning(
             "USE_REMOTE_IDP is disabled — cannot extract %s (%s). "
@@ -52,10 +49,13 @@ def _call_idp_service(
         return None
 
     try:
+        from shared.object_keys import raw_object_key, validate_key
+        key = raw_object_key(loan_id, file_path.name)
+        validate_key(key)
         with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
             resp = client.post(
                 f"{IDP_SERVICE_URL}/api/v1/documents/process",
-                json={"document_id": doc_id, "s3_key": str(file_path)},
+                json={"document_id": doc_id, "s3_key": key},
             )
             resp.raise_for_status()
 
@@ -168,7 +168,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
                     except Exception as cache_read_err:
                         logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
 
-                scan_res = _call_idp_service(fpath, doc_id=doc_id, doc_key=doc_key)
+                scan_res = _call_idp_service(fpath, doc_id=doc_id, doc_key=doc_key, loan_id=loan_id)
                 return fname, fpath, doc_key, scan_res
             except Exception as scan_err:
                 logger.warning("Error processing %s: %s", fname, scan_err)

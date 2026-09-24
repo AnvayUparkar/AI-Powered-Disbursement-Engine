@@ -142,12 +142,12 @@ def test_call_idp_service_posts_then_gets_canonical(monkeypatch: pytest.MonkeyPa
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
         file_p = Path("dummy_pan.pdf")
-        res = _call_idp_service(file_p, doc_id="DOC-001", doc_key="pan")
+        res = _call_idp_service(file_p, doc_id="DOC-001", doc_key="pan", loan_id="LOAN_TEST")
 
         assert res == canonical_data
         mock_client.post.assert_called_once_with(
             f"{IDP_SERVICE_URL}/api/v1/documents/process",
-            json={"document_id": "DOC-001", "s3_key": str(file_p)},
+            json={"document_id": "DOC-001", "s3_key": "raw-documents/LOAN_TEST/dummy_pan.pdf"},
         )
         mock_client.get.assert_called_once_with(
             f"{IDP_SERVICE_URL}/api/v1/documents/DOC-001/canonical",
@@ -333,3 +333,221 @@ def test_celery_app_no_parsed_document_import():
 
     assert "from idp.models.document import ParsedDocument" not in content
     assert "build_idp_result_from_parsed" not in content
+
+
+from shared.object_keys import raw_object_key, parsed_object_key, validate_key
+
+
+def test_validate_key_rejects_absolute_windows_path():
+    with pytest.raises(ValueError):
+        validate_key(r"D:\Projects\poc_data\s3_raw\LOAN_001\pan.pdf")
+
+
+def test_validate_key_rejects_absolute_unix_path():
+    with pytest.raises(ValueError):
+        validate_key("/srv/app/poc_data/pan.pdf")
+
+
+def test_validate_key_accepts_relative_key():
+    validate_key("raw-documents/LOAN_001/pan.pdf")
+
+
+def test_raw_object_key_format():
+    assert raw_object_key("LOAN_001", "pan.pdf") == "raw-documents/LOAN_001/pan.pdf"
+
+
+def test_parsed_object_key_format():
+    assert parsed_object_key("LOAN_001_pan") == "parsed-documents/LOAN_001_pan.json"
+
+
+def test_process_document_task_parses_case_id_from_key(monkeypatch):
+    """case_id inferred from key prefix, not from path parts."""
+    from pipeline.celery_app import process_document_task
+
+    saved_calls = []
+
+    def mock_save(case_id, doc_key, payload):
+        saved_calls.append((case_id, doc_key, payload))
+
+    monkeypatch.setattr("pipeline.storage.save_s3_extracted", mock_save)
+
+    class MockResponse:
+        def __init__(self, data, status_code=200):
+            self._data = data
+            self.status_code = status_code
+
+        def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            pass
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def post(self, url, json=None):
+            return MockResponse({"status": "completed", "result": {"raw_text": "sample"}})
+
+        def get(self, url):
+            if "canonical" in url:
+                return MockResponse({"pan_number": "ABCDE1234F"})
+            return MockResponse({"raw_text": "sample"})
+
+    monkeypatch.setattr("httpx.Client", MockClient)
+    res = process_document_task.apply(args=["DOC-123", "raw-documents/LOAN_042/pan.pdf", None]).get()
+    assert res["status"] == "completed"
+    assert len(saved_calls) == 1
+    assert saved_calls[0][0] == "LOAN_042"
+
+
+def test_process_document_task_general_not_written_to_s3_tier(monkeypatch):
+    """GENERAL case_id skips writing to S3 extracted tier."""
+    from pipeline.celery_app import process_document_task
+
+    saved_calls = []
+    monkeypatch.setattr("pipeline.storage.save_s3_extracted", lambda *args: saved_calls.append(args))
+
+    class MockResponse:
+        def __init__(self, data, status_code=200):
+            self._data = data
+            self.status_code = status_code
+
+        def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            pass
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def post(self, url, json=None):
+            return MockResponse({"status": "completed", "result": {"raw_text": "sample"}})
+
+        def get(self, url):
+            return MockResponse({"raw_text": "sample"})
+
+    monkeypatch.setattr("httpx.Client", MockClient)
+    res = process_document_task.apply(args=["DOC-124", "raw-documents/GENERAL/pan.pdf", None]).get()
+    assert res["status"] == "completed"
+    assert len(saved_calls) == 0
+
+
+def test_gateway_upload_passes_key_not_path(monkeypatch):
+    """gateway upload enqueues relative key to Celery, not str(target_path)."""
+    import asyncio
+    import io
+    from fastapi import UploadFile
+    from app.routers.gateway_documents import upload_and_process_document
+
+    enqueued = []
+
+    def mock_delay(doc_id, s3_key, case_id):
+        enqueued.append((doc_id, s3_key, case_id))
+
+    monkeypatch.setattr("pipeline.celery_app.process_document_task.delay", mock_delay)
+
+    upload_calls = []
+
+    async def mock_upload(self, key, content, **kwargs):
+        upload_calls.append(key)
+        return f"s3://bucket/{key}"
+
+    monkeypatch.setattr("shared.storage.S3Storage.upload", mock_upload)
+
+    file_bytes = b"%PDF-1.4 test"
+    upload_file = UploadFile(filename="pan.pdf", file=io.BytesIO(file_bytes))
+
+    response = asyncio.run(
+        upload_and_process_document(
+            file=upload_file,
+            document_id="DOC-TEST-001",
+            case_id="LOAN_001",
+            doc_type="pan",
+            s3_bucket=None,
+            run_idp=True,
+        )
+    )
+
+    assert response.status == "queued"
+    assert len(enqueued) == 1
+    doc_id, s3_key, case_id = enqueued[0]
+    assert s3_key == "raw-documents/LOAN_001/pan.pdf"
+    assert not Path(s3_key).is_absolute()
+    assert s3_key in upload_calls
+
+
+def test_delete_loan_data_calls_idp_http_not_rglob(monkeypatch, tmp_path):
+    """delete_loan_data calls IDP HTTP DELETE, never touches IDP_TEMP_DIR directly."""
+    with patch("httpx.delete") as mock_del:
+        mock_del.return_value = MagicMock(status_code=200)
+        from pipeline.storage import delete_loan_data
+
+        delete_loan_data("LOAN_TEST")
+        mock_del.assert_called_once()
+        call_url = mock_del.call_args[0][0]
+        assert "cases/LOAN_TEST/objects" in call_url
+
+
+def test_delete_loan_data_idp_down_appends_error_not_raise(monkeypatch):
+    import httpx
+
+    with patch("httpx.delete", side_effect=httpx.ConnectError("down")):
+        from pipeline.storage import delete_loan_data
+
+        result = delete_loan_data("LOAN_TEST")
+        assert any("IDP unreachable" in e for e in result["errors"])
+
+
+def test_s3storage_mock_download_raises_on_missing_key(tmp_path, monkeypatch):
+    import asyncio
+    from idp.core.exceptions import S3Error
+    from shared.storage import S3Storage
+
+    monkeypatch.setattr("idp.core.config.settings.TEMP_DIR", str(tmp_path))
+    storage = S3Storage()
+    with pytest.raises(S3Error):
+        asyncio.run(storage.download("raw-documents/LOAN_001/missing.pdf", str(tmp_path / "out.pdf")))
+
+
+def test_idp_delete_case_endpoint():
+    """IDP DELETE /api/v1/documents/cases/{case_id}/objects deletes prefixes."""
+    from fastapi.testclient import TestClient
+    from idp.main import app as idp_app
+
+    with patch("idp.api.routes.documents._storage.delete_prefix") as mock_del_prefix:
+        client = TestClient(idp_app)
+        resp = client.delete("/api/v1/documents/cases/LOAN_123/objects")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "deleted", "case_id": "LOAN_123"}
+        assert mock_del_prefix.call_count == 2
+
+
+def test_idp_delete_document_endpoint():
+    """IDP DELETE /api/v1/documents/{document_id} deletes parsed key and raw key."""
+    from fastapi.testclient import TestClient
+    from idp.main import app as idp_app
+
+    with patch("idp.api.routes.documents._storage.delete") as mock_del, patch(
+        "idp.api.routes.documents.processor.get_parsed_document", return_value=None
+    ):
+        client = TestClient(idp_app)
+        resp = client.delete("/api/v1/documents/DOC-999")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "deleted", "document_id": "DOC-999"}
+        mock_del.assert_called_once_with("parsed-documents/DOC-999.json")
+

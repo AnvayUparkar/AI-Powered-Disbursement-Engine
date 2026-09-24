@@ -2,6 +2,7 @@ import io
 import os
 import shutil
 import time
+import uuid
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -9,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.document_registry import document_registry
 from config import S3_RAW_DIR, S3_EXTRACTED_DIR
 from pipeline.nodes.idp_scan import idp_scan
 from pipeline.state import PipelineState
@@ -544,6 +546,44 @@ def test_upload_lifecycle_statuses_case_vs_general_tab(clean_test_case):
     assert doc_completed["ocrStatus"] == "COMPLETED"
     assert doc_completed["extractionStatus"] == "COMPLETED"
     assert doc_completed["confidence"] > 90.0
+
+
+def test_upload_without_case_id_defaults_to_general_and_registers():
+    """Uploading without specifying case_id must default case_id to GENERAL in storage and registry."""
+    file_content = b"%PDF-1.4 Ad-hoc sandbox document content"
+    filename = f"adhoc_test_{uuid.uuid4().hex[:6]}.pdf"
+    files = {
+        "file": (filename, io.BytesIO(file_content), "application/pdf")
+    }
+
+    with patch("pipeline.celery_app.process_document_task.delay") as mock_delay:
+        # Omit case_id entirely
+        response = client.post("/api/v1/documents/upload", files=files, data={"doc_type": "Miscellaneous"})
+        assert response.status_code == 200
+        res_data = response.json()
+        doc_id = res_data["document_id"]
+        assert res_data["status"] == "queued"
+
+        # Verify Celery task received 'GENERAL'
+        mock_delay.assert_called_once()
+        args = mock_delay.call_args[0]
+        assert args[0] == doc_id
+        assert "raw-documents/GENERAL/" in args[1]
+        assert args[2] == "GENERAL"
+
+        # Verify physical file saved to S3_RAW_DIR / GENERAL
+        assert (S3_RAW_DIR / "GENERAL" / filename).exists()
+
+        # Verify registry record caseId is GENERAL
+        doc_rec = document_registry.get_by_id(doc_id)
+        assert doc_rec is not None
+        assert doc_rec["caseId"] == "GENERAL"
+
+        # Verify query with caseId=GENERAL returns this document
+        gen_docs = document_registry.list_all(case_id="GENERAL")
+        gen_ids = [d["id"] for d in gen_docs]
+        assert doc_id in gen_ids
+
 
 
 

@@ -47,6 +47,7 @@ terminal_output.txt
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+.cursor/
 .idea/
 .DS_Store
 Thumbs.db
@@ -86,3 +87,5 @@ IDP terminal_output.txt
 # Model weights (downloaded via scripts/download_models.py)
 models/
 *.onnx
+
+docker-ignore/

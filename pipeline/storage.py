@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 
 from config import (
     DMS_DIR,
-    IDP_TEMP_DIR,
     IST,
     LOS_LOANS_DIR,
     LOS_RECEIVED_DIR,
@@ -297,13 +296,20 @@ def delete_loan_data(loan_id: str) -> Dict[str, List[str]]:
     for base_dir in (DMS_DIR, S3_RAW_DIR, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RESULT_DIR):
         _remove(base_dir / loan_id)
 
-    # Mock-S3 uploaded files staged under idp_temp are named "{doc_id}_{filename}" where
-    # doc_id commonly embeds the loan_id (e.g. "DOC-LOAN_005-9560-1_sanction_letter.pdf"),
-    # not stored in a per-loan subfolder -- best-effort glob cleanup by loan_id substring.
-    if IDP_TEMP_DIR.exists():
-        for match in IDP_TEMP_DIR.rglob(f"*{loan_id}*"):
-            if match.is_file():
-                _remove(match)
+    # Call IDP to delete its raw + parsed objects for this loan
+    import httpx as _httpx
+    from config.settings import IDP_SERVICE_URL, IDP_REQUEST_TIMEOUT
+    try:
+        resp = _httpx.delete(
+            f"{IDP_SERVICE_URL}/api/v1/documents/cases/{loan_id}/objects",
+            timeout=IDP_REQUEST_TIMEOUT,
+        )
+        if resp.status_code not in (200, 404):
+            errors.append(f"IDP case object delete returned HTTP {resp.status_code} for {loan_id}")
+        else:
+            logger.info("IDP case objects deleted for %s (status %s)", loan_id, resp.status_code)
+    except _httpx.RequestError as e:
+        errors.append(f"IDP unreachable during case delete for {loan_id}: {e}")
 
     logger.info("Deleted loan %s: %d paths removed, %d errors", loan_id, len(deleted), len(errors))
     return {"deleted": deleted, "errors": errors}

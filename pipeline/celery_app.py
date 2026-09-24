@@ -72,14 +72,14 @@ def run_pipeline_task(self, loan_id: str) -> Dict[str, Any]:
 
 
 @app.task(bind=True, name="pipeline.tasks.process_document_task", max_retries=2, default_retry_delay=10)
-def process_document_task(self, doc_id: str, file_path: str, case_id: str | None = None) -> dict:
+def process_document_task(self, doc_id: str, s3_key: str, case_id: str | None = None) -> dict:
     """Call 8001 via HTTP to run IDP on a single document. Result is written back to document_registry and S3 extracted tier."""
     logger.info("process_document_task %s started for doc: %s (case: %s)", self.request.id, doc_id, case_id)
     try:
         with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
             resp = client.post(
                 f"{IDP_SERVICE_URL}/api/v1/documents/process",
-                json={"document_id": doc_id, "s3_key": file_path},
+                json={"document_id": doc_id, "s3_key": s3_key},
             )
             resp.raise_for_status()
 
@@ -111,18 +111,16 @@ def process_document_task(self, doc_id: str, file_path: str, case_id: str | None
 
         # Sync Celery output to S3 Extracted tier for the case so idp_scan hits cache instantly
         resolved_case_id = case_id
-        if not resolved_case_id and "s3_raw" in file_path:
-            parts = Path(file_path).parts
-            if "s3_raw" in parts:
-                idx = parts.index("s3_raw")
-                if idx + 1 < len(parts) - 1:
-                    resolved_case_id = parts[idx + 1]
+        if not resolved_case_id and s3_key.startswith("raw-documents/"):
+            parts = s3_key.split("/")
+            if len(parts) >= 2:
+                resolved_case_id = parts[1]  # "LOAN_001" or "GENERAL"
 
         if resolved_case_id and resolved_case_id != "GENERAL":
             from config.doc_types import get_canonical_doc_type
             from pipeline.storage import save_s3_extracted
 
-            doc_key = get_canonical_doc_type(Path(file_path).name)
+            doc_key = get_canonical_doc_type(Path(s3_key).name)
             try:
                 with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
                     canonical_resp = client.get(

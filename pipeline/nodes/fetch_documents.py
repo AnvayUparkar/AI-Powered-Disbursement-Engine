@@ -45,6 +45,23 @@ def fetch_documents(state: PipelineState) -> PipelineState:
             if item.is_file() and item.name not in raw_doc_paths:
                 raw_doc_paths[item.name] = str(item)
 
+    # Upload raw documents to shared mock S3 so IDP can download by relative key
+    from shared.storage import S3Storage
+    from shared.object_keys import raw_object_key
+    import asyncio as _asyncio
+
+    _storage_client = S3Storage()
+    for _fname, _fpath_str in raw_doc_paths.items():
+        _fpath = Path(_fpath_str)
+        if _fpath.is_file() and not _fname.lower().endswith(".json"):
+            try:
+                _key = raw_object_key(loan_id, _fname)
+                _fpath_bytes = _fpath.read_bytes()
+                _asyncio.run(_storage_client.upload(_key, _fpath_bytes, content_type="application/octet-stream"))
+                logger.debug("Uploaded %s to mock S3 key %s", _fname, _key)
+            except Exception as _upload_err:
+                logger.warning("Failed uploading %s to mock S3: %s", _fname, _upload_err)
+
     logger.info("Total %d raw document(s) validated and staged in S3 Raw tier for %s", len(raw_doc_paths), loan_id)
     logger.info(
         "fetch_documents: %d binary doc(s) and %d sidecar JSON(s) staged for loan %s",

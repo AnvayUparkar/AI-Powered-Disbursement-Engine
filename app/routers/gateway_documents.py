@@ -24,26 +24,9 @@ from config import (
 )
 
 logger = logging.getLogger("disbursement_pipeline.gateway_documents")
-
 router = APIRouter(prefix="/api/v1/documents", tags=["Gateway Documents"])
 
-
-class ProcessDocumentRequest(BaseModel):
-    """API Request payload for triggering document processing."""
-    document_id: str = Field(..., description="Unique ID of the document")
-    s3_key: str = Field(..., description="S3 Key location of the raw document e.g. raw-documents/DOC123.pdf")
-    s3_bucket: Optional[str] = Field(None, description="Optional S3 bucket override")
-
-
-class DocumentStatusResponse(BaseModel):
-    """Status response returned to API caller."""
-    document_id: str
-    processing_id: str
-    status: str
-    output_location: str
-    processing_time_seconds: float
-    error_message: Optional[str] = None
-    result: Optional[Dict[str, Any]] = None
+from shared.idp_contracts import DocumentStatusResponse, ProcessDocumentRequest
 
 
 @router.post(
@@ -63,13 +46,13 @@ async def upload_and_process_document(
     Accept direct browser multipart document upload, store raw file in S3 tier,
     register in document_registry, and enqueue background Celery pipeline task.
     """
-    case_val = case_id if isinstance(case_id, str) and case_id.strip() else None
+    case_val = (case_id.strip() if isinstance(case_id, str) and case_id.strip() else None) or "GENERAL"
     dtype_val = doc_type if isinstance(doc_type, str) and doc_type.strip() else None
     clean_filename = Path(file.filename or "uploaded_doc.pdf").name
 
     if isinstance(document_id, str) and document_id.strip():
         doc_id = document_id.strip()
-    elif case_val and case_val != "GENERAL":
+    elif case_val != "GENERAL":
         canon = get_canonical_doc_type(dtype_val or clean_filename)
         clean_stem = Path(clean_filename).stem.lower().replace(" ", "_")
         if canon in SINGLETON_CANONICAL_TYPES and canon != "miscellaneous":
@@ -85,25 +68,29 @@ async def upload_and_process_document(
         file_bytes = await file.read()
         raw_key = f"{doc_id}_{clean_filename}"
 
-        if case_val:
-            case_raw_dir = S3_RAW_DIR / case_val
-            case_raw_dir.mkdir(parents=True, exist_ok=True)
-            target_path = case_raw_dir / clean_filename
-            target_path.write_bytes(file_bytes)
-            logger.info("Saved uploaded document to case S3 raw store at %s", target_path)
-        else:
-            gen_raw_dir = S3_RAW_DIR / "GENERAL"
-            gen_raw_dir.mkdir(parents=True, exist_ok=True)
-            target_path = gen_raw_dir / clean_filename
-            target_path.write_bytes(file_bytes)
+        case_raw_dir = S3_RAW_DIR / case_val
+        case_raw_dir.mkdir(parents=True, exist_ok=True)
+        target_path = case_raw_dir / clean_filename
+        target_path.write_bytes(file_bytes)
+        logger.info("Saved uploaded document to case S3 raw store at %s", target_path)
 
         output_url = f"s3://disbursement-documents/raw-documents/{raw_key}"
+
+        # Also upload to shared mock S3 so IDP can download by relative key
+        from shared.storage import S3Storage
+        from shared.object_keys import raw_object_key
+        _s3 = S3Storage()
+        _key = raw_object_key(case_val, clean_filename)
+        try:
+            await _s3.upload(_key, file_bytes, content_type=file.content_type or "application/octet-stream")
+        except Exception as _s3_err:
+            logger.warning("Mock S3 upload failed for %s: %s", _key, _s3_err)
 
         # Determine whether to execute immediate background IDP extraction:
         # 1. If run_idp is explicitly requested, honor it.
         # 2. If uploaded directly to a specific loan case, default to False (pure S3 raw staging).
         # 3. If uploaded to General / Documents tab, default to True (immediate IDP).
-        should_run_idp = run_idp if run_idp is not None else (not case_val or case_val == "GENERAL")
+        should_run_idp = run_idp if run_idp is not None else (case_val == "GENERAL")
         initial_status = "PROCESSING" if should_run_idp else "PENDING"
 
         try:
@@ -122,7 +109,7 @@ async def upload_and_process_document(
         if should_run_idp:
             try:
                 from pipeline.celery_app import process_document_task
-                process_document_task.delay(doc_id, str(target_path), case_val)
+                process_document_task.delay(doc_id, _key, case_val)
             except Exception as celery_err:
                 logger.warning("Celery task enqueue notification for %s: %s", doc_id, celery_err)
 

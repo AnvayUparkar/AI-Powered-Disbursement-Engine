@@ -98,12 +98,13 @@ export function UploadModal({
       setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 40 } : f)));
       try {
         const docId = `DOC-${Date.now().toString().slice(-6)}`;
-        const shouldRunIdp = !selectedCase || selectedCase.trim() === '' || selectedCase.toUpperCase() === 'GENERAL';
+        const targetCaseId = selectedCase?.trim() ? selectedCase.trim() : 'GENERAL';
+        const shouldRunIdp = targetCaseId === 'GENERAL';
         const res = await node2Api.uploadAndProcess(
           qf.file,
           docId,
           undefined,
-          selectedCase || undefined,
+          targetCaseId,
           qf.docType,
           shouldRunIdp,
         );
@@ -115,7 +116,7 @@ export function UploadModal({
         let newDoc: DocumentRecord;
 
         if (resultDoc) {
-          newDoc = adaptNode2DocumentToRecord(resultDoc, selectedCase || 'GENERAL');
+          newDoc = adaptNode2DocumentToRecord(resultDoc, targetCaseId);
           newDoc.name = qf.file.name;
           newDoc.type = qf.docType;
         } else {
@@ -131,7 +132,7 @@ export function UploadModal({
             confidence: 96.5,
             vlmUsed: vlmUsed,
             uploadedAt: new Date().toISOString().split('T')[0],
-            caseId: selectedCase || 'GENERAL',
+            caseId: targetCaseId,
             sizeKb: Math.round(qf.file.size / 1024),
             extractedFields: [
               { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: docId, page: 1 },

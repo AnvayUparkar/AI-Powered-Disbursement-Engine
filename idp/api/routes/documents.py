@@ -113,3 +113,45 @@ async def get_document_canonical(document_id: str):
             detail={"error": "InternalServerError", "message": str(e), "document_id": document_id}
         )
 
+
+from shared.object_keys import parsed_object_key
+from idp.services.storage.s3 import S3Storage as _Storage
+
+_storage = _Storage()
+
+
+@router.delete(
+    "/cases/{case_id}/objects",
+    status_code=status.HTTP_200_OK,
+)
+async def delete_case_objects(case_id: str):
+    """Delete all raw and parsed objects for a case."""
+    await _storage.delete_prefix(f"raw-documents/{case_id}/")
+    await _storage.delete_prefix(f"parsed-documents/{case_id}_")
+    return {"status": "deleted", "case_id": case_id}
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}},
+)
+async def delete_document(document_id: str):
+    """Delete parsed JSON and raw object for a document."""
+    parsed_key = parsed_object_key(document_id)
+    try:
+        await _storage.delete(parsed_key)
+    except Exception as e:
+        logger.warning(format_doc_log(document_id, f"Parsed delete failed: {e}"))
+
+    # Attempt raw delete using stored source key (best-effort)
+    parsed = await processor.get_parsed_document(document_id)
+    if parsed and parsed.source and parsed.source.s3_key:
+        try:
+            await _storage.delete(parsed.source.s3_key)
+        except Exception as e:
+            logger.warning(format_doc_log(document_id, f"Raw delete failed: {e}"))
+
+    return {"status": "deleted", "document_id": document_id}
+
+

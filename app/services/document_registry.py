@@ -295,8 +295,6 @@ class DocumentRegistry:
             ]
 
             for doc_id in doc_ids_to_remove:
-                rec = self._dynamic_docs[doc_id]
-                self._delete_idp_temp_files(doc_id, rec.get("name"))
                 del self._dynamic_docs[doc_id]
 
             aliases_to_remove = [
@@ -309,26 +307,6 @@ class DocumentRegistry:
             invalidate_case_cache()
             logger.info("Purged %d document record(s) for deleted case %s", len(doc_ids_to_remove), case_id)
             return len(doc_ids_to_remove)
-
-    @staticmethod
-    def _delete_idp_temp_files(doc_id: str, filename: Optional[str]) -> None:
-        """Remove a document's mock-S3 raw upload and parsed-document JSON from idp_temp."""
-        from config.paths import IDP_PARSED_DIR, IDP_RAW_DIR
-
-        parsed_path = IDP_PARSED_DIR / f"{doc_id}.json"
-        if parsed_path.exists():
-            try:
-                parsed_path.unlink()
-            except OSError as e:
-                logger.warning("Failed deleting parsed doc %s: %s", parsed_path, e)
-
-        if filename:
-            raw_path = IDP_RAW_DIR / f"{doc_id}_{filename}"
-            if raw_path.exists():
-                try:
-                    raw_path.unlink()
-                except OSError as e:
-                    logger.warning("Failed deleting raw upload %s: %s", raw_path, e)
 
     def get_distinct_types(self) -> List[str]:
         """Return distinct document types currently present in the registry or supported by default."""

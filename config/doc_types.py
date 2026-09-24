@@ -1,4 +1,6 @@
-"""Document types definitions, canonical aliases, and detection utilities."""
+"""Document types definitions, canonical aliases, and detection utilities.
+Re-exported by shared.doc_types for IDP service consumption without pipeline coupling.
+"""
 import re
 from pathlib import Path
 from typing import Optional
