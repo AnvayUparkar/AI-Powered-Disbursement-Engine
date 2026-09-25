@@ -465,8 +465,14 @@ def test_get_case_results_corrupted_json_handled_gracefully(tmp_path: Path, monk
 
 
 def test_serialize_case_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Comprehensive happy path integration test for serialize_case."""
+    """Comprehensive happy path integration test for serialize_case.
+
+    Exercises the full 8-step processing pipeline, so the DGCL flag must be forced on:
+    it defaults to disabled, which would silently drop the check_parallel/compile_report/
+    generate_scorecard steps and make the 8-step assertion below depend on ambient state.
+    """
     loan_id = "LOAN_PROD_HAPPY_01"
+    monkeypatch.setattr("app.services.pipeline_flags.is_dgcl_pipeline_enabled", lambda: True)
 
     los_dir = tmp_path / "los"
     los_dir.mkdir(parents=True, exist_ok=True)

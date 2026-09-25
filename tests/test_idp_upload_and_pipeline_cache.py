@@ -194,12 +194,12 @@ def test_process_single_document_delegates_to_8001(tmp_path: Path):
         def __exit__(self, *args):
             pass
 
-        def post(self, url, json=None):
+        def post(self, url, json=None, headers=None):
             assert "/api/v1/documents/process" in url
             assert json["document_id"] == doc_id
             return MockResponse({"status": "completed", "result": parsed_payload})
 
-        def get(self, url):
+        def get(self, url, headers=None):
             assert f"/api/v1/documents/{doc_id}" in url
             return MockResponse(parsed_payload)
 
@@ -231,7 +231,7 @@ def test_process_single_document_returns_none_on_remote_failure(tmp_path: Path):
         def __exit__(self, *args):
             pass
 
-        def post(self, url, json=None):
+        def post(self, url, json=None, headers=None):
             raise httpx.ConnectError("Connection refused to 8001")
 
     with patch("httpx.Client", side_effect=FailingClient):
@@ -319,14 +319,14 @@ def test_celery_task_syncs_to_s3_extracted_tier(clean_test_case, tmp_path: Path)
         def __exit__(self, *args):
             pass
 
-        def post(self, url, json=None):
+        def post(self, url, json=None, headers=None):
             return MockResponse({"status": "completed", "result": parsed_payload})
 
-        def get(self, url):
+        def get(self, url, headers=None):
             return MockResponse(parsed_payload)
 
     with patch("httpx.Client", side_effect=MockClient):
-        res = process_document_task.apply(args=[doc_id, str(doc_file), case_id]).get()
+        res = process_document_task.apply(args=[doc_id, str(doc_file), "t_test", case_id]).get()
         assert res["status"] == "completed"
 
         # Verify output was persisted to S3 Extracted tier: s3_extracted/{case_id}/pan.json

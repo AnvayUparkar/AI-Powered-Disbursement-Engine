@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dgcl.fullname" . }}-config
+  labels:
+    {{- include "dgcl.labels" . | nindent 4 }}
+data:
+  IDP_SERVICE_URL: {{ default (printf "http://%s-idp:%v" (include "dgcl.fullname" .) .Values.idp.port) .Values.config.IDP_SERVICE_URL | quote }}
+  {{- range $k, $v := .Values.config }}
+  {{- if ne $k "IDP_SERVICE_URL" }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- end }}

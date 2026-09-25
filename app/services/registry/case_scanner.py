@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from config import DMS_DIR, IST, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RAW_DIR
+from config.tenant import current_tenant_id
 from pipeline.engines.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
@@ -19,17 +20,14 @@ logger = logging.getLogger("disbursement_pipeline.document_registry.case_scanner
 _ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".zip", ".xml"}
 _EXCLUDED_EXTRACTED_NAMES = {"status.json", "dms_status.json", "face_embeddings.json"}
 
-# Cache state for case documents
-_CASE_DOCS_CACHE: Optional[List[Dict[str, Any]]] = None
-_CACHE_TIMESTAMP: float = 0.0
+# Cache state for case documents, keyed by tenant_id -> (timestamp, docs)
+_CASE_DOCS_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _CACHE_TTL_SECONDS: float = 3.0  # short TTL avoids stale reads while protecting against rapid request bursts
 
 
 def invalidate_case_cache() -> None:
-    """Invalidate cached case documents."""
-    global _CASE_DOCS_CACHE, _CACHE_TIMESTAMP
-    _CASE_DOCS_CACHE = None
-    _CACHE_TIMESTAMP = 0.0
+    """Invalidate the current tenant's cached case documents."""
+    _CASE_DOCS_CACHE.pop(current_tenant_id(), None)
 
 
 def _collect_case_candidates(
@@ -190,6 +188,13 @@ def _build_case_document_record(
         or struct_data.get("_raw_text")
     )
 
+    document_markdown = (
+        ext_data.get("documentMarkdown")
+        or ext_data.get("document_markdown")
+        or struct_data.get("documentMarkdown")
+        or struct_data.get("document_markdown")
+    )
+
     paragraphs = (
         struct_data.get("paragraphs")
         or ext_data.get("_components", {}).get("paragraphs")
@@ -346,6 +351,7 @@ def _build_case_document_record(
         "extractedFields": extracted_fields,
         "rawText": raw_text or f"Document Name: {doc_filename}\nType: {doc_type}",
         "formattedText": formatted_text,
+        "documentMarkdown": document_markdown,
         "debug": {
             "field_locations": field_locations,
             "ocr_tokens": ocr_tokens,
@@ -369,11 +375,12 @@ def scan_case_documents(dynamic_doc_ids: Optional[Set[str]] = None, use_cache: b
     Index actual documents stored for all registered loan cases without phantom files.
     Cached for brief intervals to prevent I/O thrashing during repeated requests.
     """
-    global _CASE_DOCS_CACHE, _CACHE_TIMESTAMP
+    tenant_id = current_tenant_id()
 
     now = time.time()
-    if use_cache and _CASE_DOCS_CACHE is not None and (now - _CACHE_TIMESTAMP) < _CACHE_TTL_SECONDS:
-        return _CASE_DOCS_CACHE
+    cached = _CASE_DOCS_CACHE.get(tenant_id)
+    if use_cache and cached is not None and (now - cached[0]) < _CACHE_TTL_SECONDS:
+        return cached[1]
 
     loan_ids = list_loan_ids()
     docs: List[Dict[str, Any]] = []
@@ -393,8 +400,7 @@ def scan_case_documents(dynamic_doc_ids: Optional[Set[str]] = None, use_cache: b
             doc_record = _build_case_document_record(c_id, doc_filename, fpath, source_kind, case_ext_dir)
             docs.append(doc_record)
 
-    _CASE_DOCS_CACHE = docs
-    _CACHE_TIMESTAMP = now
+    _CASE_DOCS_CACHE[tenant_id] = (now, docs)
     return docs
 
 

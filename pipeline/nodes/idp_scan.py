@@ -2,10 +2,11 @@
 import asyncio
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
+from app.auth import internal_headers
 
 from config import (
     DISABLE_IDP_EXTRACTION_CACHE,
@@ -108,6 +109,15 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
             "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
             "headers": tbl.headers,
             "rows": tbl.rows_raw,
+            # Without these, app.services.registry.case_scanner (the consumer of this
+            # _components.tables list for any document that went through the full
+            # verification pipeline, not just a direct /upload) has nothing to put in the
+            # table's bbox/cells/markdown fields -- the outer table box, the per-cell
+            # TableFormer overlay, and the formatted Raw Text table view all go missing even
+            # though `tbl` (a Docling TableStructure) already carries all three.
+            "bbox": tbl.bbox,
+            "cells": [c.model_dump() for c in (tbl.cells or [])],
+            "markdown": tbl.markdown,
         })
 
     template_fields = format_template_json(extracted_fields or {})
@@ -156,6 +166,7 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         "rawText": parsed.text,
         "_formatted_text": formatted_json,
         "formattedText": formatted_json,
+        "documentMarkdown": getattr(parsed, "document_markdown", None),
         "_pages": len(parsed.pages),
         "_elements_count": len(parsed.elements),
         "_components": components,
@@ -215,10 +226,11 @@ def _process_single_document(file_path: Path, doc_id: str, doc_key: str) -> Opti
                 resp = client.post(
                     f"{IDP_SERVICE_URL}/api/v1/documents/process",
                     json={"document_id": doc_id, "s3_key": str(file_path)},
+                    headers=internal_headers(),
                 )
                 resp.raise_for_status()
 
-                get_resp = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}")
+                get_resp = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}", headers=internal_headers())
                 get_resp.raise_for_status()
 
                 parsed = ParsedDocument.model_validate(get_resp.json())

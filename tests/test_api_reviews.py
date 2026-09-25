@@ -5,7 +5,11 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_api_reviews_list_and_adjudicate():
+def test_api_reviews_list_and_adjudicate(monkeypatch):
+    # Review items are generated from DGCL checkpoint results, which the pipeline never
+    # computes while the flag is off (default); force it on to exercise this flow.
+    monkeypatch.setattr("app.services.pipeline_flags.is_dgcl_pipeline_enabled", lambda: True)
+
     # 1. Get reviews list
     res = client.get("/api/reviews")
     assert res.status_code == 200

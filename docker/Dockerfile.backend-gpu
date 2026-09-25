@@ -1,0 +1,59 @@
+# GPU variant of the backend image, used ONLY for the `idp` deployment
+# (Docling layout/TableFormer are torch and genuinely run on CUDA; RapidOCR
+# only engages CUDA through onnxruntime-gpu — see idp/services/docling/accelerator.py).
+# api/worker/frontend stay on docker/Dockerfile.backend (plain CPU) — there is
+# nothing in those processes that benefits from a GPU.
+#
+# CUDA/cuDNN come from the base image rather than pip-only wheels: torch's
+# PyPI wheel bundles its own CUDA runtime, but onnxruntime-gpu expects system
+# CUDA/cuDNN shared libraries, which a plain python:slim image does not have.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    IDP_ACCELERATOR_DEVICE=cuda \
+    DEBIAN_FRONTEND=noninteractive
+
+# Ubuntu 22.04 ships Python 3.10; deadsnakes gets us closer to the 3.13 the
+# CPU image uses without building from source.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common curl \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3.11-distutils \
+        libgl1 libglib2.0-0 libgomp1 \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv/app
+
+COPY requirements.txt .
+# onnxruntime and onnxruntime-gpu are mutually exclusive PyPI packages that
+# provide the same `onnxruntime` import name — swap in the GPU build here
+# rather than maintaining a second requirements file that can drift.
+RUN sed 's/^onnxruntime>=/onnxruntime-gpu>=/' requirements.txt > requirements-gpu.txt \
+    && pip install --no-cache-dir -r requirements-gpu.txt
+
+# Bake model weights at BUILD time (see docker/Dockerfile.backend for the full rationale), before
+# `COPY . .` so code changes reuse the cached layer.
+COPY scripts/download_models.py scripts/download_models.py
+RUN python scripts/download_models.py --dest /opt/models/docling \
+    && chmod -R a+rX /opt/models
+
+# Runtime is fully offline; set after the download step, which needs the network.
+ENV DOCLING_ARTIFACTS_PATH=/opt/models/docling \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
+COPY . .
+
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /srv/app
+USER appuser
+
+EXPOSE 8001
+
+CMD ["uvicorn", "idp.main:app", "--host", "0.0.0.0", "--port", "8001"]

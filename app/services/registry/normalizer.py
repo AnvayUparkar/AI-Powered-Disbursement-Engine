@@ -255,6 +255,8 @@ def normalize_uploaded_record(
         else (p_res.get("formatted_text") or p_res.get("formattedText") or "")
     )
 
+    document_markdown_val = p_res.get("document_markdown") or p_res.get("documentMarkdown") or None
+
     field_locs = (p_res.get("custom_metadata") or {}).get("field_locations") or {}
 
     ocr_status = "COMPLETED"
@@ -277,6 +279,7 @@ def normalize_uploaded_record(
         "processingSteps": processing_steps,
         "rawText": raw_text_val,
         "formattedText": fmt_text_val,
+        "documentMarkdown": document_markdown_val,
         "debug": {
             "field_locations": field_locs if parsed_result else {},
             "ocr_tokens": (p_res.get("custom_metadata") or {}).get("ocr_tokens") or [],

@@ -19,6 +19,7 @@ from idp.models.processing import ProcessingMetrics
 from idp.utils.file_utils import create_temp_dir, cleanup_temp_dir
 from idp.utils.image_utils import crop_image_region
 from idp.core.config import settings
+from config.tenant import SAFE_ID_PATTERN, current_tenant_id
 from idp.core.logging import logger, format_doc_log
 from idp.services.ocr.scan_preprocessor import preprocess_scanned_document
 
@@ -618,6 +619,7 @@ class DocumentProcessor:
                 "processing_time_seconds": round(elapsed, 3),
                 "raw_text": parsed_doc.text,
                 "formatted_text": parsed_doc.formatted_text or "",
+                "document_markdown": parsed_doc.document_markdown,
                 "extracted_fields": llm_fields,
                 "field_locations": parsed_doc.custom_metadata.get("field_locations", {}),
                 "ocr_tokens": parsed_doc.custom_metadata.get("ocr_tokens", []),
@@ -757,7 +759,7 @@ class DocumentProcessor:
         Save direct browser uploaded raw file bytes to S3 raw-documents prefix and process through Node 2.
         """
         bucket = s3_bucket if (isinstance(s3_bucket, str) and s3_bucket.strip()) else settings.S3_BUCKET
-        raw_key = f"{settings.RAW_DOCUMENT_PREFIX.strip('/')}/{document_id}_{filename}"
+        raw_key = f"{current_tenant_id()}/{settings.RAW_DOCUMENT_PREFIX.strip('/')}/{document_id}_{filename}"
         await self.storage.upload(
             key=raw_key,
             content=file_bytes,
@@ -782,7 +784,9 @@ class DocumentProcessor:
     async def get_parsed_document(self, document_id: str, bucket: Optional[str] = None) -> Optional[ParsedDocument]:
         """Retrieve parsed document result model by document_id."""
         target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else settings.S3_BUCKET
-        out_key = f"{settings.PARSED_DOCUMENT_PREFIX.strip('/')}/{document_id}.json"
+        if not SAFE_ID_PATTERN.match(document_id or "") or not SAFE_ID_PATTERN.match(target_bucket):
+            return None
+        out_key = f"{current_tenant_id()}/{settings.PARSED_DOCUMENT_PREFIX.strip('/')}/{document_id}.json"
         
         # Check local mock path first if exists
         local_mock_path = os.path.join(settings.TEMP_DIR, "s3_mock", target_bucket, out_key)
@@ -795,7 +799,7 @@ class DocumentProcessor:
 
     async def _save_and_upload_output(self, parsed_doc: ParsedDocument, doc_id: str, bucket: str) -> str:
         output_json = parsed_doc.model_dump_json(indent=2)
-        out_key = f"{settings.PARSED_DOCUMENT_PREFIX.strip('/')}/{doc_id}.json"
+        out_key = f"{current_tenant_id()}/{settings.PARSED_DOCUMENT_PREFIX.strip('/')}/{doc_id}.json"
         return await self.storage.upload(
             key=out_key,
             content=output_json,

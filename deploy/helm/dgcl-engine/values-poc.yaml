@@ -1,0 +1,71 @@
+# POC overrides — single replica everywhere, no autoscaling, smallest
+# resource footprint that still schedules. Use with:
+#   helm upgrade --install dgcl-engine . -f values-poc.yaml -f <your-env-values>
+#
+# sharedStorage.storageClassName (values.yaml) MUST still be set to a real
+# RWX-capable StorageClass name via --set or another -f override — there is
+# no POC-safe default for it, since it depends entirely on what the platform
+# team's cluster actually offers. See deploy/helm/README.md's storage section.
+
+api:
+  replicaCount: 1
+  # The API pod runs the whole pipeline in-process (/run, /run-ocr, /stream), so even the POC needs
+  # headroom over a thin API: importing app.main alone peaks near 380MiB.
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1536Mi }
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+
+idp:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "1", memory: 2Gi }
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  gpu:
+    enabled: false
+
+worker:
+  replicaCount: 1
+  args: ["-m", "celery", "-A", "pipeline.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+  keda:
+    enabled: false
+
+frontend:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+
+redis:
+  # persistence already off by default (values.yaml) — Redis itself needs no
+  # PVC/StorageClass. sharedStorage (api/worker/idp's document volume) is
+  # separate and still required — see the note above.
+  master:
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 250m, memory: 256Mi }
+
+sharedStorage:
+  size: 5Gi # smaller footprint for POC-scale testing; bump via --set for a longer-running pass
+
+networkPolicy:
+  enabled: false   # simplify first pass; re-enable once the POC works end-to-end
+
+config:
+  # The POC ingress may be plain http; a Secure cookie would never be sent back and login would loop.
+  # Set back to "true" as soon as TLS is on.
+  SESSION_COOKIE_SECURE: "false"
+  ENVIRONMENT: "poc"
+  APP_ENV: "poc"
+  DEBUG: "True"
+  LOG_LEVEL: "DEBUG"

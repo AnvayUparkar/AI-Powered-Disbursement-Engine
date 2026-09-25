@@ -1,13 +1,13 @@
+import math
 import uuid
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from idp.services.docling.pipeline import DoclingPipeline
+from idp.services.docling.pipeline import DoclingPipeline, docling_convert_lock
 from idp.services.docling.options import DoclingOptions
 from idp.models.layout import LayoutElement, ElementType
 from idp.models.table import TableStructure, TableCell
 from idp.core.exceptions import DoclingProcessingError
 from idp.core.logging import logger, format_doc_log
-from idp.services.ocr.confidence import compute_text_confidence
 
 
 def _extract_top_left_bbox(bbox_obj: Any, page_height: float = 842.0) -> List[float]:
@@ -33,12 +33,56 @@ def _extract_top_left_bbox(bbox_obj: Any, page_height: float = 842.0) -> List[fl
     return [0.0, 0.0, 0.0, 0.0]
 
 
+def _finite(value: Any) -> Optional[float]:
+    """Return a float only when it is a real number; Docling emits NaN for stages that
+    did not run (table_score with no tables, parse_score on image input)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) or math.isinf(f) else round(f, 4)
+
+
+def _grade_str(grade: Any) -> Optional[str]:
+    """Docling reports quality as a QualityGrade enum. Coerce defensively: anything that is
+    not plainly a string is dropped rather than allowed to fail DoclingParseResult validation
+    (which would silently push the whole document onto the fallback parser)."""
+    value = getattr(grade, "value", None)
+    if isinstance(value, str):
+        return value
+    return grade if isinstance(grade, str) else None
+
+
+def _overlap_ratio(inner: List[float], outer: List[float]) -> float:
+    """Intersection area over `inner`'s own area. Both boxes are [l, t, r, b], same origin."""
+    if len(inner) < 4 or len(outer) < 4:
+        return 0.0
+    il = max(inner[0], outer[0])
+    it = max(inner[1], outer[1])
+    ir = min(inner[2], outer[2])
+    ib = min(inner[3], outer[3])
+    inter = max(0.0, ir - il) * max(0.0, ib - it)
+    area = max(0.0, inner[2] - inner[0]) * max(0.0, inner[3] - inner[1])
+    return (inter / area) if area > 0 else 0.0
+
+
 class DoclingParseResult(BaseModel):
     """Output structure returned by DoclingParser."""
     elements: List[LayoutElement] = Field(default_factory=list)
     tables: List[TableStructure] = Field(default_factory=list)
     page_count: int = 1
     pages_dimensions: List[Dict[str, float]] = Field(default_factory=list)
+    # Docling's own per-stage quality scores, surfaced verbatim so each model can be
+    # inspected independently. None means the stage did not run for this document.
+    layout_score: Optional[float] = None
+    ocr_score: Optional[float] = None
+    table_score: Optional[float] = None
+    parse_score: Optional[float] = None
+    quality_grade: Optional[str] = None
+    # Whole-document export_to_markdown() (text + TableFormer tables, in reading order) --
+    # a single readable view, as opposed to raw_text's flat OCR text with embedded [TABLE]
+    # markers. None when the export itself fails (defensive: never blocks the rest of parsing).
+    document_markdown: Optional[str] = None
 
 
 class DoclingParser:
@@ -56,8 +100,11 @@ class DoclingParser:
             return self._fallback_parse(document_path, doc_id)
 
         try:
-            conv_result = converter.convert(document_path)
-            doc = conv_result.document
+            # Serialized process-wide: docling-parse's native backend crashes
+            # the worker if two threads convert at the same time.
+            with docling_convert_lock():
+                conv_result = converter.convert(document_path)
+                doc = conv_result.document
 
             elements: List[LayoutElement] = []
             tables: List[TableStructure] = []
@@ -78,6 +125,46 @@ class DoclingParser:
                 if 1 <= pno <= len(pages_dimensions):
                     return pages_dimensions[pno - 1].get("height", 842.0)
                 return 842.0
+
+            # Harvest the real, model-reported confidences before they are discarded.
+            # Docling keeps them on the per-page layout prediction: every Cluster carries the
+            # layout model's own score, and each TextCell under it carries RapidOCR's
+            # recognition score. TextItem/ProvenanceItem carry no `confidence` field of their
+            # own (see the old `getattr(item, "confidence", None)` below, which always
+            # returned None), so previously these were silently replaced with a rule-based
+            # text-shape estimate that returned a near-constant value for all text.
+            cluster_index: Dict[int, List[Dict[str, Any]]] = {}
+            for cpage in getattr(conv_result, "pages", []) or []:
+                layout_pred = getattr(getattr(cpage, "predictions", None), "layout", None)
+                if not layout_pred:
+                    continue
+                # Docling builds pages as Page(page_no=i + 1), so page_no is already 1-based
+                # and lines up with prov.page_no on the document items. Do not offset it.
+                pno_c = int(getattr(cpage, "page_no", 1) or 1)
+                page_h = float(getattr(getattr(cpage, "size", None), "height", 842.0) or 842.0)
+                entries: List[Dict[str, Any]] = []
+                for cl in layout_pred.clusters:
+                    cell_scores = [
+                        float(c.confidence) for c in (cl.cells or [])
+                        if getattr(c, "confidence", None) is not None
+                    ]
+                    entries.append({
+                        "bbox": _extract_top_left_bbox(cl.bbox, page_h),
+                        "layout_confidence": _finite(cl.confidence),
+                        "ocr_confidence": _finite(sum(cell_scores) / len(cell_scores)) if cell_scores else None,
+                    })
+                cluster_index[pno_c] = entries
+
+            def _scores_for(bbox: List[float], pno_lookup: int) -> tuple[Optional[float], Optional[float]]:
+                """Best-overlapping layout cluster's scores for an element/table bbox."""
+                best, best_ratio = None, 0.0
+                for entry in cluster_index.get(pno_lookup, []):
+                    ratio = _overlap_ratio(bbox, entry["bbox"])
+                    if ratio > best_ratio:
+                        best, best_ratio = entry, ratio
+                if best is None or best_ratio < 0.3:
+                    return None, None
+                return best["ocr_confidence"], best["layout_confidence"]
 
             # Process layout elements (texts, headings, lists)
             reading_order = 0
@@ -105,11 +192,10 @@ class DoclingParser:
                     if not txt or not txt.strip():
                         continue
                     
-                    elem_conf = getattr(item, "confidence", None)
-                    if elem_conf is None and hasattr(item, "prov") and item.prov:
-                        elem_conf = getattr(item.prov[0], "confidence", None)
-
-                    conf_val = float(elem_conf) if elem_conf is not None else compute_text_confidence(txt)
+                    # NOTE: TextItem and ProvenanceItem carry no `confidence` field, so
+                    # reading it off the document item always yields None. The real scores
+                    # live on the layout Cluster and its TextCells; _scores_for reads those.
+                    ocr_conf, layout_conf = _scores_for(bbox_list, pno)
 
                     elements.append(
                         LayoutElement(
@@ -117,7 +203,11 @@ class DoclingParser:
                             type=elem_type,
                             text=txt,  # RAW text - clean later
                             bbox=bbox_list,
-                            confidence=round(conf_val, 4),
+                            # `confidence` mirrors the OCR score so existing consumers keep
+                            # working; the two model scores stay separately inspectable.
+                            confidence=round(ocr_conf, 4) if ocr_conf is not None else 1.0,
+                            ocr_confidence=ocr_conf,
+                            layout_confidence=layout_conf,
                             page_number=pno,
                             reading_order=reading_order,
                             source="docling_ocr",
@@ -187,7 +277,10 @@ class DoclingParser:
                                 if cell_conf is None and table_conf is not None:
                                     cell_conf = table_conf
 
-                                c_conf_val = float(cell_conf) if cell_conf is not None else compute_text_confidence(c_txt)
+                                # No fabricated fallback: when neither the cell nor its table
+                                # reports a score, record full confidence rather than inventing
+                                # one from the text's shape.
+                                c_conf_val = float(cell_conf) if cell_conf is not None else 1.0
 
                                 cells.append(
                                     TableCell(
@@ -285,6 +378,7 @@ class DoclingParser:
                         except Exception as md_ex:
                             logger.debug(f"export_to_markdown failed for table {tidx+1} on page {pno}: {md_ex}")
 
+                    tbl_ocr_conf, tbl_layout_conf = _scores_for(bbox_list, pno)
                     t_conf_val = float(table_conf) if table_conf is not None else (sum(c.confidence for c in cells)/len(cells) if cells else 1.0)
 
                     tables.append(
@@ -298,18 +392,60 @@ class DoclingParser:
                             headers=headers,
                             rows_raw=rows_raw,
                             markdown=table_markdown,
-                            confidence=round(t_conf_val, 4)
+                            confidence=round(t_conf_val, 4),
+                            table_confidence=tbl_layout_conf
                         )
                     )
 
             logger.info(format_doc_log(doc_id, f"Docling successfully extracted {len(elements)} structural elements and {len(tables)} tables."))
-            
-            return DoclingParseResult(
+
+            conf_report = getattr(conv_result, "confidence", None)
+            grade = getattr(conf_report, "mean_grade", None)
+
+            document_markdown: Optional[str] = None
+            try:
+                if hasattr(doc, "export_to_markdown"):
+                    # A single whole-document export_to_markdown() call walks doc.body's
+                    # parent-child tree, not the flat doc.texts/doc.tables lists this parser's
+                    # own element/table extraction above already reads from directly. When a
+                    # later page's items aren't cleanly linked into that body tree (seen with
+                    # multi-page full-page-OCR input), the whole-document call silently drops
+                    # them even though they're present and correctly page-tagged in the flat
+                    # lists. Exporting per page via `pages={page_no}` filters by each item's own
+                    # prov[].page_no instead of tree position, so every page is included
+                    # regardless of body-tree linkage. traverse_pictures=True is required
+                    # whenever force_full_page_ocr was used (most profiles in
+                    # config/docling_profiles.py) -- Docling's own docstring: full-page OCR
+                    # places all recognized text as children of a top-level PictureItem, which
+                    # export_to_markdown() skips entirely by default.
+                    page_count_for_md = len(pages_dimensions) or 1
+                    md_parts = []
+                    for pno in range(1, page_count_for_md + 1):
+                        page_md = doc.export_to_markdown(traverse_pictures=True, page_no=pno)
+                        if page_md and page_md.strip():
+                            md_parts.append(page_md.strip())
+                    document_markdown = "\n\n---\n\n".join(md_parts) if md_parts else None
+            except Exception as md_ex:
+                logger.debug(format_doc_log(doc_id, f"export_to_markdown failed for whole document: {md_ex}"))
+
+            result = DoclingParseResult(
                 elements=elements,
                 tables=tables,
                 page_count=len(pages_dimensions),
-                pages_dimensions=pages_dimensions
+                pages_dimensions=pages_dimensions,
+                layout_score=_finite(getattr(conf_report, "layout_score", None)),
+                ocr_score=_finite(getattr(conf_report, "ocr_score", None)),
+                table_score=_finite(getattr(conf_report, "table_score", None)),
+                parse_score=_finite(getattr(conf_report, "parse_score", None)),
+                quality_grade=_grade_str(grade),
+                document_markdown=document_markdown,
             )
+            logger.info(format_doc_log(
+                doc_id,
+                f"Docling stage scores -- layout={result.layout_score} ocr={result.ocr_score} "
+                f"table={result.table_score} parse={result.parse_score} grade={result.quality_grade}"
+            ))
+            return result
 
         except Exception as e:
             logger.error(format_doc_log(doc_id, f"Docling parsing error: {e}"))

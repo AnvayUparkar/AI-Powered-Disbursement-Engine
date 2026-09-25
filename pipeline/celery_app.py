@@ -18,6 +18,8 @@ from config.settings import (
     MAX_DOC_WORKERS,
     REDIS_URL,
 )
+from app.auth import internal_headers
+from config.tenant import use_tenant
 from app.services.document_registry import document_registry
 
 logger = logging.getLogger("disbursement_pipeline.celery")
@@ -59,8 +61,20 @@ if not redis_online:
 
 
 @app.task(bind=True, name="pipeline.tasks.run_pipeline_task")
-def run_pipeline_task(self, loan_id: str) -> Dict[str, Any]:
+def run_pipeline_task(self, loan_id: str, tenant_id: str) -> Dict[str, Any]:
     """Executes the end-to-end LangGraph pipeline asynchronously in a background worker."""
+    with use_tenant(tenant_id):
+        return _run_pipeline_task(self, loan_id)
+
+
+def _run_pipeline_task(self, loan_id: str) -> Dict[str, Any]:
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+    if not is_dgcl_pipeline_enabled():
+        # Re-checked here, not just at enqueue time: a task queued before the flag was turned
+        # off must still refuse to run once the worker actually picks it up.
+        logger.info("Celery task %s skipped for loan %s: DGCL pipeline disabled", self.request.id, loan_id)
+        return {"loan_id": loan_id, "status": "disabled", "scorecard": {}, "errors": []}
+
     logger.info("Celery task %s started for loan: %s", self.request.id, loan_id)
     try:
         from pipeline.graph import run_pipeline
@@ -89,14 +103,20 @@ def run_pipeline_task(self, loan_id: str) -> Dict[str, Any]:
 
 
 @app.task(bind=True, name="pipeline.tasks.process_document_task", max_retries=2, default_retry_delay=10)
-def process_document_task(self, doc_id: str, file_path: str, case_id: str | None = None) -> dict:
+def process_document_task(self, doc_id: str, file_path: str, tenant_id: str, case_id: str | None = None) -> dict:
     """Call 8001 via HTTP to run IDP on a single document. Result is written back to document_registry and S3 extracted tier."""
+    with use_tenant(tenant_id):
+        return _process_document_task(self, doc_id, file_path, tenant_id, case_id)
+
+
+def _process_document_task(self, doc_id: str, file_path: str, tenant_id: str, case_id: str | None = None) -> dict:
     logger.info("process_document_task %s started for doc: %s (case: %s)", self.request.id, doc_id, case_id)
     try:
         with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
             resp = client.post(
                 f"{IDP_SERVICE_URL}/api/v1/documents/process",
                 json={"document_id": doc_id, "s3_key": file_path},
+                headers=internal_headers(tenant_id),
             )
             resp.raise_for_status()
 
@@ -106,7 +126,7 @@ def process_document_task(self, doc_id: str, file_path: str, case_id: str | None
 
         try:
             with httpx.Client(timeout=IDP_REQUEST_TIMEOUT) as client:
-                get_r = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}")
+                get_r = client.get(f"{IDP_SERVICE_URL}/api/v1/documents/{doc_id}", headers=internal_headers(tenant_id))
                 if get_r.status_code == 200:
                     parsed_json = get_r.json()
                     result = {

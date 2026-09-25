@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 from datetime import datetime
@@ -13,13 +14,13 @@ from config import (
     IST,
     LOS_LOANS_DIR,
     LOS_RECEIVED_DIR,
-    POC_DATA_DIR,
     S3_EXTRACTED_DIR,
     S3_EXTRACTED_STRUCTURED_DIR,
     S3_LOS_DIR,
     S3_RAW_DIR,
     S3_RESULT_DIR,
 )
+from config.tenant import current_tenant_id, safe_id
 
 logger = logging.getLogger("disbursement_pipeline.storage")
 
@@ -76,6 +77,7 @@ def update_status(
     node_history: list[str] | None = None,
 ) -> dict:
     """Updates status.json for a loan in S3_RESULT_DIR."""
+    safe_id(loan_id, "loan_id")
     status_path = S3_RESULT_DIR / loan_id / "status.json"
     status_data = {}
     if status_path.exists():
@@ -151,6 +153,7 @@ def list_loan_ids() -> list[str]:
 
 def save_s3_los(loan_id: str, data: dict[str, Any]) -> Path:
     """Saves LOS loan data into s3_los/{loan_id}.json."""
+    safe_id(loan_id, "loan_id")
     out_path = S3_LOS_DIR / f"{loan_id}.json"
     write_json(out_path, data)
     return out_path
@@ -158,6 +161,7 @@ def save_s3_los(loan_id: str, data: dict[str, Any]) -> Path:
 
 def get_s3_los(loan_id: str) -> dict[str, Any]:
     """Retrieves LOS data from s3_los or fallback LOS_LOANS_DIR / loans.db."""
+    safe_id(loan_id, "loan_id")
     s3_path = S3_LOS_DIR / f"{loan_id}.json"
     if s3_path.exists():
         return read_json(s3_path)
@@ -183,6 +187,7 @@ def get_s3_los(loan_id: str) -> dict[str, Any]:
 
 def save_s3_extracted(loan_id: str, doc_key: str, data: dict[str, Any]) -> Path:
     """Saves raw OCR/layout output to s3_extracted/{loan_id}/{doc_key}.json."""
+    safe_id(loan_id, "loan_id")
     out_dir = S3_EXTRACTED_DIR / loan_id
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{doc_key}.json"
@@ -192,6 +197,7 @@ def save_s3_extracted(loan_id: str, doc_key: str, data: dict[str, Any]) -> Path:
 
 def get_s3_extracted(loan_id: str, doc_key: str) -> dict[str, Any]:
     """Retrieves raw extracted document data."""
+    safe_id(loan_id, "loan_id")
     path = S3_EXTRACTED_DIR / loan_id / f"{doc_key}.json"
     if path.exists():
         return read_json(path)
@@ -200,6 +206,7 @@ def get_s3_extracted(loan_id: str, doc_key: str) -> dict[str, Any]:
 
 def save_s3_extracted_structured(loan_id: str, doc_key: str, data: dict[str, Any]) -> Path:
     """Saves LLM-structured document JSON to s3_extracted_structured/{loan_id}/{doc_key}.json."""
+    safe_id(loan_id, "loan_id")
     out_dir = S3_EXTRACTED_STRUCTURED_DIR / loan_id
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{doc_key}.json"
@@ -209,6 +216,7 @@ def save_s3_extracted_structured(loan_id: str, doc_key: str, data: dict[str, Any
 
 def get_s3_extracted_structured(loan_id: str, doc_key: str) -> dict[str, Any]:
     """Retrieves structured document JSON from s3_extracted_structured."""
+    safe_id(loan_id, "loan_id")
     path = S3_EXTRACTED_STRUCTURED_DIR / loan_id / f"{doc_key}.json"
     if path.exists():
         return read_json(path)
@@ -217,6 +225,7 @@ def get_s3_extracted_structured(loan_id: str, doc_key: str) -> dict[str, Any]:
 
 def get_all_s3_extracted_structured(loan_id: str) -> dict[str, dict[str, Any]]:
     """Retrieves all structured document JSONs for a loan, merging s3_extracted and s3_extracted_structured."""
+    safe_id(loan_id, "loan_id")
     from config.doc_types import get_canonical_doc_type
 
     docs: dict[str, dict[str, Any]] = {}
@@ -260,6 +269,7 @@ def get_all_s3_extracted_structured(loan_id: str) -> dict[str, dict[str, Any]]:
 
 def save_s3_result(loan_id: str, filename: str, data: Any) -> Path:
     """Saves a result artifact in s3_result/{loan_id}/{filename}."""
+    safe_id(loan_id, "loan_id")
     out_dir = S3_RESULT_DIR / loan_id
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / filename
@@ -269,6 +279,7 @@ def save_s3_result(loan_id: str, filename: str, data: Any) -> Path:
 
 def get_s3_result(loan_id: str, filename: str) -> Any:
     """Retrieves a result artifact from s3_result/{loan_id}/{filename}."""
+    safe_id(loan_id, "loan_id")
     path = S3_RESULT_DIR / loan_id / filename
     if path.exists():
         return read_json(path)
@@ -284,6 +295,7 @@ def delete_loan_data(loan_id: str) -> Dict[str, List[str]]:
     Returns a dict of {"deleted": [...], "errors": [...]} describing what was
     removed, for the caller to report back (e.g. to an API response).
     """
+    safe_id(loan_id, "loan_id")
     deleted: List[str] = []
     errors: List[str] = []
 
@@ -309,11 +321,15 @@ def delete_loan_data(loan_id: str) -> Dict[str, List[str]]:
 
     # Mock-S3 uploaded files staged under idp_temp are named "{doc_id}_{filename}" where
     # doc_id commonly embeds the loan_id (e.g. "DOC-LOAN_005-9560-1_sanction_letter.pdf"),
-    # not stored in a per-loan subfolder -- best-effort glob cleanup by loan_id substring.
-    idp_temp_dir = POC_DATA_DIR / "idp_temp"
-    if idp_temp_dir.exists():
-        for match in idp_temp_dir.rglob(f"*{loan_id}*"):
-            if match.is_file():
+    # not stored in a per-loan subfolder -- best-effort cleanup by loan_id token. Scoped to this
+    # tenant's namespace, and the id must not be a prefix of a longer id (LOAN_1 vs LOAN_10).
+    from idp.core.config import settings as idp_settings
+
+    idp_tenant_dir = Path(idp_settings.TEMP_DIR) / "s3_mock" / idp_settings.S3_BUCKET / current_tenant_id()
+    if idp_tenant_dir.exists():
+        loan_token = re.compile(r"(?<![A-Za-z0-9])" + re.escape(loan_id) + r"(?![A-Za-z0-9])")
+        for match in idp_tenant_dir.rglob("*"):
+            if match.is_file() and loan_token.search(match.name):
                 _remove(match)
 
     logger.info("Deleted loan %s: %d paths removed, %d errors", loan_id, len(deleted), len(errors))

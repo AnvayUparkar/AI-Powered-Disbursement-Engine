@@ -1,0 +1,20 @@
+# Builds the Vite/React dashboard and serves the static bundle via nginx.
+# /api is proxied to the FastAPI Service at runtime (see nginx.conf), so the
+# same image works unmodified across environments — only the Service DNS name
+# the proxy points at changes, via the API_UPSTREAM env var + envsubst below.
+# The build stage runs on the BUILDER's native architecture (--platform=$BUILDPLATFORM): it only emits
+# static JS/CSS, which is identical for any target, and vite's esbuild is a Go binary that crashes under
+# QEMU emulation when cross-building for another CPU. Only the final nginx stage takes the target
+# platform (e.g. `--platform linux/amd64`). On an amd64 builder this is a no-op.
+FROM --platform=$BUILDPLATFORM node:20-slim AS build
+WORKDIR /src
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY docker/nginx.frontend.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /src/dist /usr/share/nginx/html
+ENV API_UPSTREAM=dgcl-engine-api:8000
+EXPOSE 8080

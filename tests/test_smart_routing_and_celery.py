@@ -83,6 +83,9 @@ def test_celery_task_registration():
 
 def test_api_run_case_async_mode_enqueues_celery(monkeypatch):
     """POST /api/cases/{case_id}/run?async=true returns 200 with queued status."""
+    # DGCL verification pipeline is disabled by default (app/services/pipeline_flags.py);
+    # this test exercises the enqueue path itself, not the flag, so enable it explicitly.
+    monkeypatch.setattr("app.services.pipeline_flags.is_dgcl_pipeline_enabled", lambda: True)
     mock_delay = MagicMock()
     mock_delay.return_value.id = "test-task-uuid-1234"
     monkeypatch.setattr("pipeline.celery_app.run_pipeline_task.delay", mock_delay)
@@ -93,7 +96,7 @@ def test_api_run_case_async_mode_enqueues_celery(monkeypatch):
     data = response.json()
     assert data["status"] == "queued"
     assert data["task_id"] == "test-task-uuid-1234"
-    mock_delay.assert_called_once_with("LOAN_001")
+    mock_delay.assert_called_once_with("LOAN_001", "t_test")
 
 
 def test_docling_multi_key_cache():

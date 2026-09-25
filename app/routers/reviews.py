@@ -40,7 +40,17 @@ class AdjudicationRequest(BaseModel):
 
 
 def _generate_review_items() -> list[dict]:
-    """Extracts review items across all cases from INDETERMINATE or DISCREPANCY checkpoints."""
+    """Extracts review items across all cases from INDETERMINATE or DISCREPANCY checkpoints.
+
+    Checkpoints are DGCL verification results, so a review item ("No loan documents available
+    for amount verification", etc.) asserts DGCL checked something and flagged it. While the
+    DGCL pipeline is disabled that check never ran, so there is nothing to send to human review.
+    """
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+
+    if not is_dgcl_pipeline_enabled():
+        return []
+
     all_cases = serialize_all_cases()
     reviews = []
 

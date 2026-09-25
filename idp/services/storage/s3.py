@@ -1,13 +1,28 @@
 import os
 import asyncio
 from typing import Optional, Union
+from config.tenant import current_tenant_id, is_within_tenant, safe_id
 from idp.core.config import settings
 from idp.core.exceptions import S3Error
 from idp.core.logging import logger, format_doc_log
 
 
+def _require_tenant_key(key: str) -> None:
+    """Object keys are tenant-namespaced: <tenant_id>/<prefix>/<name>, with no path traversal."""
+    if not key.startswith(f"{current_tenant_id()}/") or ".." in key.split("/"):
+        raise S3Error("Object key is outside the current tenant's namespace", details=key)
+
+
 class S3Storage:
     """Provider-agnostic S3 Storage service wrapper with boto3 / local fallback."""
+
+    def _resolve_bucket(self, bucket: Optional[str]) -> str:
+        """Tenants may not redirect I/O to other buckets; only the configured bucket is allowed."""
+        target = bucket if (isinstance(bucket, str) and bucket.strip()) else self.default_bucket
+        safe_id(target, "bucket")
+        if target != self.default_bucket:
+            raise S3Error("Bucket override is not permitted", details=target)
+        return target
 
     def __init__(self, region: str = settings.AWS_REGION, bucket: str = settings.S3_BUCKET):
         self.region = region
@@ -38,7 +53,13 @@ class S3Storage:
         doc_id: str = "DOC"
     ) -> str:
         """Download object from S3 to local filesystem dest_path."""
-        target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else self.default_bucket
+        target_bucket = self._resolve_bucket(bucket)
+        if os.path.exists(key):
+            # A local path staged by the API/worker is only readable if it is inside this tenant's storage.
+            if not is_within_tenant(key):
+                raise S3Error("Local source path is outside the current tenant's storage", details=key)
+        else:
+            _require_tenant_key(key)
         logger.info(format_doc_log(doc_id, f"Downloading s3://{target_bucket}/{key} -> {dest_path}"))
 
         client = self._get_client()
@@ -85,7 +106,8 @@ class S3Storage:
         doc_id: str = "DOC"
     ) -> str:
         """Upload content string or bytes to S3 key location."""
-        target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else self.default_bucket
+        target_bucket = self._resolve_bucket(bucket)
+        _require_tenant_key(key)
         logger.info(format_doc_log(doc_id, f"Uploading to s3://{target_bucket}/{key}"))
 
         if isinstance(content, str):

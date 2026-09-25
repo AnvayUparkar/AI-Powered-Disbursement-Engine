@@ -353,6 +353,14 @@ class DocumentSerializer:
                                 text=final_text,
                                 bbox=norm_box,
                                 confidence=round(conf, 4),
+                                # Carry the real per-model scores through the rebuild; without
+                                # these every consumer downstream of this rebuild loses them.
+                                # getattr, not elem.ocr_confidence: `elem` here is sometimes a
+                                # SimpleNamespace synthesized from a reclassified comb-box table
+                                # cell (see _synthesize_comb_box_elements_from_table), which has
+                                # no per-cluster OCR/layout score of its own to carry.
+                                ocr_confidence=getattr(elem, "ocr_confidence", None),
+                                layout_confidence=getattr(elem, "layout_confidence", None),
                                 page_number=pno,
                                 reading_order=elem.reading_order,
                                 level=elem.level,
@@ -604,6 +612,13 @@ class DocumentSerializer:
                 tables=all_tables,
                 elements=all_elements,
                 text=full_text,
+                # Carry Docling's per-stage scores through untouched for the UI.
+                layout_score=getattr(docling_result, "layout_score", None),
+                ocr_score=getattr(docling_result, "ocr_score", None),
+                table_score=getattr(docling_result, "table_score", None),
+                parse_score=getattr(docling_result, "parse_score", None),
+                quality_grade=getattr(docling_result, "quality_grade", None),
+                document_markdown=getattr(docling_result, "document_markdown", None),
                 processing=proc_meta
             )
 
@@ -747,9 +762,14 @@ class DocumentSerializer:
             iou = DocumentSerializer._compute_iou(ocr_bbox, elem.bbox)
             overlap = DocumentSerializer._compute_overlap_score(ocr_bbox, elem.bbox)
 
-            # Exact or highly similar text match with spatial overlap >= 0.20
+            # Exact or highly similar text match with spatial overlap >= 0.60 (was 0.20).
+            # 0.20 was aggressive enough to merge two DISTINCT boxes that merely share
+            # short repeated text (a comb-box grid's repeated digits, repeated checkbox
+            # marks, repeated words like "Date"/"Yes") whenever they sat even loosely
+            # near each other, silently dropping the second box's bbox as a false
+            # "duplicate" of the first. RCA: 2026-09-23, see conversation history.
             if norm_txt and elem_txt and norm_txt == elem_txt:
-                if iou >= 0.20 or overlap >= 0.20:
+                if iou >= 0.60 or overlap >= 0.60:
                     return True
 
             # Pure spatial overlap: require very high IoU (>= 0.85) if text is different,

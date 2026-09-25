@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     VLM_PROVIDER: str = "mock"  # 'openai', 'gemini', 'mock'
     VLM_MODEL: str = "gpt-4o-mini"
     VLM_API_KEY: Optional[str] = None
+    VLM_BASE_URL: Optional[str] = None  # OpenAI-compatible gateway (e.g. LiteLLM); overrides provider endpoint
 
     # Redis Distributed Lock Configuration
     REDIS_URL: str = "redis://127.0.0.1:6379/0"

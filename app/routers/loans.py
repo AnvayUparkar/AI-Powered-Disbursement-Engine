@@ -21,6 +21,12 @@ def get_loans():
 @router.post("/{loan_id}/run", summary="Trigger full pipeline run for loan")
 def run_loan_pipeline(loan_id: str):
     """Synchronously triggers the full LangGraph verification pipeline and returns the scorecard."""
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+    if not is_dgcl_pipeline_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="The DGCL verification pipeline is currently disabled. Enable it from Settings to run.",
+        )
     try:
         final_state = run_pipeline(loan_id)
         return {

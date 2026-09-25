@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.serializers.case_serializer import serialize_all_cases, serialize_case
 from config import LOS_LOANS_DIR, S3_RAW_DIR, S3_RESULT_DIR
 from pipeline.graph import run_pipeline, stream_pipeline
+from config.tenant import current_tenant_id, iter_in_current_context, safe_id
 from pipeline.storage import list_loan_ids, read_json, write_json
 
 logger = logging.getLogger("disbursement_pipeline.api.cases")
@@ -44,7 +45,7 @@ def get_next_case_id():
 
 @router.post("/create", summary="Create a new loan case")
 def create_case(payload: CreateCaseRequest):
-    case_id = payload.case_id or _get_next_loan_id()
+    case_id = safe_id(payload.case_id or _get_next_loan_id(), "case_id")
     LOS_LOANS_DIR.mkdir(parents=True, exist_ok=True)
     raw_dir = S3_RAW_DIR / case_id
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -171,10 +172,16 @@ def delete_case(case_id: str):
 
 @router.post("/{case_id}/run", summary="Trigger verification engine pipeline")
 def run_case_verification(case_id: str, async_mode: bool = Query(False, alias="async", description="Dispatch to Celery worker if True")):
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+    if not is_dgcl_pipeline_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="The DGCL verification pipeline is currently disabled. Enable it from Settings to run.",
+        )
     if async_mode:
         try:
             from pipeline.celery_app import run_pipeline_task
-            task = run_pipeline_task.delay(case_id)
+            task = run_pipeline_task.delay(case_id, current_tenant_id())
             return {
                 "status": "queued",
                 "task_id": task.id,
@@ -217,7 +224,7 @@ def run_case_ocr(case_id: str):
 def stream_case_verification(case_id: str):
     def event_generator():
         try:
-            for event in stream_pipeline(case_id):
+            for event in iter_in_current_context(stream_pipeline(case_id)):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logger.exception("Error in pipeline stream for %s", case_id)

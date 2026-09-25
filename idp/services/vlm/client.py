@@ -27,11 +27,20 @@ class VLMClient:
         self,
         provider: str = settings.VLM_PROVIDER,
         model: str = settings.VLM_MODEL,
-        api_key: Optional[str] = settings.VLM_API_KEY
+        api_key: Optional[str] = settings.VLM_API_KEY,
+        base_url: Optional[str] = settings.VLM_BASE_URL
     ):
         self.provider = provider.lower()
         self.model = model
         self.api_key = api_key
+        self.base_url = (base_url or "").strip() or None
+
+    def _openai_endpoint_url(self) -> str:
+        """Resolves the /chat/completions URL, honouring VLM_BASE_URL when set."""
+        if not self.base_url:
+            return "https://api.openai.com/v1/chat/completions"
+        url = self.base_url.rstrip("/")
+        return url if url.endswith("/chat/completions") else f"{url}/chat/completions"
 
     async def analyze_region(
         self,
@@ -48,6 +57,9 @@ class VLMClient:
         if not image_bytes or self.provider == "mock" or not self.api_key:
             return self._mock_vlm_response(ocr_element)
 
+        # A configured gateway (e.g. LiteLLM) is OpenAI-compatible regardless of model alias.
+        if self.base_url and self.provider != "mock":
+            return await self._call_openai(image_bytes, ocr_element, context_hint, doc_id)
         if self.provider in ["openai", "azure"]:
             return await self._call_openai(image_bytes, ocr_element, context_hint, doc_id)
         elif self.provider in ["gemini", "google"]:
@@ -91,7 +103,7 @@ class VLMClient:
             }
 
             async with httpx.AsyncClient(timeout=30.0) as client:
-                res = await client.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers)
+                res = await client.post(self._openai_endpoint_url(), json=payload, headers=headers)
                 if res.status_code != 200:
                     raise VLMError(f"OpenAI API error status {res.status_code}", details=res.text)
 

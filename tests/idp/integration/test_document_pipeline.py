@@ -8,7 +8,7 @@ async def test_end_to_end_document_pipeline():
     # Test document pipeline with mock key
     res = await processor.process_document(
         document_id="TEST-E2E-101",
-        s3_key="raw-documents/test_app.pdf"
+        s3_key="t_test/raw-documents/test_app.pdf"
     )
 
     assert res["status"] == "completed"

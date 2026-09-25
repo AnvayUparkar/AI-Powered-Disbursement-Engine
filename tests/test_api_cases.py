@@ -39,7 +39,10 @@ def test_api_case_detail_loan_002_discrepancy():
     assert case["discrepancyCount"] > 0
 
 
-def test_api_case_run_and_status():
+def test_api_case_run_and_status(monkeypatch):
+    # DGCL verification pipeline is disabled by default (app/services/pipeline_flags.py);
+    # this test exercises the run/status flow itself, not the flag, so enable it explicitly.
+    monkeypatch.setattr("app.services.pipeline_flags.is_dgcl_pipeline_enabled", lambda: True)
     run_res = client.post("/api/cases/LOAN_001/run")
     assert run_res.status_code == 200
     run_data = run_res.json()
