@@ -1,0 +1,150 @@
+{
+  "loan_id": "LOAN_001",
+  "overall_score": 0.0,
+  "preliminary_decision": "REJECT_OR_FLAG",
+  "risk_tier": "HIGH_RISK",
+  "scoring_status": "COMPLETED",
+  "subnode_rollups": {
+    "loan_kyc": "Indeterminate",
+    "kfs_sanction": "Indeterminate",
+    "topup_bt": "Indeterminate",
+    "check_kyc": "Indeterminate",
+    "check_financial": "Indeterminate",
+    "check_loan_application": "Indeterminate"
+  },
+  "checkpoints": [
+    {
+      "id": 1,
+      "name": "Applicant Identity Verification",
+      "category": "KYC",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 10.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Applicant Name, DOB, and PAN must match LOS records across Aadhaar and PAN Card."
+    },
+    {
+      "id": 2,
+      "name": "Address & Demographics Verification",
+      "category": "KYC",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 8.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Current address text similarity >= 0.92 and Aadhaar number match."
+    },
+    {
+      "id": 3,
+      "name": "PAN & Father's Name Match",
+      "category": "KYC",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 7.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Father's name fuzzy similarity >= 0.92 and PAN format compliance."
+    },
+    {
+      "id": 4,
+      "name": "Bank Account & Disbursal Ownership",
+      "category": "Financial",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 10.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Bank account number and applicant name match LOS disbursement bank details."
+    },
+    {
+      "id": 5,
+      "name": "Loan Amount & Funding Consistency",
+      "category": "Financial",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 10.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Disbursal memo loan amount must match LOS requested amount within 90% threshold."
+    },
+    {
+      "id": 6,
+      "name": "Broken Period Interest (BPI) Consistency",
+      "category": "Financial",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 5.0,
+      "reason": "No documents provided for required fields: bpi_charge",
+      "rule": "BPI amount in KFS must align with Disbursal Memo within 10% tolerance."
+    },
+    {
+      "id": 7,
+      "name": "Application Form Integrity",
+      "category": "Loan Application",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 10.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Loan application form must contain matching applicant name, amount, and PAN."
+    },
+    {
+      "id": 8,
+      "name": "Application Terms & Validity",
+      "category": "Loan Application",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 7.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Loan tenure and loan scheme must match approved terms in LOS."
+    },
+    {
+      "id": 9,
+      "name": "KFS Financial Terms Match",
+      "category": "Loan Application",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 10.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Key Fact Statement terms (amount, tenure) must match LOS."
+    },
+    {
+      "id": 10,
+      "name": "KFS Borrower Consent Verification",
+      "category": "Loan Application",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 8.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Explicit customer acceptance/consent must be recorded on KFS."
+    },
+    {
+      "id": 11,
+      "name": "Sanction Letter Terms Consistency",
+      "category": "Loan Application",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 8.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Sanction letter approved amount and name must match LOS approval."
+    },
+    {
+      "id": 12,
+      "name": "Disbursement Authorization & Audit",
+      "category": "Loan Application",
+      "status": "INDETERMINATE",
+      "confidence": 0.0,
+      "match_score": 0.0,
+      "weight": 7.0,
+      "reason": "Borderline or missing fields require manual check.",
+      "rule": "Application ID, loan ID, and disbursement lifecycle identifiers must align."
+    }
+  ],
+  "notes": "Automated 12-checkpoint DGSC scoring completed with overall score 0.0% (HIGH_RISK)."
+}

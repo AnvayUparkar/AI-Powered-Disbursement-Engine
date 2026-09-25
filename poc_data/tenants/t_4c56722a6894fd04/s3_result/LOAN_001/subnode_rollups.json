@@ -1,0 +1,8 @@
+{
+  "loan_kyc": "Indeterminate",
+  "kfs_sanction": "Indeterminate",
+  "topup_bt": "Indeterminate",
+  "check_kyc": "Indeterminate",
+  "check_financial": "Indeterminate",
+  "check_loan_application": "Indeterminate"
+}

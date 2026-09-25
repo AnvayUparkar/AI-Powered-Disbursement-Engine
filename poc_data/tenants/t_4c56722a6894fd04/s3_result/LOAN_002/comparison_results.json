@@ -1,0 +1,741 @@
+[
+  {
+    "check_id": "chk_check_kyc_aadhaar_applicant_name_vs_los",
+    "subnode": "check_kyc",
+    "field": "applicant_name",
+    "sources": [
+      "aadhaar",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unknown Applicant"
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'aadhaar' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_aadhaar_address_vs_los",
+    "subnode": "check_kyc",
+    "field": "address",
+    "sources": [
+      "aadhaar",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "tfidf_cosine",
+    "llm_used": false,
+    "notes": "Document 'aadhaar' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_aadhaar_aadhaar_number_vs_los",
+    "subnode": "check_kyc",
+    "field": "aadhaar_number",
+    "sources": [
+      "aadhaar",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "masked_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "masked_aadhaar",
+    "llm_used": false,
+    "notes": "Document 'aadhaar' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_aadhaar_mobile_no_vs_los",
+    "subnode": "check_kyc",
+    "field": "mobile_no",
+    "sources": [
+      "aadhaar",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_string",
+    "llm_used": false,
+    "notes": "Document 'aadhaar' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_aadhaar_dob_vs_los",
+    "subnode": "check_kyc",
+    "field": "dob",
+    "sources": [
+      "aadhaar",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_date",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_date",
+    "llm_used": false,
+    "notes": "Document 'aadhaar' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_pan_applicant_name_vs_los",
+    "subnode": "check_kyc",
+    "field": "applicant_name",
+    "sources": [
+      "pan",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unknown Applicant"
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'pan' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_pan_fathers_name_vs_los",
+    "subnode": "check_kyc",
+    "field": "fathers_name",
+    "sources": [
+      "pan",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'pan' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_pan_pan_number_vs_los",
+    "subnode": "check_kyc",
+    "field": "pan_number",
+    "sources": [
+      "pan",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'pan' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_pan_dob_vs_los",
+    "subnode": "check_kyc",
+    "field": "dob",
+    "sources": [
+      "pan",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_date",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_date",
+    "llm_used": false,
+    "notes": "Document 'pan' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_application_form_applicant_name_vs_los",
+    "subnode": "check_kyc",
+    "field": "applicant_name",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unknown Applicant"
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_application_form_fathers_name_vs_los",
+    "subnode": "check_kyc",
+    "field": "fathers_name",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_application_form_dob_vs_los",
+    "subnode": "check_kyc",
+    "field": "dob",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_date",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_date",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_application_form_mobile_no_vs_los",
+    "subnode": "check_kyc",
+    "field": "mobile_no",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_string",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_application_form_gender_vs_los",
+    "subnode": "check_kyc",
+    "field": "gender",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_string_ci",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_kyc_application_form_pan_number_vs_los",
+    "subnode": "check_kyc",
+    "field": "pan_number",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_application_form_loan_amount_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_amount",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "[exact_numeric]",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_application_form_loan_validity_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_validity",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "tenure",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "tenure_months",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_application_form_account_no_vs_los",
+    "subnode": "check_financial",
+    "field": "account_no",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_application_form_type_of_account_vs_los",
+    "subnode": "check_financial",
+    "field": "type_of_account",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_string_ci",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_application_form_loan_type_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_type",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unspecified"
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_string_ci",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_kfs_loan_amount_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_amount",
+    "sources": [
+      "kfs",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Missing value in kfs"
+  },
+  {
+    "check_id": "chk_check_financial_kfs_loan_validity_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_validity",
+    "sources": [
+      "kfs",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "tenure",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "tenure_months",
+    "llm_used": false,
+    "notes": "Missing value in kfs"
+  },
+  {
+    "check_id": "chk_check_financial_kfs_loan_type_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_type",
+    "sources": [
+      "kfs",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unspecified"
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_string_ci",
+    "llm_used": false,
+    "notes": "Missing value in kfs"
+  },
+  {
+    "check_id": "chk_check_financial_kfs_irr_percent_vs_los",
+    "subnode": "check_financial",
+    "field": "irr_percent",
+    "sources": [
+      "kfs",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Missing value in kfs"
+  },
+  {
+    "check_id": "chk_check_financial_kfs_emi_vs_los",
+    "subnode": "check_financial",
+    "field": "emi",
+    "sources": [
+      "kfs",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Missing value in kfs"
+  },
+  {
+    "check_id": "chk_check_financial_kfs_customer_consent_vs_los",
+    "subnode": "check_financial",
+    "field": "customer_consent",
+    "sources": [
+      "kfs"
+    ],
+    "values": [
+      false
+    ],
+    "match_type": "presence",
+    "match_status": "MISMATCH",
+    "confidence": 0.0,
+    "method": "presence_only",
+    "llm_used": false,
+    "notes": "Field 'customer_consent' missing or not accepted in kfs"
+  },
+  {
+    "check_id": "chk_check_financial_disbursal_memo_loan_no_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_no",
+    "sources": [
+      "disbursal_memo",
+      "los"
+    ],
+    "values": [
+      null,
+      "LOAN_002"
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'disbursal_memo' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_disbursal_memo_loan_amount_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_amount",
+    "sources": [
+      "disbursal_memo",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Document 'disbursal_memo' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_sanction_letter_applicant_name_vs_los",
+    "subnode": "check_financial",
+    "field": "applicant_name",
+    "sources": [
+      "sanction_letter",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unknown Applicant"
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'sanction_letter' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_sanction_letter_loan_amount_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_amount",
+    "sources": [
+      "sanction_letter",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Document 'sanction_letter' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_sanction_letter_loan_validity_vs_los",
+    "subnode": "check_financial",
+    "field": "loan_validity",
+    "sources": [
+      "sanction_letter",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "tenure",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "tenure_months",
+    "llm_used": false,
+    "notes": "Document 'sanction_letter' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_sanction_letter_irr_percent_vs_los",
+    "subnode": "check_financial",
+    "field": "irr_percent",
+    "sources": [
+      "sanction_letter",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Document 'sanction_letter' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_sanction_letter_emi_vs_los",
+    "subnode": "check_financial",
+    "field": "emi",
+    "sources": [
+      "sanction_letter",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_string",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_numeric",
+    "llm_used": false,
+    "notes": "Document 'sanction_letter' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_account_statement_account_no_vs_los",
+    "subnode": "check_financial",
+    "field": "account_no",
+    "sources": [
+      "account_statement",
+      "los"
+    ],
+    "values": [
+      null,
+      null
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'account_statement' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_financial_account_statement_applicant_name_vs_los",
+    "subnode": "check_financial",
+    "field": "applicant_name",
+    "sources": [
+      "account_statement",
+      "los"
+    ],
+    "values": [
+      null,
+      "Unknown Applicant"
+    ],
+    "match_type": "fuzzy",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "jaro_winkler",
+    "llm_used": false,
+    "notes": "Document 'account_statement' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_loan_application_application_form_application_no_vs_los",
+    "subnode": "check_loan_application",
+    "field": "application_no",
+    "sources": [
+      "application_form",
+      "los"
+    ],
+    "values": [
+      null,
+      "LOAN_002"
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'application_form' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_loan_application_kfs_application_no_vs_los",
+    "subnode": "check_loan_application",
+    "field": "application_no",
+    "sources": [
+      "kfs",
+      "los"
+    ],
+    "values": [
+      null,
+      "LOAN_002"
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Missing value in kfs"
+  },
+  {
+    "check_id": "chk_check_loan_application_sanction_letter_application_no_vs_los",
+    "subnode": "check_loan_application",
+    "field": "application_no",
+    "sources": [
+      "sanction_letter",
+      "los"
+    ],
+    "values": [
+      null,
+      "LOAN_002"
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'sanction_letter' not found in extracted data"
+  },
+  {
+    "check_id": "chk_check_loan_application_disbursal_memo_loan_no_vs_los",
+    "subnode": "check_loan_application",
+    "field": "loan_no",
+    "sources": [
+      "disbursal_memo",
+      "los"
+    ],
+    "values": [
+      null,
+      "LOAN_002"
+    ],
+    "match_type": "exact_id",
+    "match_status": "NOT_FOUND",
+    "confidence": 0.0,
+    "method": "exact_id",
+    "llm_used": false,
+    "notes": "Document 'disbursal_memo' not found in extracted data"
+  }
+]
