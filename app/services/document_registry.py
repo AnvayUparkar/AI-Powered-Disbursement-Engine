@@ -55,6 +55,8 @@ class DocumentRegistry:
         parsed_result: Optional[Dict[str, Any]] = None,
         uploaded_at: Optional[str] = None,
         uploaded_timestamp: Optional[float] = None,
+        status: Optional[str] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         """Register a newly uploaded and processed document in the registry."""
         with self._lock:
@@ -71,6 +73,8 @@ class DocumentRegistry:
                 uploaded_at=uploaded_at,
                 uploaded_timestamp=uploaded_timestamp,
             )
+            if status:
+                record["status"] = status
 
             # If a dynamic record already exists for this case and filename, supersede only if newer or equal
             if assoc_case and assoc_case != "GENERAL":

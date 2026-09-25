@@ -94,7 +94,8 @@ export const node2Api = {
     documentId?: string,
     s3Bucket?: string,
     caseId?: string,
-    docType?: string
+    docType?: string,
+    runIdp?: boolean
   ): Promise<Node2ProcessResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -102,6 +103,7 @@ export const node2Api = {
     if (s3Bucket) formData.append('s3_bucket', s3Bucket);
     if (caseId) formData.append('case_id', caseId);
     if (docType) formData.append('doc_type', docType);
+    if (runIdp !== undefined) formData.append('run_idp', String(runIdp));
 
     const res = await fetch(`${API_BASE_URL}/v1/documents/upload`, {
       method: 'POST',

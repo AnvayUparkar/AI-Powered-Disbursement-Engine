@@ -275,23 +275,31 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
 
 
 def prewarm_docling_converters() -> None:
-    """Pre-initialize both Docling converter variants into memory.
+    """Pre-initialize a Docling DocumentConverter for every active document profile.
 
-    1. Table-disabled converter (for identity documents: Aadhaar, PAN, DL, Voter ID).
-    2. Table-enabled ACCURATE converter (for tabular docs: Sanction Letter, KFS, App Form).
+    Iterates DOCLING_PROFILES and calls get_cached_converter() for each one so that
+    the heavyweight ONNX model load happens at pod startup — not on the first real
+    document request.  Each profile produces a distinct options_key (num_threads,
+    ocr_lang, force_full_page_ocr, etc. all vary), so every profile that will be
+    used at runtime must be explicitly warmed here.
 
-    Eliminates cold-start and re-initialization latency during API pipeline runs.
+    The previous implementation warmed two bare DoclingOptions() instances with
+    default num_threads=6, but all profiles use num_threads=2 (or 8 for
+    HIGH_PERFORMANCE).  The key mismatch caused a cold-build cache miss on every
+    real request, defeating the purpose of the cache entirely.
     """
+    from config.docling_profiles import DOCLING_PROFILES
+
     logger.info("[DoclingPrewarm] Pre-warming Docling converters...")
     try:
-        # 1. Prewarm identity configuration (no tables)
-        id_opts = DoclingOptions(do_table_structure=False, table_mode="ACCURATE")
-        get_cached_converter(id_opts)
-
-        # 2. Prewarm tabular configuration (TableFormer ACCURATE)
-        table_opts = DoclingOptions(do_table_structure=True, table_mode="ACCURATE")
-        get_cached_converter(table_opts)
-        logger.info("[DoclingPrewarm] Both Docling converters successfully pre-warmed.")
+        warmed = []
+        for profile_name, opts in DOCLING_PROFILES.items():
+            get_cached_converter(opts)
+            warmed.append(profile_name)
+        logger.info(
+            f"[DoclingPrewarm] All {len(warmed)} Docling converters successfully "
+            f"pre-warmed: {', '.join(warmed)}"
+        )
     except Exception as exc:
         logger.warning(f"[DoclingPrewarm] Error pre-warming Docling converters: {exc}")
 
