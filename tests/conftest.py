@@ -23,8 +23,18 @@ def _shared_tenants_root(tmp_path_factory):
     tenant_dir = root / DEFAULT_TEST_TENANT
     tenant_dir.mkdir()
     for tier in _TENANT_TIERS:
-        POC_DATA_DIR.joinpath(tier).mkdir(parents=True, exist_ok=True)
-        os.symlink(POC_DATA_DIR / tier, tenant_dir / tier)
+        src = POC_DATA_DIR / tier
+        dst = tenant_dir / tier
+        src.mkdir(parents=True, exist_ok=True)
+        try:
+            os.symlink(src, dst)
+        except OSError:
+            try:
+                import _winapi
+                _winapi.CreateJunction(str(src), str(dst))
+            except Exception:
+                import shutil
+                shutil.copytree(src, dst, dirs_exist_ok=True)
     return root
 
 

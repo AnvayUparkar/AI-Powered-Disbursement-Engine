@@ -11,6 +11,12 @@ class ProcessingMetrics(BaseModel):
     vlm_fallback_count: int = 0
     ocr_low_confidence_count: int = 0
     total_elements_extracted: int = 0
+    kv_needs_review_count: int = 0
+    kv_unmatched_label_count: int = 0
+    lightonocr_processing_time: float = 0.0
+    lightonocr_pages_processed: int = 0
+    lightonocr_pages_failed: int = 0
+    average_confidence: float = 0.0
 
 
 class ProcessingMetadata(BaseModel):

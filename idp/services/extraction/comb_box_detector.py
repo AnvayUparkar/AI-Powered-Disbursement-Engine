@@ -13,11 +13,12 @@ Architecture:
 
 import uuid
 import statistics
-from typing import List, Dict, Tuple, Optional,Any
+from typing import List, Dict, Tuple, Optional, Any, Literal
 from idp.models.layout import LayoutElement
 from idp.models.merged_token import MergedToken
 from idp.core.logging import logger
 from idp.services.diagnostics.comb_box_audit import get_global_auditor
+from idp.services.extraction.confusable_chars import suggest_confusable_corrections
 
 
 class CombBoxDetector:
@@ -52,12 +53,15 @@ class CombBoxDetector:
             return False
         return all(c.isalnum() or c in cls._ALLOWED_SYMBOLS for c in stripped)
 
+    OUTLIER_GAP_THRESHOLD: float = 0.20
+
     def __init__(self,
                  y_tolerance: float = 0.065,
                  spacing_uniformity_threshold: float = 0.45,
                  size_uniformity_threshold: float = 0.50,
                  min_sequence_length: int = 2,
-                 max_char_length: int = DEFAULT_MAX_CHAR_LENGTH):
+                 max_char_length: int = DEFAULT_MAX_CHAR_LENGTH,
+                 coordinate_space: Literal["pdf_points", "normalized"] = "pdf_points"):
         """
         Initialize comb-box detector with configuration.
 
@@ -79,6 +83,14 @@ class CombBoxDetector:
         self.size_uniformity_threshold = size_uniformity_threshold
         self.min_sequence_length = min_sequence_length
         self.max_char_length = max_char_length
+        self.coordinate_space = coordinate_space
+
+        logger.debug(
+            f"CombBoxDetector initialized: y_tolerance={self.y_tolerance}, "
+            f"spacing_uniformity={self.spacing_uniformity_threshold} (docstring notes 0.35-0.45), "
+            f"size_uniformity={self.size_uniformity_threshold} (docstring notes 0.40-0.50), "
+            f"coordinate_space={self.coordinate_space}"
+        )
     
     def detect_and_merge_comb_boxes(
         self,
@@ -203,9 +215,12 @@ class CombBoxDetector:
                 overlap_ratio = inter_h / eh
 
                 cy_dist = abs(ecy - r["cy"])
-                max_allowed_dist = max(eh, r["h"]) * 0.65
+                # Wire y_tolerance: scale vertical clustering tolerance window
+                overlap_gate = max(0.20, min(0.60, 0.35 * (0.065 / max(0.001, self.y_tolerance))))
+                dist_factor = max(0.40, min(1.20, 0.65 * (max(0.001, self.y_tolerance) / 0.065)))
+                max_allowed_dist = max(eh, r["h"]) * dist_factor
 
-                if overlap_ratio >= 0.35 or cy_dist <= max_allowed_dist:
+                if overlap_ratio >= overlap_gate or cy_dist <= max_allowed_dist:
                     if overlap_ratio > best_overlap or (best_row is None and cy_dist <= max_allowed_dist):
                         best_row = r
                         best_overlap = overlap_ratio
@@ -264,13 +279,12 @@ class CombBoxDetector:
             curr_e = row_elements[i]
             gap = curr_e.bbox[0] - prev_e.bbox[2]
 
-            # In normalized coordinates (<= 1.5) vs pixel coordinates (> 1.5)
-            # Scaled by median character width and height across the row.
-            # Allow empty comb-box spacer cells (up to ~2.5x pitch) within a multi-word field,
-            # while cleanly separating true whole-field/multi-column jumps (>= 3.5x width/height)
+            # In normalized coordinates vs pixel/point coordinates
+            # Uses explicit coordinate_space parameter with fallback guard
+            is_normalized = (self.coordinate_space == "normalized") or (prev_e.bbox[0] <= 1.5 and prev_e.bbox[2] <= 1.5)
             gap_threshold = (
                 max(row_med_w * 4.0, row_med_h * 2.0, 0.065)
-                if prev_e.bbox[0] <= 1.5
+                if is_normalized
                 else max(row_med_w * 4.0, row_med_h * 2.0, 42.0)
             )
 
@@ -434,7 +448,15 @@ class CombBoxDetector:
         )
         
         return is_uniform, uniformity_score
-    
+
+    def _detect_confidence_outliers(self, elements: List[LayoutElement]) -> List[int]:
+        """Detect indices of constituent elements whose confidence is significantly below the sequence median."""
+        if len(elements) < 3:
+            return []
+        confs = [e.confidence for e in elements]
+        med = statistics.median(confs)
+        return [i for i, c in enumerate(confs) if (med - c) > self.OUTLIER_GAP_THRESHOLD]
+
     def _merge_sequence(
         self,
         elements: List[LayoutElement],
@@ -468,13 +490,28 @@ class CombBoxDetector:
             ]
             med_pitch = statistics.median(raw_pitches) if raw_pitches else 0.0
 
+            # Determine whether all elements in this sequence are purely numeric.
+            # Numeric comb-box fields (e.g. salary amounts, loan amounts, Aadhaar last-4)
+            # never have intentional word breaks; a wider-than-normal gap is simply OCR
+            # geometry variance on the printed cell, NOT a blank spacer cell. Using the
+            # same thresholds as alpha names (1.55× pitch / 0.85× gap) turns a slightly
+            # wider '0' glyph into a space, producing "150000 0" instead of "1500000".
+            all_numeric = all(
+                (e.text.strip().isdigit() if e.text else False) for e in elements
+            )
+            # For numeric runs: only insert a space when pitch >= 2.0× median
+            # (a genuine multi-cell jump, not just glyph-width variance).
+            # For alpha/mixed: keep the existing thresholds.
+            pitch_space_threshold = 2.0 if all_numeric else 1.55
+            gap_space_threshold = 1.8 if all_numeric else 0.85
+
             parts = []
             for i, elem in enumerate(elements):
                 if i > 0 and med_pitch > 0:
                     gap = elements[i].bbox[0] - elements[i - 1].bbox[2]
                     pitch = x_centers[i] - x_centers[i - 1]
                     # If step represents 1 or more empty comb boxes between words
-                    if pitch >= 1.55 * med_pitch or gap >= 0.85 * med_pitch:
+                    if pitch >= pitch_space_threshold * med_pitch or gap >= gap_space_threshold * med_pitch:
                         parts.append(" ")
                 parts.append(elem.text.strip())
             merged_text = "".join(parts)
@@ -503,6 +540,33 @@ class CombBoxDetector:
             spacing_std = statistics.stdev(gaps) if len(gaps) > 1 else 0.0
             size_std = statistics.stdev(widths) if len(widths) > 1 else 0.0
             
+            # Phase 1 & Phase 3: Per-character confidence and outlier detection
+            confidences = [elem.confidence for elem in elements]
+            outlier_positions = self._detect_confidence_outliers(elements)
+            if confidences:
+                med_conf = statistics.median(confidences)
+                min_conf = min(confidences)
+                conf_gap = round(med_conf - min_conf, 4)
+                logger.info(
+                    f"[{doc_id}] Merged token '{merged_text}' (len={len(elements)}) "
+                    f"confidence: min={min_conf:.3f}, med={med_conf:.3f}, gap={conf_gap}"
+                )
+
+            token_metadata = {
+                "num_constituents": len(elements),
+                "constituent_texts": [elem.text for elem in elements],
+                "constituent_confidences": confidences,
+                "outlier_positions": outlier_positions,
+            }
+
+            if outlier_positions:
+                token_metadata["needs_review"] = True
+                token_metadata["outlier_chars"] = [elements[pos].text for pos in outlier_positions if pos < len(elements)]
+                # Phase 4: Suggest confusable-character lexicon tie-break if available
+                suggestion = suggest_confusable_corrections(merged_text, outlier_positions)
+                if suggestion:
+                    token_metadata["suggested_correction"] = suggestion
+
             # Create merged token
             merged_token = MergedToken(
                 id=f"merged-{page_number}-{uuid.uuid4().hex[:8]}",
@@ -516,10 +580,7 @@ class CombBoxDetector:
                 uniformity_score=uniformity_score,
                 spacing_std_dev=spacing_std,
                 size_std_dev=size_std,
-                metadata={
-                    "num_constituents": len(elements),
-                    "constituent_texts": [elem.text for elem in elements]
-                }
+                metadata=token_metadata
             )
             
             return merged_token

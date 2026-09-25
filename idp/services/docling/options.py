@@ -75,6 +75,7 @@ class DoclingOptions(BaseModel):
     # IMAGE PREPROCESSING
     # ═══════════════════════════════════════════════════════════════════════
     images_scale: float = 2.0  # Image upscaling factor -> pipeline_options.images_scale (rasterization DPI for OCR/TableFormer input)
+    use_fast_image_processor: bool = True  # Use fast HuggingFace image processor (transformers v4.52+ default)
     # NOTE: enhance_contrast/denoise/deskew are not wired into the Docling path --
     # Docling rasterizes the PDF internally and has no such hooks. Equivalent logic
     # already exists in idp/services/ocr/preprocessing.py (OCRImagePreprocessor) but
@@ -119,3 +120,10 @@ class DoclingOptions(BaseModel):
     num_threads: int = 6  # CPU threads for processing
     debug_mode: bool = False  # Save debug visualizations
     log_level: str = "INFO"  # Logging verbosity
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # KEY-VALUE EXTRACTION CONFIDENCE THRESHOLDS
+    # ═══════════════════════════════════════════════════════════════════════
+    kv_hard_noise_floor: float = 0.20
+    kv_confident_value_floor: float = 0.50
+    kv_min_pair_confidence: float = 0.72

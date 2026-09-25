@@ -227,6 +227,11 @@ SCANNED_CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
     max_num_pages=100,
     use_gpu=True,
     num_threads=6,
+
+    # Key-Value Extraction Confidence Thresholds
+    kv_hard_noise_floor=0.15,
+    kv_confident_value_floor=0.45,
+    kv_min_pair_confidence=0.65,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -24,10 +24,20 @@ from app.services.document_registry import document_registry
 
 logger = logging.getLogger("disbursement_pipeline.celery")
 
+def _is_redis_available(redis_url: str) -> bool:
+    try:
+        import redis
+        client = redis.Redis.from_url(redis_url, socket_timeout=1.0)
+        return client.ping()
+    except Exception:
+        return False
+
+redis_online = _is_redis_available(REDIS_URL)
+
 app = Celery(
     "disbursement_scorecard",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=REDIS_URL if redis_online else "memory://",
+    backend=REDIS_URL if redis_online else "cache+memory://",
 )
 
 app.conf.update(
@@ -41,6 +51,13 @@ app.conf.update(
     task_track_started=True,
     broker_connection_retry_on_startup=True,
 )
+
+if not redis_online:
+    logger.warning("Redis server is offline at %s. Enabling Celery ALWAYS_EAGER in-memory execution mode.", REDIS_URL)
+    app.conf.update(
+        task_always_eager=True,
+        task_eager_propagates=True,
+    )
 
 
 @app.task(bind=True, name="pipeline.tasks.run_pipeline_task")
@@ -163,9 +180,12 @@ def _process_document_task(self, doc_id: str, file_path: str, tenant_id: str, ca
         logger.info("process_document_task %s completed for doc: %s", self.request.id, doc_id)
         return {"doc_id": doc_id, "status": "completed", "result": result}
 
-    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+    except httpx.ConnectError as exc:
         logger.error("process_document_task: 8001 unreachable for %s: %s", doc_id, exc)
         raise self.retry(exc=exc)
+    except httpx.TimeoutException as exc:
+        logger.error("process_document_task timed out waiting for 8001 for %s after %ss: %s. Not retrying to prevent duplicate OCR execution.", doc_id, IDP_REQUEST_TIMEOUT, exc)
+        return {"doc_id": doc_id, "status": "failed", "error": f"IDP processing timed out after {IDP_REQUEST_TIMEOUT}s"}
     except Exception as exc:
         logger.exception("process_document_task failed for %s: %s", doc_id, exc)
         return {"doc_id": doc_id, "status": "failed", "error": str(exc)}

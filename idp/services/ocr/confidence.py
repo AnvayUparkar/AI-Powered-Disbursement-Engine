@@ -237,8 +237,14 @@ class OCRConfidenceEvaluator:
             return False  # Preserve numbers
 
         # 8. Check for pure consonant clusters without vowels in Latin tokens (e.g. "HRTRR")
+        # EXEMPTION: repeated single-character masked sequences ("XXXX", "XXXXXXXX") are
+        # intentional Aadhaar/identity masking tokens (printed as X in every box), NOT
+        # OCR-generated consonant noise. A pure repeated-char run of length 2-4 passes.
         for match in self.PURE_CONSONANTS_PATTERN.finditer(cleaned):
             token = match.group(0).upper()
+            # Exempt: repeated single letter (e.g. XXXX, XXXX XXXX, XXXXXXXX)
+            if len(set(token)) == 1:
+                continue
             if token not in self.COMMON_ACRONYMS and not self.IDENTIFIER_PATTERNS.search(cleaned):
                 return True
 
@@ -251,6 +257,10 @@ class OCRConfidenceEvaluator:
             latin_letters = self.LATIN_LETTER_REGEX.findall(word)
             if len(latin_letters) >= 4:
                 clean_token = "".join(latin_letters).upper()
+                # Exempt masked identity tokens: repeated single letter (e.g. XXXX, XXXXXXXX)
+                # used for Aadhaar masking and KYC redaction — intentionally vowel-free.
+                if len(set(clean_token)) == 1:
+                    continue
                 if clean_token not in self.COMMON_ACRONYMS:
                     vowels = len(self.LATIN_VOWEL_REGEX.findall(clean_token))
                     vowel_ratio = vowels / len(clean_token)

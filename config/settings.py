@@ -10,6 +10,11 @@ from config.paths import BASE_DIR
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH, override=True)
 
+# Suppress HuggingFace transformers deprecation warning for image processors
+# (Docling uses transformers internally; this ensures use_fast=True)
+if "TRANSFORMERS_USE_FAST" not in os.environ:
+    os.environ["TRANSFORMERS_USE_FAST"] = "1"
+
 # Verification Algorithms & Fuzzy Match Thresholds
 NAME_MATCH_ALGO = "jaro_winkler"
 ADDRESS_MATCH_ALGO = "tfidf_cosine"
@@ -56,13 +61,18 @@ REQUIRE_TRUSTED_DIGITAL_SIGNATURE = os.getenv("REQUIRE_TRUSTED_DIGITAL_SIGNATURE
 
 # IDP Microservice (8001) connection
 IDP_SERVICE_URL = os.getenv("IDP_SERVICE_URL", "http://127.0.0.1:8001")
-IDP_REQUEST_TIMEOUT = float(os.getenv("IDP_REQUEST_TIMEOUT", "300"))  # seconds; Docling can be slow
+IDP_REQUEST_TIMEOUT = float(os.getenv("IDP_REQUEST_TIMEOUT", "900"))  # seconds; Docling / LightOnOCR can be slow
 USE_REMOTE_IDP = os.getenv("USE_REMOTE_IDP", "true").lower() in ("true", "1", "yes")
 
 # Pixel-level preprocessing for scanned documents (deskew, CLAHE, denoising, adaptive binarisation)
 # before Docling ingestion.  Set to "false" in .env to revert to the pre-fix behaviour without a
 # code revert (e.g. if binarisation is too aggressive for a specific document class in staging).
 ENABLE_SCAN_PREPROCESSING = os.getenv("ENABLE_SCAN_PREPROCESSING", "true").lower() in ("true", "1", "yes")
+
+# Tiered key-value extraction confidence: keeps low-confidence OCR values flagged with needs_review
+# and emits stubs for unmatched labels instead of silently dropping them.
+ENABLE_TIERED_KV_CONFIDENCE = os.getenv("ENABLE_TIERED_KV_CONFIDENCE", "true").lower() in ("true", "1", "yes")
+
 
 
 # Multi-tenant authentication (username/password signup, cookie sessions)

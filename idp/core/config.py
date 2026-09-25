@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     VLM_API_KEY: Optional[str] = None
     VLM_BASE_URL: Optional[str] = None  # OpenAI-compatible gateway (e.g. LiteLLM); overrides provider endpoint
 
+    # Redis Distributed Lock Configuration
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_LOCK_TIMEOUT_SECONDS: int = 900
+
     # Parallel Worker Concurrency
     MAX_PAGE_WORKERS: int = 2
     MAX_DOC_WORKERS: int = 2
@@ -93,6 +97,14 @@ class Settings(BaseSettings):
     # in .env to revert to pre-fix behaviour without a code revert (e.g. if binarisation
     # is too aggressive for a specific document class in staging).
     ENABLE_SCAN_PREPROCESSING: bool = True
+
+    # LightOnOCR Configuration (for scanned pages)
+    LIGHTONOCR_ENABLED: bool = False
+    LIGHTONOCR_MODEL: str = "lightonai/LightOnOCR-2-1B"
+    LIGHTONOCR_DEVICE: str = "auto"  # "auto", "cpu", "cuda"
+    LIGHTONOCR_LAZY_LOAD: bool = True
+    LIGHTONOCR_TIMEOUT_SECONDS: int = 60
+    LIGHTONOCR_QUALITY_THRESHOLD: float = 0.40  # Below this -> VLM fallback
 
 
 settings = Settings()

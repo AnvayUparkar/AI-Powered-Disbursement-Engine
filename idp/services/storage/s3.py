@@ -144,3 +144,22 @@ class S3Storage:
         except Exception as e:
             logger.error(format_doc_log(doc_id, f"S3 Upload Error for s3://{target_bucket}/{key}: {e}"))
             raise S3Error(f"Failed to upload to s3://{target_bucket}/{key}", details=str(e))
+
+    async def exists(self, key: str, bucket: Optional[str] = None) -> bool:
+        """Check if an object exists in S3 or local mock store."""
+        target_bucket = bucket if (isinstance(bucket, str) and bucket.strip()) else self.default_bucket
+        client = self._get_client()
+        if client == "MOCK" or not os.getenv("AWS_ACCESS_KEY_ID"):
+            local_mock_dir = os.path.join(settings.TEMP_DIR, "s3_mock", target_bucket)
+            mock_path = os.path.join(local_mock_dir, key)
+            return os.path.exists(mock_path)
+
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: client.head_object(Bucket=target_bucket, Key=key)
+            )
+            return True
+        except Exception:
+            return False
