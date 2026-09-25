@@ -16,14 +16,24 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import certifi
-from pyhanko.pdf_utils.reader import PdfFileReader
-from pyhanko.sign.general import load_certs_from_pemder
-from pyhanko.sign.validation import (
-    EmbeddedPdfSignature,
-    PdfSignatureStatus,
-    async_validate_pdf_signature,
-)
-from pyhanko_certvalidator import ValidationContext
+try:
+    from pyhanko.pdf_utils.reader import PdfFileReader
+    from pyhanko.sign.general import load_certs_from_pemder
+    from pyhanko.sign.validation import (
+        EmbeddedPdfSignature,
+        PdfSignatureStatus,
+        async_validate_pdf_signature,
+    )
+    from pyhanko_certvalidator import ValidationContext
+    PYHANKO_AVAILABLE = True
+except ImportError:
+    PdfFileReader = None
+    load_certs_from_pemder = None
+    EmbeddedPdfSignature = None
+    PdfSignatureStatus = None
+    async_validate_pdf_signature = None
+    ValidationContext = None
+    PYHANKO_AVAILABLE = False
 
 from config import (
     REQUIRE_TRUSTED_DIGITAL_SIGNATURE,
@@ -34,9 +44,10 @@ from config import (
 logger = logging.getLogger("disbursement_pipeline.pyhanko_inspector")
 
 # Silence noisy certvalidator logs on untrusted/self-signed chains
-logging.getLogger("pyhanko_certvalidator").setLevel(logging.CRITICAL)
-logging.getLogger("pyhanko").setLevel(logging.WARNING)
-logging.getLogger("pyhanko.sign.validation.generic_cms").setLevel(logging.CRITICAL)
+if PYHANKO_AVAILABLE:
+    logging.getLogger("pyhanko_certvalidator").setLevel(logging.CRITICAL)
+    logging.getLogger("pyhanko").setLevel(logging.WARNING)
+    logging.getLogger("pyhanko.sign.validation.generic_cms").setLevel(logging.CRITICAL)
 
 _CACHED_TRUST_ROOTS: Optional[List[Any]] = None
 
@@ -69,6 +80,9 @@ def load_all_trust_roots(custom_roots_dir: Optional[Union[str, Path]] = None) ->
     1. Configured TRUSTED_ROOTS_DIR (CCA India 2022, 2014, Sub-CAs, custom roots).
     2. certifi global Mozilla CA bundle.
     """
+    if not PYHANKO_AVAILABLE or not load_certs_from_pemder:
+        return []
+
     roots: List[Any] = []
     roots_dir = Path(custom_roots_dir or TRUSTED_ROOTS_DIR)
 
@@ -214,6 +228,18 @@ async def _async_inspect_pdf(
             "error": "Unsupported input format",
             "is_signed": False,
             "signature_count": 0,
+            "is_acceptable": False,
+            "signatures": [],
+        }
+
+    if not PYHANKO_AVAILABLE:
+        return {
+            "filename": filename,
+            "file_size_bytes": file_size,
+            "error": "pyHanko library is not available in environment",
+            "is_signed": False,
+            "signature_count": 0,
+            "page_count": 0,
             "is_acceptable": False,
             "signatures": [],
         }
