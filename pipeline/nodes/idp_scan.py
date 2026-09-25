@@ -77,6 +77,15 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
             "table_type": getattr(tbl, "table_type", "STRUCTURED_TABLE"),
             "headers": tbl.headers,
             "rows": tbl.rows_raw,
+            # Without these, app.services.registry.case_scanner (the consumer of this
+            # _components.tables list for any document that went through the full
+            # verification pipeline, not just a direct /upload) has nothing to put in the
+            # table's bbox/cells/markdown fields -- the outer table box, the per-cell
+            # TableFormer overlay, and the formatted Raw Text table view all go missing even
+            # though `tbl` (a Docling TableStructure) already carries all three.
+            "bbox": tbl.bbox,
+            "cells": [c.model_dump() for c in (tbl.cells or [])],
+            "markdown": tbl.markdown,
         })
 
     template_fields = format_template_json(extracted_fields or {})
@@ -125,6 +134,7 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         "rawText": parsed.text,
         "_formatted_text": formatted_json,
         "formattedText": formatted_json,
+        "documentMarkdown": getattr(parsed, "document_markdown", None),
         "_pages": len(parsed.pages),
         "_elements_count": len(parsed.elements),
         "_components": components,

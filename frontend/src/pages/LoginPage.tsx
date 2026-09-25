@@ -98,16 +98,20 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-ink-700 mb-1">
-                Username
+                Username{mode === 'signup' ? ' (use your ADID)' : ''}
               </label>
               <input
                 id="username"
                 className="input"
                 autoComplete="username"
                 autoFocus
+                placeholder={mode === 'signup' ? 'e.g. your ADID' : undefined}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
+              {mode === 'signup' && (
+                <p className="mt-1 text-xs text-ink-400">Please sign up with your ADID, not a made-up username.</p>
+              )}
             </div>
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-ink-700 mb-1">

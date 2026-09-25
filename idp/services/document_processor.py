@@ -352,6 +352,7 @@ class DocumentProcessor:
                 "processing_time_seconds": round(elapsed, 3),
                 "raw_text": parsed_doc.text,
                 "formatted_text": parsed_doc.formatted_text or "",
+                "document_markdown": parsed_doc.document_markdown,
                 "extracted_fields": llm_fields,
                 "field_locations": parsed_doc.custom_metadata.get("field_locations", {}),
                 "ocr_tokens": parsed_doc.custom_metadata.get("ocr_tokens", []),

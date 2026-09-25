@@ -111,6 +111,7 @@ class DocumentRegistry:
             rec = self._dynamic_docs[doc_id]
             raw_txt = result.get("raw_text", "") or rec.get("rawText", "")
             fmt_txt = result.get("formatted_text", "") or rec.get("formattedText", "")
+            doc_md = result.get("document_markdown") or rec.get("documentMarkdown")
             ext_fields_raw = result.get("extracted_fields") or {}
             field_locs = result.get("field_locations") or {}
             ocr_tokens = result.get("ocr_tokens") or []
@@ -141,6 +142,7 @@ class DocumentRegistry:
                 "pages": max(1, pages_val),
                 "rawText": raw_txt,
                 "formattedText": fmt_txt,
+                "documentMarkdown": doc_md,
                 "extractedFields": extracted_fields_list or rec.get("extractedFields", []),
                 "debug": {
                     "field_locations": field_locs,

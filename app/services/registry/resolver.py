@@ -55,7 +55,10 @@ def resolve_synthetic_alias(
     Resolve synthetic document ID references (e.g. 'doc-LOAN_001-sanction')
     against candidate document records using canonical document types and substring matching.
     """
-    if not doc_id or not doc_id.startswith("doc-"):
+    # Case-insensitive: the frontend mints these as "DOC-{caseId}-{slug}" (uppercase);
+    # this matched only lowercase "doc-" and silently dropped every real synthetic
+    # reference straight to the 404 path.
+    if not doc_id or not doc_id.lower().startswith("doc-"):
         return None
 
     parts = doc_id.split("-", 2)

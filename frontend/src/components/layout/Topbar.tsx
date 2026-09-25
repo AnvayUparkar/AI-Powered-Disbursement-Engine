@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Search, Menu, Activity, LogOut } from 'lucide-react';
+import { Search, Menu, Activity, LogOut, ShieldAlert } from 'lucide-react';
 import { useDebounced } from '@/hooks/useDebounced';
 import { useNavigate } from 'react-router-dom';
 import { node2Api } from '@/api/node2';
+import { settingsService } from '@/services/settings';
 import { useAuth } from '@/context/auth';
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
   const [q, setQ] = useState('');
   const [node2Status, setNode2Status] = useState<'connected' | 'offline' | 'checking'>('checking');
+  const [pipelineEnabled, setPipelineEnabled] = useState(false);
+  const [pipelineBusy, setPipelineBusy] = useState(false);
   const debounced = useDebounced(q, 350);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -18,6 +21,29 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       .then(() => setNode2Status('connected'))
       .catch(() => setNode2Status('offline'));
   }, []);
+
+  useEffect(() => {
+    settingsService
+      .getDgclPipelineFlag()
+      .then((flag) => setPipelineEnabled(flag.enabled))
+      .catch(() => setPipelineEnabled(false));
+  }, []);
+
+  const togglePipeline = async () => {
+    const next = !pipelineEnabled;
+    if (next && !window.confirm('Turn ON the DGCL verification pipeline? This POC otherwise only runs OCR.')) {
+      return;
+    }
+    setPipelineBusy(true);
+    try {
+      const flag = await settingsService.setDgclPipelineFlag(next);
+      setPipelineEnabled(flag.enabled);
+    } catch (e) {
+      console.error('Failed to update DGCL pipeline flag:', e);
+    } finally {
+      setPipelineBusy(false);
+    }
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +77,24 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       </form>
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={() => void togglePipeline()}
+          disabled={pipelineBusy}
+          className={`hidden md:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors disabled:opacity-50 ${
+            pipelineEnabled
+              ? 'bg-verified-50 border-verified-200 text-verified-700 hover:bg-verified-100'
+              : 'bg-ink-50 border-ink-200 text-ink-500 hover:bg-ink-100'
+          }`}
+          title={
+            pipelineEnabled
+              ? 'DGCL verification pipeline is ON — click to turn off'
+              : 'DGCL verification pipeline is OFF (OCR-only) — click to turn on'
+          }
+        >
+          <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
+          <span>DGCL Pipeline: {pipelineEnabled ? 'ON' : 'OFF'}</span>
+        </button>
+
         <div
           className={`hidden md:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border ${
             node2Status === 'connected'

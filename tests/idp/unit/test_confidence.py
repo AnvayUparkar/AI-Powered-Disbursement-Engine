@@ -70,43 +70,270 @@ def test_compute_text_confidence_edge_cases():
     assert score_zero_bbox < score_normal
 
 
-def test_docling_parser_applies_dynamic_confidence(monkeypatch):
-    """DoclingParser must compute dynamic confidence rather than hardcoding 1.0."""
+def _mock_bbox(l, t, r, b):
+    """A bbox stand-in exposing only .l/.t/.r/.b, matching _extract_top_left_bbox's
+    second branch (no to_top_left_origin -> treated as already top-left-origin)."""
+    bbox = MagicMock()
+    bbox.l, bbox.t, bbox.r, bbox.b = l, t, r, b
+    # hasattr(bbox, "to_top_left_origin") must be False for a plain MagicMock spec'd
+    # to only expose l/t/r/b.
+    del bbox.to_top_left_origin
+    return bbox
+
+
+def test_docling_parser_reads_real_model_scores_not_a_text_heuristic(monkeypatch):
+    """DoclingParser must report the layout model's and RapidOCR's own per-cluster/per-cell
+    confidence -- not a rule-based guess derived from the text's shape. Two elements with
+    identical, clean-looking text must still get different scores when their underlying
+    model-reported scores differ, and an element with no overlapping cluster must get an
+    honest 1.0 (unmeasured) rather than a fabricated estimate."""
     from idp.services.docling.parser import DoclingParser
     from unittest.mock import MagicMock
 
     parser = DoclingParser()
 
     class MockItem:
-        def __init__(self, text, label="text"):
+        def __init__(self, text, bbox, page_no=1, label="text"):
             self.text = text
             self.label = label
-            self.prov = []
+            prov = MagicMock()
+            prov.page_no = page_no
+            prov.bbox = bbox
+            prov.confidence = None
+            self.prov = [prov]
 
     class MockDoc:
         def __init__(self):
-            self.pages = {}
+            self.pages = {1: MagicMock(size=MagicMock(width=595.0, height=842.0))}
+            # Same text, different underlying model confidence per element.
             self.texts = [
-                MockItem("Spouse Name Title"),
-                MockItem("pplicant NamePRAKASHKHATRI"),
+                MockItem("Spouse Name Title", _mock_bbox(0, 0, 100, 20)),
+                MockItem("Spouse Name Title", _mock_bbox(0, 100, 100, 120)),
+                MockItem("No matching cluster", _mock_bbox(500, 500, 600, 520)),
             ]
             self.tables = []
+
+    def _mock_cluster(bbox, layout_conf, cell_confs):
+        cl = MagicMock()
+        cl.bbox = bbox
+        cl.confidence = layout_conf
+        cl.cells = [MagicMock(confidence=c) for c in cell_confs]
+        return cl
+
+    conv_page = MagicMock()
+    conv_page.page_no = 1
+    conv_page.size = MagicMock(width=595.0, height=842.0)
+    conv_page.predictions.layout.clusters = [
+        # Overlaps element 0 exactly: high-confidence cluster.
+        _mock_cluster(_mock_bbox(0, 0, 100, 20), layout_conf=0.98, cell_confs=[0.97, 0.99]),
+        # Overlaps element 1 exactly: low-confidence cluster (e.g. faint scan).
+        _mock_cluster(_mock_bbox(0, 100, 100, 120), layout_conf=0.55, cell_confs=[0.40, 0.45]),
+        # Nowhere near element 2 -- no overlap.
+        _mock_cluster(_mock_bbox(300, 300, 320, 310), layout_conf=0.90, cell_confs=[0.90]),
+    ]
 
     mock_converter = MagicMock()
     mock_conv_result = MagicMock()
     mock_conv_result.document = MockDoc()
+    mock_conv_result.pages = [conv_page]
     mock_converter.convert.return_value = mock_conv_result
 
     monkeypatch.setattr(parser.pipeline, "get_converter", lambda: mock_converter)
 
     result = parser.parse("dummy.pdf", doc_id="TEST-DOC")
 
-    assert len(result.elements) == 2
-    # Clean text has high score
-    assert result.elements[0].confidence >= 0.95
-    # Defective OCR text has lower dynamic score, not 1.0
-    assert result.elements[1].confidence < 0.80
-    assert result.elements[0].confidence != result.elements[1].confidence
+    assert len(result.elements) == 3
+    high, low, unmatched = result.elements
+
+    # Real per-model scores are surfaced separately from the blended `confidence`.
+    assert high.layout_confidence == pytest.approx(0.98)
+    assert high.ocr_confidence == pytest.approx(0.98, abs=0.01)
+    assert low.layout_confidence == pytest.approx(0.55)
+    assert low.ocr_confidence == pytest.approx(0.425, abs=0.01)
+
+    # Identical text, different real scores -> different confidence. A text-shape
+    # heuristic would have scored these two identically.
+    assert high.confidence != low.confidence
+    assert high.confidence > low.confidence
+
+    # No overlapping cluster -> honest "not measured" (1.0), never a guessed value.
+    assert unmatched.ocr_confidence is None
+    assert unmatched.layout_confidence is None
+    assert unmatched.confidence == 1.0
+
+
+def _build_mock_conv_result(page_count: int = 1):
+    """Minimal Docling convert() result: `page_count` clean pages, no tables, matching the
+    fixture shape used by test_docling_parser_reads_real_model_scores_not_a_text_heuristic."""
+    from unittest.mock import MagicMock
+
+    class MockItem:
+        def __init__(self, text, bbox, page_no=1, label="text"):
+            self.text = text
+            self.label = label
+            prov = MagicMock()
+            prov.page_no = page_no
+            prov.bbox = bbox
+            prov.confidence = None
+            self.prov = [prov]
+
+    class MockDoc:
+        def __init__(self):
+            self.pages = {
+                p: MagicMock(size=MagicMock(width=595.0, height=842.0))
+                for p in range(1, page_count + 1)
+            }
+            self.texts = [
+                MockItem(f"Field on page {p}", _mock_bbox(0, 0, 100, 20), page_no=p)
+                for p in range(1, page_count + 1)
+            ]
+            self.tables = []
+
+    conv_pages = []
+    for p in range(1, page_count + 1):
+        conv_page = MagicMock()
+        conv_page.page_no = p
+        conv_page.size = MagicMock(width=595.0, height=842.0)
+        conv_page.predictions.layout.clusters = []
+        conv_pages.append(conv_page)
+
+    mock_conv_result = MagicMock()
+    mock_conv_result.document = MockDoc()
+    mock_conv_result.pages = conv_pages
+    return mock_conv_result
+
+
+def test_docling_parser_captures_document_level_markdown(monkeypatch):
+    """DoclingParseResult.document_markdown must carry the whole-document
+    export_to_markdown() output verbatim (text + TableFormer tables, reading order) --
+    distinct from the per-table markdown already captured on each TableStructure. Must
+    also pass traverse_pictures=True (required whenever force_full_page_ocr was used --
+    Docling's own docstring: without it, full-page-OCR text nested under a top-level
+    PictureItem is silently skipped, yielding an empty/unstructured export)."""
+    from idp.services.docling.parser import DoclingParser
+
+    parser = DoclingParser()
+    mock_conv_result = _build_mock_conv_result()
+    export_calls = []
+
+    def _export_to_markdown(**kwargs):
+        export_calls.append(kwargs)
+        return "# Loan Application Form\n\n| Field | Value |\n|---|---|\n| Name | Jane Doe |\n"
+
+    mock_conv_result.document.export_to_markdown = _export_to_markdown
+
+    mock_converter = MagicMock()
+    mock_converter.convert.return_value = mock_conv_result
+    monkeypatch.setattr(parser.pipeline, "get_converter", lambda: mock_converter)
+
+    result = parser.parse("dummy.pdf", doc_id="TEST-DOC")
+
+    assert export_calls == [{"traverse_pictures": True, "page_no": 1}]
+
+    assert result.document_markdown is not None
+    assert "# Loan Application Form" in result.document_markdown
+    assert "| Name | Jane Doe |" in result.document_markdown
+
+
+def test_docling_parser_document_markdown_covers_every_page(monkeypatch):
+    """Regression: a single whole-document export_to_markdown() call walks doc.body's
+    tree, which can silently drop a later page's content when it isn't cleanly linked
+    into that tree (seen with multi-page full-page-OCR input) even though the page's
+    items are present and correctly page-tagged in the flat doc.texts/doc.tables lists
+    this parser already reads elements/tables from. Exporting per page via `pages={page_no}`
+    filters by each item's own prov[].page_no instead of tree position, so every page must
+    show up in document_markdown regardless of body-tree linkage."""
+    from idp.services.docling.parser import DoclingParser
+
+    parser = DoclingParser()
+    mock_conv_result = _build_mock_conv_result(page_count=2)
+    export_calls = []
+
+    def _export_to_markdown(**kwargs):
+        export_calls.append(kwargs)
+        pno = kwargs.get("page_no")
+        return f"## Page {pno} content\n\nSome text on page {pno}.\n"
+
+    mock_conv_result.document.export_to_markdown = _export_to_markdown
+
+    mock_converter = MagicMock()
+    mock_converter.convert.return_value = mock_conv_result
+    monkeypatch.setattr(parser.pipeline, "get_converter", lambda: mock_converter)
+
+    result = parser.parse("dummy.pdf", doc_id="TEST-DOC")
+
+    assert export_calls == [
+        {"traverse_pictures": True, "page_no": 1},
+        {"traverse_pictures": True, "page_no": 2},
+    ]
+    assert result.document_markdown is not None
+    assert "Page 1 content" in result.document_markdown
+    assert "Page 2 content" in result.document_markdown
+
+
+def test_docling_parser_document_markdown_skips_blank_pages(monkeypatch):
+    """A page whose export comes back empty (e.g. a genuinely blank page) must be
+    dropped from the joined output rather than leaving a stray separator."""
+    from idp.services.docling.parser import DoclingParser
+
+    parser = DoclingParser()
+    mock_conv_result = _build_mock_conv_result(page_count=2)
+
+    def _export_to_markdown(**kwargs):
+        return "Real content" if kwargs.get("page_no") == 1 else "   "
+
+    mock_conv_result.document.export_to_markdown = _export_to_markdown
+
+    mock_converter = MagicMock()
+    mock_converter.convert.return_value = mock_conv_result
+    monkeypatch.setattr(parser.pipeline, "get_converter", lambda: mock_converter)
+
+    result = parser.parse("dummy.pdf", doc_id="TEST-DOC")
+
+    assert result.document_markdown == "Real content"
+
+
+def test_docling_parser_document_markdown_none_when_export_fails(monkeypatch):
+    """A broken/absent export_to_markdown() must never fail parsing -- document_markdown
+    degrades to None, exactly like the existing per-table export_to_markdown try/except."""
+    from idp.services.docling.parser import DoclingParser
+
+    parser = DoclingParser()
+    mock_conv_result = _build_mock_conv_result()
+
+    def _raise(**kwargs):
+        raise RuntimeError("markdown export blew up")
+    mock_conv_result.document.export_to_markdown = _raise
+
+    mock_converter = MagicMock()
+    mock_converter.convert.return_value = mock_conv_result
+    monkeypatch.setattr(parser.pipeline, "get_converter", lambda: mock_converter)
+
+    result = parser.parse("dummy.pdf", doc_id="TEST-DOC")
+
+    assert result.document_markdown is None
+    # The rest of parsing must still have succeeded despite the markdown failure.
+    assert len(result.elements) == 1
+
+
+def test_docling_parser_document_markdown_none_when_method_absent(monkeypatch):
+    """An older Docling document object with no export_to_markdown attribute at all must
+    not raise -- the hasattr guard should simply leave document_markdown as None."""
+    from idp.services.docling.parser import DoclingParser
+
+    parser = DoclingParser()
+    mock_conv_result = _build_mock_conv_result()
+    # MockDoc (a plain class, not a MagicMock) never defines export_to_markdown, so
+    # hasattr(doc, "export_to_markdown") is already False here -- nothing to remove.
+    assert not hasattr(mock_conv_result.document, "export_to_markdown")
+
+    mock_converter = MagicMock()
+    mock_converter.convert.return_value = mock_conv_result
+    monkeypatch.setattr(parser.pipeline, "get_converter", lambda: mock_converter)
+
+    result = parser.parse("dummy.pdf", doc_id="TEST-DOC")
+
+    assert result.document_markdown is None
 
 
 # === NEW TESTS FOR BOUNDING BOX FORMATION FIX ===

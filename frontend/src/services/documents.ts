@@ -132,18 +132,88 @@ export function adaptNode2DocumentToRecord(
 
   // 2. Process tables
   tables.forEach((tbl, tIdx) => {
+    // TableFormer's own confidence for the region this grid was built from. Falls back to
+    // n/a (undefined), never a fabricated placeholder, when Docling reported none (e.g. the
+    // page's layout cluster didn't overlap this table closely enough to attribute a score).
+    const tblConf = tbl.table_confidence != null ? Math.round(tbl.table_confidence * 1000) / 10 : undefined;
     extractedFields.push({
       id: tbl.id || `table-${tIdx + 1}`,
       name: `Table (Page ${tbl.page_number})`,
       value: `${tbl.num_rows} rows x ${tbl.num_cols} cols`,
-      confidence: 95,
+      confidence: tblConf ?? 95,
       sourceDocumentId: docId,
       page: tbl.page_number,
       type: 'table',
       source: 'docling',
       headers: tbl.headers,
       rows: tbl.rows_raw,
+      // Without these the viewer has nothing to draw: pageFields requires f.bbox for the
+      // table's own outline, and pageTableCells requires f.cells for the per-cell overlay.
+      // Both were being dropped here even though the backend already normalizes and sends
+      // them (DocumentSerializer.build_unified_document normalizes table.bbox and every
+      // cell.bbox to the same 0-1 space as element bboxes).
+      bbox: tbl.bbox || undefined,
+      // Without this, renderRawTextWithTableMarkdown() in DocumentViewer never finds a
+      // markdown rendering for this table and falls back to the flat "[TABLE] a | b | c
+      // [/TABLE]" block in the Raw Text tab instead of a properly formatted table.
+      markdown: tbl.markdown || undefined,
+      cells: (tbl.cells || []).map((c) => ({
+        row_index: c.row_index,
+        col_index: c.col_index,
+        row_span: c.row_span,
+        col_span: c.col_span,
+        text: c.text,
+        is_header: c.is_header,
+        bbox: c.bbox || undefined,
+        confidence: c.confidence,
+      })),
     });
+  });
+
+  // Docling's own per-stage scores (0-1 -> %), surfaced as-is from the real layout/OCR/
+  // TableFormer models rather than a hardcoded placeholder. undefined (not 0) when a
+  // stage genuinely didn't run, so the UI can render "n/a" instead of a fake number.
+  const layoutScorePct = parsed.layout_score != null ? Math.round(parsed.layout_score * 1000) / 10 : undefined;
+  const ocrScorePct = parsed.ocr_score != null ? Math.round(parsed.ocr_score * 1000) / 10 : undefined;
+  const tableScorePct = parsed.table_score != null ? Math.round(parsed.table_score * 1000) / 10 : undefined;
+  const hasTables = tables.length > 0;
+
+  const processingSteps: DocumentRecord['processingSteps'] = [
+    {
+      id: 'step-1',
+      component: 'Docling',
+      status: 'COMPLETED',
+      detail: `Docling parsed layout structure (${parsed.processing?.metrics?.docling_processing_time ?? 0.15}s)`,
+      startedAt: new Date().toLocaleTimeString(),
+      confidence: layoutScorePct,
+    },
+    {
+      id: 'step-2',
+      component: 'PaddleOCR',
+      status: 'COMPLETED',
+      detail: `RapidOCR PP-OCRv6 extracted text (${parsed.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
+      startedAt: new Date().toLocaleTimeString(),
+      confidence: ocrScorePct,
+    },
+  ];
+  if (hasTables) {
+    processingSteps.push({
+      id: 'step-2b',
+      component: 'TableFormer',
+      status: 'COMPLETED',
+      detail: `TableFormer reconstructed ${tables.length} table(s)`,
+      startedAt: new Date().toLocaleTimeString(),
+      confidence: tableScorePct,
+    });
+  }
+  processingSteps.push({
+    id: 'step-3',
+    component: 'VLM Fallback',
+    status: vlmUsed ? 'COMPLETED' : 'SKIPPED',
+    detail: vlmUsed
+      ? `VLM verified ${parsed.processing?.metrics?.vlm_fallback_count ?? 1} low-confidence region(s)`
+      : 'Quality Router score passed threshold (VLM fallback not required)',
+    startedAt: new Date().toLocaleTimeString(),
   });
 
   return {
@@ -153,44 +223,24 @@ export function adaptNode2DocumentToRecord(
     pages: pageCount,
     ocrStatus: 'COMPLETED',
     extractionStatus: 'COMPLETED',
-    confidence: vlmUsed ? 91.0 : 96.5,
+    // Real OCR score is this document's best single confidence signal; layout_score is
+    // the fallback when OCR didn't run (e.g. a native-text PDF). Only when Docling
+    // reported neither (older cached results, mock data) does this fall back to a
+    // static estimate.
+    confidence: ocrScorePct ?? layoutScorePct ?? (vlmUsed ? 91.0 : 96.5),
     vlmUsed: vlmUsed,
     uploadedAt: new Date().toISOString().split('T')[0],
     caseId: resolvedCaseId || 'Unassigned',
     sizeKb: Math.round((parsed.processing?.file_size_bytes || 240000) / 1024),
     extractedFields: extractedFields,
-    processingSteps: [
-      {
-        id: 'step-1',
-        component: 'Docling',
-        status: 'COMPLETED',
-        detail: `Docling parsed layout structure (${parsed.processing?.metrics?.docling_processing_time ?? 0.15}s)`,
-        startedAt: new Date().toLocaleTimeString(),
-      },
-      {
-        id: 'step-2',
-        component: 'PaddleOCR',
-        status: 'COMPLETED',
-        detail: `RapidOCR PP-OCRv6 extracted text (${parsed.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
-        startedAt: new Date().toLocaleTimeString(),
-        confidence: 95.0,
-      },
-      {
-        id: 'step-3',
-        component: 'VLM Fallback',
-        status: vlmUsed ? 'COMPLETED' : 'SKIPPED',
-        detail: vlmUsed
-          ? `VLM verified ${parsed.processing?.metrics?.vlm_fallback_count ?? 1} low-confidence region(s)`
-          : 'Quality Router score passed threshold (VLM fallback not required)',
-        startedAt: new Date().toLocaleTimeString(),
-      },
-    ],
+    processingSteps,
     rawText: (parsed as any).raw_text || (parsed as any).rawText || parsed.text || '',
     formattedText: (() => {
       if ((parsed as any).formatted_text) return (parsed as any).formatted_text;
       if ((parsed as any).formattedText) return (parsed as any).formattedText;
       return llmFields && typeof llmFields === 'object' ? JSON.stringify(llmFields, null, 2) : '';
     })(),
+    documentMarkdown: (parsed as any).document_markdown || (parsed as any).documentMarkdown || undefined,
   };
 
 }

@@ -108,7 +108,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<'fields' | 'rawText' | 'formattedText'>('fields');
+  const [viewMode, setViewMode] = useState<'fields' | 'rawText' | 'formattedText' | 'markdown'>('fields');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Debug Overlays State
@@ -131,6 +131,7 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [copiedJson, setCopiedJson] = useState(false);
+  const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -383,6 +384,18 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
             <Sparkles className="h-3.5 w-3.5 inline-block mr-1 text-brand-600" />
             LLM Canonical JSON
           </button>
+          {document.documentMarkdown && (
+            <button
+              onClick={() => setViewMode('markdown')}
+              className={`px-2.5 py-1 rounded font-medium transition-colors ${viewMode === 'markdown'
+                  ? 'bg-white text-ink-900 shadow-sm'
+                  : 'text-ink-600 hover:text-ink-900'
+                }`}
+            >
+              <FileText className="h-3.5 w-3.5 inline-block mr-1" />
+              Document Markdown
+            </button>
+          )}
         </div>
 
         {/* Debug Overlay Toggles (only visible in fields view) */}
@@ -519,6 +532,41 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
               </div>
               <pre className="font-mono text-xs text-ink-900 bg-ink-50/70 p-4 rounded-md border border-ink-200 leading-relaxed overflow-x-auto flex-1 select-all">
                 {getCanonicalJsonString()}
+              </pre>
+            </div>
+          ) : viewMode === 'markdown' ? (
+            <div className="bg-white rounded-lg p-5 shadow-pop w-full h-full max-w-2xl overflow-y-auto flex flex-col">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-ink-200 text-ink-500 font-sans">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-brand-600" />
+                  <span className="font-semibold text-ink-900 text-sm">
+                    Document Markdown (Docling export_to_markdown)
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(document.documentMarkdown || '');
+                    setCopiedMarkdown(true);
+                    setTimeout(() => setCopiedMarkdown(false), 2000);
+                  }}
+                  className="btn-secondary px-2.5 py-1 text-xs flex items-center gap-1.5 font-sans"
+                  title="Copy Markdown"
+                >
+                  {copiedMarkdown ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                      <span className="text-emerald-700 font-medium">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5 text-ink-600" />
+                      <span>Copy Markdown</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <pre className="font-mono text-xs text-ink-900 bg-ink-50/70 p-4 rounded-md border border-ink-200 leading-relaxed whitespace-pre-wrap overflow-x-auto flex-1 select-all">
+                {document.documentMarkdown}
               </pre>
             </div>
           ) : (

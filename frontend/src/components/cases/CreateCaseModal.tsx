@@ -31,6 +31,26 @@ const DOC_TYPES: DocumentType[] = [
   'Miscellaneous',
 ];
 
+// Mirrors config/doc_types.py's DOC_TYPE_ALIASES canonical keys, so a doc_id minted here as
+// "DOC-{caseId}-{slug}" carries a slug that app/services/registry/resolver.py's
+// resolve_synthetic_alias() can actually match against (it maps this slug through the same
+// canonical-type/substring logic). A random per-upload timestamp+index carried no semantic
+// info at all, so that fallback silently missed and every such lookup 404'd.
+const DOC_TYPE_SLUGS: Record<DocumentType, string> = {
+  'Application Form': 'application_form',
+  PAN: 'pan',
+  Aadhaar: 'aadhaar',
+  KYC: 'aadhaar', // backend alias "kyc_address_proof" canonicalizes to "aadhaar"
+  KFS: 'kfs',
+  'Sanction Letter': 'sanction_letter',
+  'Loan Agreement': 'loan_agreement',
+  'Disbursal Memo': 'disbursal_memo',
+  'BT Details': 'bt_details',
+  'Aadhaar XML': 'aadhaar_xml',
+  'VKYC Audit Trail': 'vkyc',
+  Miscellaneous: 'miscellaneous',
+};
+
 type FileStatus = 'QUEUED' | 'UPLOADING' | 'DONE' | 'FAILED';
 
 interface QueuedFile {
@@ -129,7 +149,7 @@ export function CreateCaseModal({
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 50 } : f)));
 
         try {
-          const docId = `DOC-${caseId}-${Date.now().toString().slice(-4)}-${index + 1}`;
+          const docId = `DOC-${caseId}-${DOC_TYPE_SLUGS[qf.docType]}`;
           await node2Api.uploadAndProcess(
             qf.file,
             docId,

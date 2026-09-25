@@ -37,6 +37,19 @@ _DOCLING_CONVERTER_LOCK: threading.RLock = threading.RLock()
 _DOCLING_CONVERTERS: Dict[str, Any] = {}   # options_key -> DocumentConverter instance
 _DOCLING_CONVERTER_CACHE: Dict[str, Any] = _DOCLING_CONVERTERS  # alias for backwards/main compatibility
 
+# Docling's native PDF backend (docling-parse) is not safe to call concurrently:
+# two threads inside converter.convert() on the same cached instance corrupt its
+# heap and take the whole worker process down with a SIGTRAP, leaving uvicorn's
+# reloader holding the port so every later request hangs. Serialize conversions
+# process-wide; building is already guarded by _DOCLING_CONVERTER_LOCK.
+_DOCLING_CONVERT_LOCK: threading.RLock = threading.RLock()
+
+
+def docling_convert_lock() -> threading.RLock:
+    """Lock that must be held for the duration of any converter.convert() call."""
+    return _DOCLING_CONVERT_LOCK
+
+
 
 def _get_options_key(options: DoclingOptions) -> str:
     """Fingerprint of relevant DoclingOptions fields used for cache invalidation."""

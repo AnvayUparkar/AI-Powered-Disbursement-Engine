@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth import init_db, require_tenant
 from app.routers import auth as auth_router
-from app.routers import cases, dashboard_reports, documents, loans, reviews
+from app.routers import cases, dashboard_reports, documents, loans, reviews, settings
 from idp.api.routes import documents as idp_documents
 from config.tenant import UnsafePathError
 from idp.core.exceptions import Node2BaseException
@@ -107,6 +107,7 @@ app.include_router(reviews.router, dependencies=_tenant_scoped)
 app.include_router(documents.router, dependencies=_tenant_scoped)
 app.include_router(dashboard_reports.router, dependencies=_tenant_scoped)
 app.include_router(idp_documents.router, dependencies=_tenant_scoped)
+app.include_router(settings.router, dependencies=_tenant_scoped)
 
 
 @app.get("/health", tags=["Health"])

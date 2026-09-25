@@ -420,6 +420,10 @@ def test_s3_bucket_override_is_rejected(s3):
 def test_run_pipeline_task_executes_as_given_tenant_and_resets(monkeypatch):
     from pipeline.celery_app import run_pipeline_task
 
+    # DGCL verification pipeline is disabled by default (app/services/pipeline_flags.py);
+    # this test exercises tenant propagation itself, not the flag, so enable it explicitly.
+    monkeypatch.setattr("app.services.pipeline_flags.is_dgcl_pipeline_enabled", lambda: True)
+
     seen = {}
 
     def fake_run_pipeline(loan_id):

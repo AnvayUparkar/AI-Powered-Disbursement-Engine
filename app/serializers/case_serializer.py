@@ -353,6 +353,15 @@ def _build_processing_steps(
     dgcl_score: float,
 ) -> tuple[list[dict[str, Any]], str]:
     """Generates the sequential workflow steps and formatted updated timestamp in IST."""
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+
+    dgcl_enabled = is_dgcl_pipeline_enabled()
+    # These three nodes only exist to check DGCL rules and compile/generate the DGCL
+    # scorecard; showing them while the pipeline is disabled would claim verification
+    # work happened that didn't. Everything else (ingestion, OCR, field extraction,
+    # LOS push) runs regardless of the flag and stays visible.
+    dgcl_only_nodes = {"check_parallel", "compile_report", "generate_scorecard"}
+
     history = status_data.get(
         "node_history",
         [
@@ -398,6 +407,8 @@ def _build_processing_steps(
 
     proc_steps: list[dict[str, Any]] = []
     for i, (node_key, component, label, conf) in enumerate(step_defs):
+        if not dgcl_enabled and node_key in dgcl_only_nodes:
+            continue
         is_done = node_key in history or "done" in history
         step_start_dt = base_time - timedelta(seconds=(len(step_defs) - i) * 3)
         step_end_dt = base_time - timedelta(seconds=(len(step_defs) - i - 1) * 3)

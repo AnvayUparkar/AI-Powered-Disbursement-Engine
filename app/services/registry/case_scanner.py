@@ -188,6 +188,13 @@ def _build_case_document_record(
         or struct_data.get("_raw_text")
     )
 
+    document_markdown = (
+        ext_data.get("documentMarkdown")
+        or ext_data.get("document_markdown")
+        or struct_data.get("documentMarkdown")
+        or struct_data.get("document_markdown")
+    )
+
     paragraphs = (
         struct_data.get("paragraphs")
         or ext_data.get("_components", {}).get("paragraphs")
@@ -344,6 +351,7 @@ def _build_case_document_record(
         "extractedFields": extracted_fields,
         "rawText": raw_text or f"Document Name: {doc_filename}\nType: {doc_type}",
         "formattedText": formatted_text,
+        "documentMarkdown": document_markdown,
         "debug": {
             "field_locations": field_locations,
             "ocr_tokens": ocr_tokens,

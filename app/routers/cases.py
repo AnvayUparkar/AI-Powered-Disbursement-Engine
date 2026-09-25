@@ -172,6 +172,12 @@ def delete_case(case_id: str):
 
 @router.post("/{case_id}/run", summary="Trigger verification engine pipeline")
 def run_case_verification(case_id: str, async_mode: bool = Query(False, alias="async", description="Dispatch to Celery worker if True")):
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+    if not is_dgcl_pipeline_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="The DGCL verification pipeline is currently disabled. Enable it from Settings to run.",
+        )
     if async_mode:
         try:
             from pipeline.celery_app import run_pipeline_task

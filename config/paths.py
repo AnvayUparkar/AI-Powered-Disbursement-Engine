@@ -32,11 +32,18 @@ S3_RESULT_DIR = TenantPath("s3_result")
 # Trusted Root Certificates (Indian CCA & PKI)
 TRUSTED_ROOTS_DIR = BASE_DIR / "config" / "trusted_roots"
 
+# System-wide (non-tenant) settings — deliberately global, not under poc_data/tenants/<id>/,
+# since flags here (e.g. the DGCL pipeline kill-switch) apply across every tenant. Lives on the
+# same shared volume as everything else in poc_data so api/worker/idp pods all see the same value.
+SYSTEM_DIR = POC_DATA_DIR / "system"
+PIPELINE_FLAGS_FILE = SYSTEM_DIR / "pipeline_flags.json"
+
 # Ensure shared (non-tenant) directory structures exist. Tenant directories are created lazily
 # on first access by TenantPath.
 for d in (
     POC_DATA_DIR,
     TRUSTED_ROOTS_DIR,
+    SYSTEM_DIR,
 ):
     d.mkdir(parents=True, exist_ok=True)
 

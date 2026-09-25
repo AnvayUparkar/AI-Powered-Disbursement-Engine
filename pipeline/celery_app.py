@@ -51,6 +51,13 @@ def run_pipeline_task(self, loan_id: str, tenant_id: str) -> Dict[str, Any]:
 
 
 def _run_pipeline_task(self, loan_id: str) -> Dict[str, Any]:
+    from app.services.pipeline_flags import is_dgcl_pipeline_enabled
+    if not is_dgcl_pipeline_enabled():
+        # Re-checked here, not just at enqueue time: a task queued before the flag was turned
+        # off must still refuse to run once the worker actually picks it up.
+        logger.info("Celery task %s skipped for loan %s: DGCL pipeline disabled", self.request.id, loan_id)
+        return {"loan_id": loan_id, "status": "disabled", "scorecard": {}, "errors": []}
+
     logger.info("Celery task %s started for loan: %s", self.request.id, loan_id)
     try:
         from pipeline.graph import run_pipeline

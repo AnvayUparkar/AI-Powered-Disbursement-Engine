@@ -343,7 +343,13 @@ config:
   OCR_MODEL: "PP-OCRv6_medium"
   OCR_CONFIDENCE_THRESHOLD: "0.70"
   MAX_DOCUMENT_SIZE_MB: "50"
-  TEMP_DIR: "/tmp/node2_idp"
+  # Must stay under the shared PVC mount (/srv/app/poc_data) — this is where the S3 mock
+  # (idp/services/storage/s3.py) persists every raw upload and parsed-document JSON when no
+  # real S3 is configured (see note below). idp.replicaCount is 2, and pod-local /tmp is
+  # NOT shared between replicas or with the api/worker pods, so a plain "/tmp/..." path here
+  # causes intermittent "processed fine but nothing renders" failures whenever a later
+  # request lands on a different pod than the one that wrote the file.
+  TEMP_DIR: "/srv/app/poc_data/idp_temp"
   VLM_ENABLED: "False"
   VLM_PROVIDER: "openai"  # OpenAI-compatible protocol, served by LiteLLM via VLM_BASE_URL
   VLM_BASE_URL: "https://tsguat1.hdbfs.com:560/v1"   # >>> FILL IN (confirm; only used if VLM_ENABLED is "True")

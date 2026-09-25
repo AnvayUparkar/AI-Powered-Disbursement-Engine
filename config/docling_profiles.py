@@ -22,7 +22,7 @@ from idp.services.docling.options import DoclingOptions
 # ═══════════════════════════════════════════════════════════════════════════
 
 IDENTITY_DOCUMENT_PROFILE = DoclingOptions(
-    do_table_structure=False,
+    do_table_structure=True,
     table_mode="ACCURATE",  # Always ACCURATE -- FAST mode disabled repo-wide (see pipeline.py).
                             # Moot here since do_table_structure=False skips TableFormer entirely,
                             # but "FAST" previously triggered a misleading forced-override warning

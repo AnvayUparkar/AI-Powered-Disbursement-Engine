@@ -26,6 +26,7 @@ import { PrintScorecardModal } from '@/components/verification/PrintScorecardMod
 import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
 import { UploadModal } from '@/components/documents/UploadModal';
 import { casesService, reviewService } from '@/services';
+import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
 import type { Case, Checkpoint, ReviewItem, PipelineEvent, PipelineStage } from '@/types';
 
 const inr = (n: number) => '₹' + n.toLocaleString('en-IN');
@@ -49,6 +50,7 @@ export default function CaseDetailPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const pipelineEnabled = useDgclPipelineFlag();
   const autoRunHandled = useRef(false);
 
   const handleDeleteCase = async () => {
@@ -249,8 +251,9 @@ export default function CaseDetailPage() {
               </button>
               <button
                 onClick={startPipelineStream}
-                disabled={running || runningOcr}
-                className="btn btn-primary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all"
+                disabled={running || runningOcr || !pipelineEnabled}
+                title={pipelineEnabled ? undefined : 'DGCL verification pipeline is disabled — enable it from the top bar to use this.'}
+                className="btn btn-primary inline-flex items-center gap-2 text-xs font-semibold py-1.5 px-3 rounded-lg shadow-sm hover:shadow transition-all disabled:opacity-50"
               >
                 {running ? (
                   <>
@@ -376,10 +379,22 @@ export default function CaseDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-ink-800 mb-3">DGCL Scorecard</h2>
-          <DGCLScorecard checkpoints={c.checkpoints} onCheckpointClick={setDrawer} />
+          {pipelineEnabled ? (
+            <DGCLScorecard checkpoints={c.checkpoints} onCheckpointClick={setDrawer} />
+          ) : (
+            <div className="card p-6 text-center text-sm text-ink-500">
+              DGCL verification pipeline is disabled — this POC runs OCR only. Enable it from the top bar to see checkpoint results.
+            </div>
+          )}
         </div>
         <div className="space-y-5">
-          <ProcessingPipeline steps={c.processingSteps} />
+          <ProcessingPipeline
+            steps={
+              pipelineEnabled
+                ? c.processingSteps
+                : c.processingSteps.filter((s) => s.component !== 'Validation' && s.component !== 'DGCL Engine')
+            }
+          />
 
           {reviews.length > 0 && (
             <div className="card p-4">

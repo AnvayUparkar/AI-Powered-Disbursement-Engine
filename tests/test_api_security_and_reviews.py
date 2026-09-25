@@ -52,6 +52,10 @@ def test_document_preview_valid_file(tmp_path: Path, monkeypatch):
 
 def test_human_adjudication_state_persistence(tmp_path: Path, monkeypatch):
     """Test that submitting an adjudication decision actually updates comparison_results.json and scorecard.json."""
+    # Review items (and thus the adjudication endpoint) only exist while the DGCL pipeline
+    # is enabled; force it on since that's what this test is exercising.
+    monkeypatch.setattr("app.services.pipeline_flags.is_dgcl_pipeline_enabled", lambda: True)
+
     loan_id = "LOAN_002"
     res_dir = tmp_path / loan_id
     res_dir.mkdir(parents=True, exist_ok=True)
