@@ -7,6 +7,7 @@ from idp.schemas.response import ErrorResponse
 from idp.services.document_processor import processor
 from idp.core.exceptions import Node2BaseException
 from idp.core.logging import logger, format_doc_log
+from config.tenant import current_tenant_id, safe_id
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Documents"])
 
@@ -24,7 +25,7 @@ async def process_document(request: ProcessDocumentRequest):
     """
     Trigger Node 2 Intelligent Document Processing for a raw document stored in S3.
     """
-    doc_id = request.document_id
+    doc_id = safe_id(request.document_id, "document_id")
     logger.info(format_doc_log(doc_id, f"Received API request to process document at s3_key={request.s3_key}"))
 
     try:
@@ -79,30 +80,16 @@ async def upload_and_process_document(
     s3_bucket: Optional[str] = Form(None)
 ):
     """
-    Accept direct browser multipart document upload and store raw file.
-    Pattern A (Pipeline-Driven / Single Responsibility):
-    The upload endpoint strictly stores the raw file to S3/disk and registers it in document_registry.
-    It does not trigger Celery OCR. When the user starts the pipeline (or autoRun=true),
-    the LangGraph pipeline's idp_scan node is the sole orchestrator that dispatches OCR jobs.
+    Accept direct browser multipart document upload, store raw file, and run Node 2 IDP pipeline.
     """
+    doc_id = document_id if isinstance(document_id, str) and document_id.strip() else f"DOC-{uuid.uuid4().hex[:8].upper()}"
+    safe_id(doc_id, "document_id")
     bucket = s3_bucket if isinstance(s3_bucket, str) and s3_bucket.strip() else None
     case_val = case_id if isinstance(case_id, str) and case_id.strip() else None
+    if case_val:
+        safe_id(case_val, "case_id")
     dtype_val = doc_type if isinstance(doc_type, str) and doc_type.strip() else None
-
-    # Derive canonical document ID matching pipeline conventions
-    from config.doc_types import get_canonical_doc_type
-    doc_key = get_canonical_doc_type(dtype_val or file.filename or "doc")
-
-    if case_val and (not document_id or not document_id.strip() or document_id.startswith("DOC-")):
-        doc_id = f"{case_val}_{doc_key}"
-    elif isinstance(document_id, str) and document_id.strip():
-        doc_id = document_id
-    elif case_val:
-        doc_id = f"{case_val}_{doc_key}"
-    else:
-        doc_id = f"DOC-{uuid.uuid4().hex[:8].upper()}"
-
-    logger.info(format_doc_log(doc_id, f"Received direct file upload for {file.filename} (case={case_val})"))
+    logger.info(format_doc_log(doc_id, f"Received direct file upload for {file.filename}"))
 
     try:
         file_bytes = await file.read()
@@ -129,7 +116,7 @@ async def upload_and_process_document(
             s3_storage = S3Storage()
             target_bucket = bucket or idp_settings.S3_BUCKET
             output_url = await s3_storage.upload(
-                key=f"{idp_settings.RAW_DOCUMENT_PREFIX}/{raw_key}",
+                key=f"{current_tenant_id()}/{idp_settings.RAW_DOCUMENT_PREFIX}/{raw_key}",
                 content=file_bytes,
                 bucket=target_bucket,
                 content_type="application/pdf",
@@ -152,14 +139,16 @@ async def upload_and_process_document(
         except Exception as reg_err:
             logger.debug(format_doc_log(doc_id, f"Document registry sync notification: {reg_err}"))
 
-        # Pattern A (Pipeline-Driven): Upload endpoint strictly stores the raw file to S3/disk
-        # and registers it in document_registry. OCR is solely dispatched by the LangGraph pipeline's idp_scan node.
-        logger.info(format_doc_log(doc_id, f"Uploaded document saved to {target_path} and registered. OCR will be dispatched by pipeline idp_scan."))
+        try:
+            from pipeline.celery_app import process_document_task
+            process_document_task.delay(doc_id, str(target_path), current_tenant_id(), case_val)
+        except Exception as celery_err:
+            logger.warning(format_doc_log(doc_id, f"Celery task enqueue notification: {celery_err}"))
 
         return DocumentStatusResponse(
             document_id=doc_id,
             processing_id=f"proc-{doc_id}",
-            status="uploaded",
+            status="queued",
             output_location=output_url,
             processing_time_seconds=0.0,
             result=None
