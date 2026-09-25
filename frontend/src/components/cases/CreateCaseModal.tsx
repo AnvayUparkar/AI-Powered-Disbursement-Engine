@@ -142,10 +142,10 @@ export function CreateCaseModal({
         case_id: caseId,
       });
 
-      // 2. Upload and OCR each queued document
+      // 2. Upload each queued document to S3 raw (staging without duplicate OCR)
       const pendingFiles = queue.filter((f) => f.status === 'QUEUED');
       for (const [index, qf] of pendingFiles.entries()) {
-        setStatusMessage(`Uploading & OCR processing ${index + 1}/${pendingFiles.length}: ${qf.file.name}...`);
+        setStatusMessage(`Uploading & staging ${index + 1}/${pendingFiles.length}: ${qf.file.name}...`);
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 50 } : f)));
 
         try {
@@ -156,6 +156,7 @@ export function CreateCaseModal({
             undefined,
             caseId,
             qf.docType,
+            false,
           );
           setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
         } catch (err) {

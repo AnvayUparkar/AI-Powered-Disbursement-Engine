@@ -47,6 +47,7 @@ terminal_output.txt
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+.cursor/
 .idea/
 .DS_Store
 Thumbs.db
@@ -64,15 +65,12 @@ temp/
 # POC Runtime test artifacts, dynamic outputs & uploaded documents
 poc_data/los/loans/*
 poc_data/s3_raw/*
-poc_data/s3_extracted/*
-poc_data/s3_extracted_structured/*
+poc_data/s3_extracted/* 
+poc_data/s3_extracted_structured/* 
 poc_data/s3_result/*
 poc_data/dms/*
 poc_data/los/scorecards_received/*
 poc_data/idp_temp/
-poc_data/tenants/
-poc_data/auth.db*
-poc_data/.internal_token
 !poc_data/**/.gitkeep
 
 # Review & Temporary Reports
@@ -83,3 +81,11 @@ docs/
 LOAN_*.json
 **/LOAN_*.json
 
+Fast Terminal Output.txt
+IDP terminal_output.txt
+
+# Model weights (downloaded via scripts/download_models.py)
+models/
+*.onnx
+
+docker-ignore/
