@@ -13,12 +13,14 @@ import { casesService } from '@/services';
 import type { CasePage, SortState } from '@/services/cases';
 import type { CaseStatus, RiskLevel } from '@/types';
 import { useDebounced } from '@/hooks/useDebounced';
+import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
 
 const PAGE_SIZE = 8;
 const statuses: (CaseStatus | 'ALL')[] = ['ALL', 'VERIFIED', 'DISCREPANCY', 'INDETERMINATE', 'PROCESSING'];
 const risks: (RiskLevel | 'ALL')[] = ['ALL', 'LOW', 'MEDIUM', 'HIGH'];
 
 export default function CasesPage() {
+  const pipelineEnabled = useDgclPipelineFlag();
   const [params] = useSearchParams();
   const [query, setQuery] = useState(params.get('q') ?? '');
   const debounced = useDebounced(query, 350);
@@ -157,7 +159,13 @@ export default function CasesPage() {
                     <th className="table-head"><SortHeader label="Applicant" active={sort?.key === 'applicant'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('applicant')} /></th>
                     <th className="table-head">Loan Type</th>
                     <th className="table-head">Docs</th>
-                    <th className="table-head"><SortHeader label="DGCL Score" active={sort?.key === 'dgclScore'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('dgclScore')} /></th>
+                    <th className="table-head">
+                      {pipelineEnabled ? (
+                        <SortHeader label="DGCL Score" active={sort?.key === 'dgclScore'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('dgclScore')} />
+                      ) : (
+                        'DGCL Score'
+                      )}
+                    </th>
                     <th className="table-head">V</th>
                     <th className="table-head">D</th>
                     <th className="table-head">R</th>
@@ -177,7 +185,13 @@ export default function CasesPage() {
                       <td className="table-cell">{c.applicant}</td>
                       <td className="table-cell">{c.loanType}</td>
                       <td className="table-cell tabular-nums">{c.documentCount}</td>
-                      <td className="table-cell"><span className="font-mono tabular-nums">{c.dgclScore.toFixed(1)}%</span></td>
+                      <td className="table-cell">
+                        {pipelineEnabled ? (
+                          <span className="font-mono tabular-nums">{c.dgclScore.toFixed(1)}%</span>
+                        ) : (
+                          <span className="text-ink-400" title="DGCL verification pipeline is disabled">—</span>
+                        )}
+                      </td>
                       <td className="table-cell text-verified-700 tabular-nums">{c.verifiedCount}</td>
                       <td className="table-cell text-discrepancy-700 tabular-nums">{c.discrepancyCount}</td>
                       <td className="table-cell text-review-700 tabular-nums">{c.reviewCount}</td>

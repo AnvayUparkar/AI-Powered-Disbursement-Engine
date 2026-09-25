@@ -22,8 +22,10 @@ import { reportsService, casesService } from '@/services';
 import type { DashboardKpis, Case } from '@/types';
 import { checkpointPerformance } from '@/mock';
 import { formatTime12h } from '@/utils/formatters';
+import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
 
 export default function DashboardPage() {
+  const pipelineEnabled = useDgclPipelineFlag();
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
   const [recent, setRecent] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,12 +95,18 @@ export default function DashboardPage() {
             <TrendingUp className="h-4.5 w-4.5 text-verified-600" />
             <h3 className="text-sm font-semibold text-ink-800">Verification Accuracy</h3>
           </div>
-          <p className="text-3xl font-semibold text-ink-900 tabular-nums">{kpis.dgclValidation.toFixed(1)}%</p>
-          <p className="text-xs text-ink-500 mt-1">Overall DGCL Validation</p>
-          <div className="mt-3">
-            <ConfidenceBar value={kpis.dgclValidation} threshold={kpis.dgclTarget} />
-          </div>
-          <p className="text-xs text-ink-500 mt-2">Target ≥ {kpis.dgclTarget}%</p>
+          {pipelineEnabled ? (
+            <>
+              <p className="text-3xl font-semibold text-ink-900 tabular-nums">{kpis.dgclValidation.toFixed(1)}%</p>
+              <p className="text-xs text-ink-500 mt-1">Overall DGCL Validation</p>
+              <div className="mt-3">
+                <ConfidenceBar value={kpis.dgclValidation} threshold={kpis.dgclTarget} />
+              </div>
+              <p className="text-xs text-ink-500 mt-2">Target ≥ {kpis.dgclTarget}%</p>
+            </>
+          ) : (
+            <p className="text-sm text-ink-500">DGCL pipeline disabled — this POC runs OCR only.</p>
+          )}
         </div>
 
         <div className="card p-5">
@@ -130,24 +138,26 @@ export default function DashboardPage() {
       </div>
 
       {/* Checkpoint performance */}
-      <div className="card p-5 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="h-4.5 w-4.5 text-brand-600" />
-          <h3 className="text-sm font-semibold text-ink-800">DGCL Checkpoint Performance</h3>
-        </div>
-        <div className="space-y-2.5">
-          {checkpointPerformance.map((cp) => (
-            <div key={cp.id} className="flex items-center gap-3">
-              <span className="font-mono text-xs text-ink-400 w-6">{String(cp.id).padStart(2, '0')}</span>
-              <span className="text-sm text-ink-700 w-40 shrink-0">{cp.name}</span>
-              <div className="flex-1">
-                <ConfidenceBar value={cp.passRate} showLabel={false} size="sm" />
+      {pipelineEnabled && (
+        <div className="card p-5 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="h-4.5 w-4.5 text-brand-600" />
+            <h3 className="text-sm font-semibold text-ink-800">DGCL Checkpoint Performance</h3>
+          </div>
+          <div className="space-y-2.5">
+            {checkpointPerformance.map((cp) => (
+              <div key={cp.id} className="flex items-center gap-3">
+                <span className="font-mono text-xs text-ink-400 w-6">{String(cp.id).padStart(2, '0')}</span>
+                <span className="text-sm text-ink-700 w-40 shrink-0">{cp.name}</span>
+                <div className="flex-1">
+                  <ConfidenceBar value={cp.passRate} showLabel={false} size="sm" />
+                </div>
+                <span className="font-mono text-xs text-ink-600 tabular-nums w-14 text-right">{cp.passRate.toFixed(1)}%</span>
               </div>
-              <span className="font-mono text-xs text-ink-600 tabular-nums w-14 text-right">{cp.passRate.toFixed(1)}%</span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Recent cases */}
       <div className="card overflow-hidden">
@@ -179,7 +189,13 @@ export default function DashboardPage() {
                   <td className="table-cell">{c.applicant}</td>
                   <td className="table-cell">{c.loanType}</td>
                   <td className="table-cell tabular-nums">{c.documentCount}</td>
-                  <td className="table-cell"><span className="font-mono tabular-nums">{c.dgclScore.toFixed(1)}%</span></td>
+                  <td className="table-cell">
+                    {pipelineEnabled ? (
+                      <span className="font-mono tabular-nums">{c.dgclScore.toFixed(1)}%</span>
+                    ) : (
+                      <span className="text-ink-400" title="DGCL verification pipeline is disabled">—</span>
+                    )}
+                  </td>
                   <td className="table-cell"><StatusBadge status={c.status} /></td>
                   <td className="table-cell tabular-nums">{c.processingTime}</td>
                   <td className="table-cell text-ink-500">{formatTime12h(c.lastUpdated)}</td>

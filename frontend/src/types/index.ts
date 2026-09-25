@@ -33,6 +33,7 @@ export type ExtractionStatus = 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'PENDING'
 export type ProcessingComponent =
   | 'Docling'
   | 'PaddleOCR'
+  | 'TableFormer'
   | 'VLM Fallback'
   | 'Field Extraction'
   | 'Validation'
@@ -166,6 +167,9 @@ export interface DocumentRecord {
   processingSteps: ProcessingStep[];
   rawText?: string;
   formattedText?: string;
+  // Whole-document Docling export_to_markdown() (text + TableFormer tables, reading order) —
+  // a single readable view, distinct from rawText's flat OCR text with embedded [TABLE] markers.
+  documentMarkdown?: string;
   debug?: DocumentDebugInfo;
 }
 
@@ -304,9 +308,24 @@ export interface Node2LayoutElement {
   text: string;
   bbox: number[];
   confidence: number;
+  /** RapidOCR's own per-text-cell recognition score. Null when Docling reported none. */
+  ocr_confidence?: number | null;
+  /** The Docling layout model's per-cluster score for the region this element sits in. */
+  layout_confidence?: number | null;
   page_number: number;
   source: 'ocr' | 'vlm' | 'docling' | 'xml';
   ocr_original?: string;
+}
+
+export interface Node2TableCell {
+  row_index: number;
+  col_index: number;
+  row_span?: number;
+  col_span?: number;
+  text: string;
+  is_header?: boolean;
+  bbox?: number[] | null;
+  confidence?: number;
 }
 
 export interface Node2TableStructure {
@@ -316,6 +335,13 @@ export interface Node2TableStructure {
   num_cols: number;
   headers: string[];
   rows_raw: string[][];
+  cells?: Node2TableCell[];
+  /** Table's own bounding box in top-left-origin [l, t, r, b] PDF points. */
+  bbox?: number[] | null;
+  /** Docling's own export_to_markdown() rendering of this table. */
+  markdown?: string | null;
+  /** Confidence the layout model assigned to the region TableFormer built this grid from. */
+  table_confidence?: number | null;
 }
 
 export interface Node2PageInformation {
@@ -346,7 +372,6 @@ export interface Node2ProcessingMetadata {
     vlm_fallback_count: number;
     ocr_low_confidence_count: number;
     total_elements_extracted: number;
-    average_confidence?: number;
   };
 }
 
@@ -363,8 +388,15 @@ export interface Node2ParsedDocument {
   elements: Node2LayoutElement[];
   text: string;
   processing: Node2ProcessingMetadata;
-  extractedFields?: ExtractedField[];
-  confidence?: number;
+  // Docling's own per-stage quality scores (0-1), carried through verbatim from the
+  // real layout/OCR/TableFormer models. Null/absent means that stage did not run.
+  layout_score?: number | null;
+  ocr_score?: number | null;
+  table_score?: number | null;
+  parse_score?: number | null;
+  quality_grade?: string | null;
+  // Whole-document Docling export_to_markdown() (text + TableFormer tables, reading order).
+  document_markdown?: string | null;
 }
 
 export interface Node2ProcessResponse {

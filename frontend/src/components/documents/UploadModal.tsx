@@ -19,6 +19,26 @@ const DOC_TYPES: DocumentType[] = [
   'Miscellaneous',
 ];
 
+// Mirrors config/doc_types.py's DOC_TYPE_ALIASES canonical keys, so a doc_id minted here as
+// "DOC-{caseId}-{slug}" carries a slug that app/services/registry/resolver.py's
+// resolve_synthetic_alias() can actually match against (it maps this slug through the same
+// canonical-type/substring logic). A bare timestamp carried no semantic info, so that
+// fallback silently missed and every such lookup 404'd.
+const DOC_TYPE_SLUGS: Record<DocumentType, string> = {
+  'Application Form': 'application_form',
+  PAN: 'pan',
+  Aadhaar: 'aadhaar',
+  KYC: 'aadhaar', // backend alias "kyc_address_proof" canonicalizes to "aadhaar"
+  KFS: 'kfs',
+  'Sanction Letter': 'sanction_letter',
+  'Loan Agreement': 'loan_agreement',
+  'Disbursal Memo': 'disbursal_memo',
+  'BT Details': 'bt_details',
+  'Aadhaar XML': 'aadhaar_xml',
+  'VKYC Audit Trail': 'vkyc',
+  Miscellaneous: 'miscellaneous',
+};
+
 type FileStatus = 'QUEUED' | 'UPLOADING' | 'DONE' | 'FAILED';
 
 interface QueuedFile {
@@ -27,6 +47,7 @@ interface QueuedFile {
   docType: DocumentType;
   status: FileStatus;
   progress: number;
+  error?: string;
 }
 
 let fid = 0;
@@ -97,15 +118,17 @@ export function UploadModal({
     for (const qf of pending) {
       setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'UPLOADING', progress: 40 } : f)));
       try {
+        const docId = selectedCase
+          ? `DOC-${selectedCase}-${DOC_TYPE_SLUGS[qf.docType]}`
+          : `DOC-${Date.now().toString().slice(-6)}`;
         const res = await node2Api.uploadAndProcess(
           qf.file,
-          undefined, // Let backend derive canonical ID matching pipeline conventions
+          docId,
           undefined,
           selectedCase || undefined,
           qf.docType,
         );
 
-        const resolvedDocId = res.document_id;
         setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'DONE', progress: 100 } : f)));
 
         // Create DocumentRecord from actual Node 2 pipeline response
@@ -120,7 +143,7 @@ export function UploadModal({
           const pageCount = 1;
           const vlmUsed = false;
           newDoc = {
-            id: resolvedDocId,
+            id: docId,
             name: qf.file.name,
             type: qf.docType,
             pages: pageCount,
@@ -132,7 +155,7 @@ export function UploadModal({
             caseId: selectedCase || 'GENERAL',
             sizeKb: Math.round(qf.file.size / 1024),
             extractedFields: [
-              { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: resolvedDocId, page: 1 },
+              { id: 'f-1', name: 'Document Title', value: qf.file.name, confidence: 98, sourceDocumentId: docId, page: 1 },
             ],
             processingSteps: [
               {
@@ -160,7 +183,13 @@ export function UploadModal({
         onUploaded?.();
       } catch (err: any) {
         console.error('Node 2 processing failed:', err);
-        setQueue((q) => q.map((f) => (f.id === qf.id ? { ...f, status: 'FAILED', progress: 0 } : f)));
+        const message =
+          err?.status === 0 || err?.code === 'NetworkError' || err?.name === 'TypeError'
+            ? 'Cannot reach the document service. Check that the IDP backend is running.'
+            : err?.message || 'Upload failed.';
+        setQueue((q) =>
+          q.map((f) => (f.id === qf.id ? { ...f, status: 'FAILED', progress: 0, error: message } : f)),
+        );
       }
     }
   };
@@ -275,9 +304,17 @@ export function UploadModal({
                           <CheckCircle2 className="h-3.5 w-3.5" /> Uploaded
                         </span>
                       )}
+                      {f.status === 'FAILED' && (
+                        <span className="chip bg-discrepancy-50 text-discrepancy-700">
+                          <AlertTriangle className="h-3.5 w-3.5" /> Failed
+                        </span>
+                      )}
                     </div>
+                    {f.status === 'FAILED' && f.error && (
+                      <p className="text-xs text-discrepancy-600 mt-1.5">{f.error}</p>
+                    )}
                   </div>
-                  {f.status === 'QUEUED' && (
+                  {(f.status === 'QUEUED' || f.status === 'FAILED') && (
                     <button
                       onClick={() => removeFile(f.id)}
                       className="btn-ghost p-1 text-ink-400 hover:text-discrepancy-600"

@@ -4,8 +4,9 @@ import type {
   Node2ProcessResponse,
   Node2ParsedDocument,
 } from '@/types';
+import { UNAUTHORIZED_EVENT } from '@/services/apiClient';
+import { API_BASE_URL } from '@/config';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
 
 export class ApiError extends Error {
   status: number;
@@ -23,6 +24,7 @@ export class ApiError extends Error {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     let errMessage = `HTTP Error ${res.status}: ${res.statusText}`;
     let code: string | undefined;
     let details: string | undefined;
@@ -58,6 +60,7 @@ export const node2Api = {
     try {
       const res = await fetch(`${API_BASE_URL}/health`, {
         method: 'GET',
+        credentials: 'include',
         headers: { Accept: 'application/json' },
       });
       return await handleResponse<Node2HealthResponse>(res);
@@ -71,8 +74,9 @@ export const node2Api = {
    * Process a document registered in S3 by document_id and s3_key.
    */
   async processDocument(req: Node2ProcessRequest): Promise<Node2ProcessResponse> {
-    const res = await fetch(`${API_BASE_URL}/api/v1/documents/process`, {
+    const res = await fetch(`${API_BASE_URL}/v1/documents/process`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -90,8 +94,7 @@ export const node2Api = {
     documentId?: string,
     s3Bucket?: string,
     caseId?: string,
-    docType?: string,
-    enqueueTask?: boolean
+    docType?: string
   ): Promise<Node2ProcessResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -99,10 +102,10 @@ export const node2Api = {
     if (s3Bucket) formData.append('s3_bucket', s3Bucket);
     if (caseId) formData.append('case_id', caseId);
     if (docType) formData.append('doc_type', docType);
-    if (enqueueTask !== undefined) formData.append('enqueue_task', String(enqueueTask));
 
-    const res = await fetch(`${API_BASE_URL}/api/v1/documents/upload`, {
+    const res = await fetch(`${API_BASE_URL}/v1/documents/upload`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     });
     return handleResponse<Node2ProcessResponse>(res);
@@ -112,8 +115,9 @@ export const node2Api = {
    * Retrieve ParsedDocument JSON output for a given document_id.
    */
   async getDocument(documentId: string): Promise<Node2ParsedDocument> {
-    const res = await fetch(`${API_BASE_URL}/api/v1/documents/${encodeURIComponent(documentId)}`, {
+    const res = await fetch(`${API_BASE_URL}/v1/documents/${encodeURIComponent(documentId)}`, {
       method: 'GET',
+      credentials: 'include',
       headers: { Accept: 'application/json' },
     });
     return handleResponse<Node2ParsedDocument>(res);

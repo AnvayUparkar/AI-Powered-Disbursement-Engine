@@ -39,14 +39,6 @@ export function adaptNode2DocumentToRecord(
   const tables = parsed.tables || [];
   const vlmUsed = parsed.processing?.vlm_used || false;
 
-  // Real average confidence of VLM-corrected elements, for the VLM Fallback step badge
-  const vlmCorrectedConfs = elements
-    .filter((e: any) => e.source === 'vlm_corrected' && e.confidence !== undefined && e.confidence !== null)
-    .map((e: any) => (e.confidence <= 1.0 ? e.confidence * 100 : e.confidence));
-  const vlmFallbackConfidence = vlmCorrectedConfs.length > 0
-    ? Math.round((vlmCorrectedConfs.reduce((acc: number, c: number) => acc + c, 0) / vlmCorrectedConfs.length) * 10) / 10
-    : undefined;
-
   // Dynamically resolve caseId from source path or metadata if not explicitly provided
   let resolvedCaseId = caseId;
   if (!resolvedCaseId) {
@@ -77,30 +69,18 @@ export function adaptNode2DocumentToRecord(
     }
   }
 
-  const fieldLocations = (parsed as any).custom_metadata?.field_locations || (parsed as any).processing?.custom_metadata?.field_locations;
-
   if (llmFields && typeof llmFields === 'object') {
     Object.entries(llmFields).forEach(([k, v]) => {
       if (v !== null && v !== undefined && typeof v !== 'object') {
-        const fl = fieldLocations?.[k];
-        const rawConf = fl?.confidence ?? 0.98;
-        const llmConf = Math.round(rawConf <= 1.0 ? rawConf * 100 : rawConf);
         extractedFields.push({
           id: `llm-${docId}-${k}`,
           name: k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
           value: String(v),
-          confidence: llmConf,
+          confidence: 99.0,
           sourceDocumentId: docId,
-          page: fl?.page ?? 1,
+          page: 1,
           type: 'key_value',
           source: 'OPENROUTER_LLM',
-          bbox: fl?.bbox,
-          locationStatus: fl?.location_status,
-          matchedText: fl?.matched_text,
-          matchConfidence: fl?.match_confidence,
-          reason: fl?.reason,
-          matchStrategy: fl?.match_strategy,
-          candidates: fl?.candidates,
         });
       }
     });
@@ -110,8 +90,7 @@ export function adaptNode2DocumentToRecord(
   elements.forEach((e, idx) => {
     if (!e.text || !e.text.trim()) return;
 
-    const rawConf = e.confidence ?? 0.95;
-    const conf = Math.round(rawConf <= 1.0 ? rawConf * 100 : rawConf);
+    const conf = Math.round(e.confidence <= 1.0 ? e.confidence * 100 : e.confidence);
     const source = e.source || 'docling_ocr';
 
     if (e.text.includes(':') || e.text.includes('=')) {
@@ -153,32 +132,89 @@ export function adaptNode2DocumentToRecord(
 
   // 2. Process tables
   tables.forEach((tbl, tIdx) => {
-    const rawTblConf = (tbl as any).confidence ?? 0.95;
-    const conf = Math.round(rawTblConf <= 1.0 ? rawTblConf * 100 : rawTblConf);
+    // TableFormer's own confidence for the region this grid was built from. Falls back to
+    // n/a (undefined), never a fabricated placeholder, when Docling reported none (e.g. the
+    // page's layout cluster didn't overlap this table closely enough to attribute a score).
+    const tblConf = tbl.table_confidence != null ? Math.round(tbl.table_confidence * 1000) / 10 : undefined;
     extractedFields.push({
       id: tbl.id || `table-${tIdx + 1}`,
       name: `Table (Page ${tbl.page_number})`,
       value: `${tbl.num_rows} rows x ${tbl.num_cols} cols`,
-      confidence: conf,
+      confidence: tblConf ?? 95,
       sourceDocumentId: docId,
       page: tbl.page_number,
       type: 'table',
       source: 'docling',
       headers: tbl.headers,
       rows: tbl.rows_raw,
+      // Without these the viewer has nothing to draw: pageFields requires f.bbox for the
+      // table's own outline, and pageTableCells requires f.cells for the per-cell overlay.
+      // Both were being dropped here even though the backend already normalizes and sends
+      // them (DocumentSerializer.build_unified_document normalizes table.bbox and every
+      // cell.bbox to the same 0-1 space as element bboxes).
+      bbox: tbl.bbox || undefined,
+      // Without this, renderRawTextWithTableMarkdown() in DocumentViewer never finds a
+      // markdown rendering for this table and falls back to the flat "[TABLE] a | b | c
+      // [/TABLE]" block in the Raw Text tab instead of a properly formatted table.
+      markdown: tbl.markdown || undefined,
+      cells: (tbl.cells || []).map((c) => ({
+        row_index: c.row_index,
+        col_index: c.col_index,
+        row_span: c.row_span,
+        col_span: c.col_span,
+        text: c.text,
+        is_header: c.is_header,
+        bbox: c.bbox || undefined,
+        confidence: c.confidence,
+      })),
     });
   });
 
-  // Calculate dynamic average confidence
-  const avgConfFromMetrics = parsed.processing?.metrics?.average_confidence;
-  const computedFieldAvg = extractedFields.length > 0
-    ? extractedFields.reduce((acc, f) => acc + (f.confidence || 0), 0) / extractedFields.length
-    : (vlmUsed ? 91.0 : 95.0);
-  const docConfidence = (parsed as any).confidence
-    ? ((parsed as any).confidence <= 1.0 ? (parsed as any).confidence * 100 : (parsed as any).confidence)
-    : (avgConfFromMetrics
-      ? (avgConfFromMetrics <= 1.0 ? avgConfFromMetrics * 100 : avgConfFromMetrics)
-      : Math.round(computedFieldAvg * 10) / 10);
+  // Docling's own per-stage scores (0-1 -> %), surfaced as-is from the real layout/OCR/
+  // TableFormer models rather than a hardcoded placeholder. undefined (not 0) when a
+  // stage genuinely didn't run, so the UI can render "n/a" instead of a fake number.
+  const layoutScorePct = parsed.layout_score != null ? Math.round(parsed.layout_score * 1000) / 10 : undefined;
+  const ocrScorePct = parsed.ocr_score != null ? Math.round(parsed.ocr_score * 1000) / 10 : undefined;
+  const tableScorePct = parsed.table_score != null ? Math.round(parsed.table_score * 1000) / 10 : undefined;
+  const hasTables = tables.length > 0;
+
+  const processingSteps: DocumentRecord['processingSteps'] = [
+    {
+      id: 'step-1',
+      component: 'Docling',
+      status: 'COMPLETED',
+      detail: `Docling parsed layout structure (${parsed.processing?.metrics?.docling_processing_time ?? 0.15}s)`,
+      startedAt: new Date().toLocaleTimeString(),
+      confidence: layoutScorePct,
+    },
+    {
+      id: 'step-2',
+      component: 'PaddleOCR',
+      status: 'COMPLETED',
+      detail: `RapidOCR PP-OCRv6 extracted text (${parsed.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
+      startedAt: new Date().toLocaleTimeString(),
+      confidence: ocrScorePct,
+    },
+  ];
+  if (hasTables) {
+    processingSteps.push({
+      id: 'step-2b',
+      component: 'TableFormer',
+      status: 'COMPLETED',
+      detail: `TableFormer reconstructed ${tables.length} table(s)`,
+      startedAt: new Date().toLocaleTimeString(),
+      confidence: tableScorePct,
+    });
+  }
+  processingSteps.push({
+    id: 'step-3',
+    component: 'VLM Fallback',
+    status: vlmUsed ? 'COMPLETED' : 'SKIPPED',
+    detail: vlmUsed
+      ? `VLM verified ${parsed.processing?.metrics?.vlm_fallback_count ?? 1} low-confidence region(s)`
+      : 'Quality Router score passed threshold (VLM fallback not required)',
+    startedAt: new Date().toLocaleTimeString(),
+  });
 
   return {
     id: docId,
@@ -187,46 +223,24 @@ export function adaptNode2DocumentToRecord(
     pages: pageCount,
     ocrStatus: 'COMPLETED',
     extractionStatus: 'COMPLETED',
-    confidence: docConfidence,
+    // Real OCR score is this document's best single confidence signal; layout_score is
+    // the fallback when OCR didn't run (e.g. a native-text PDF). Only when Docling
+    // reported neither (older cached results, mock data) does this fall back to a
+    // static estimate.
+    confidence: ocrScorePct ?? layoutScorePct ?? (vlmUsed ? 91.0 : 96.5),
     vlmUsed: vlmUsed,
     uploadedAt: new Date().toISOString().split('T')[0],
     caseId: resolvedCaseId || 'Unassigned',
     sizeKb: Math.round((parsed.processing?.file_size_bytes || 240000) / 1024),
     extractedFields: extractedFields,
-    processingSteps: [
-      {
-        id: 'step-1',
-        component: 'Docling',
-        status: 'COMPLETED',
-        detail: `Docling parsed layout structure (${parsed.processing?.metrics?.docling_processing_time ?? 0.15}s)`,
-        startedAt: new Date().toLocaleTimeString(),
-        confidence: Math.round(docConfidence * 10) / 10,
-      },
-      {
-        id: 'step-2',
-        component: 'PaddleOCR',
-        status: 'COMPLETED',
-        detail: `RapidOCR PP-OCRv6 extracted text (${parsed.processing?.metrics?.ocr_processing_time ?? 0.65}s)`,
-        startedAt: new Date().toLocaleTimeString(),
-        confidence: Math.round((parsed.processing?.metrics?.average_confidence ? (parsed.processing.metrics.average_confidence <= 1.0 ? parsed.processing.metrics.average_confidence * 100 : parsed.processing.metrics.average_confidence) : docConfidence) * 10) / 10,
-      },
-      {
-        id: 'step-3',
-        component: 'VLM Fallback',
-        status: vlmUsed ? 'COMPLETED' : 'SKIPPED',
-        detail: vlmUsed
-          ? `VLM verified ${parsed.processing?.metrics?.vlm_fallback_count ?? 1} low-confidence region(s)`
-          : 'Quality Router score passed threshold (VLM fallback not required)',
-        startedAt: new Date().toLocaleTimeString(),
-        confidence: vlmUsed ? (vlmFallbackConfidence ?? docConfidence) : undefined,
-      },
-    ],
+    processingSteps,
     rawText: (parsed as any).raw_text || (parsed as any).rawText || parsed.text || '',
     formattedText: (() => {
       if ((parsed as any).formatted_text) return (parsed as any).formatted_text;
       if ((parsed as any).formattedText) return (parsed as any).formattedText;
       return llmFields && typeof llmFields === 'object' ? JSON.stringify(llmFields, null, 2) : '';
     })(),
+    documentMarkdown: (parsed as any).document_markdown || (parsed as any).documentMarkdown || undefined,
   };
 
 }
