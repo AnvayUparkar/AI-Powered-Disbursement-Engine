@@ -5,6 +5,7 @@ import logging
 from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import time
 import httpx
 from app.auth import internal_headers
 
@@ -36,6 +37,7 @@ from idp.services.extraction.field_location_resolver import FieldLocationResolve
 from idp.services.output.serializer import DocumentSerializer
 from pipeline.engines.llm_field_extractor import format_template_json, llm_extract_fields
 from pipeline.utils.image_normalizer import ensure_png_for_idp
+from idp.utils.timing import record_document
 
 logger = logging.getLogger("disbursement_pipeline.idp_scan")
 
@@ -167,6 +169,8 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         "_formatted_text": formatted_json,
         "formattedText": formatted_json,
         "documentMarkdown": getattr(parsed, "document_markdown", None),
+        # Which OCR engine produced the text; case_scanner turns this into the UI's ocrEngine field.
+        "_processing": parsed.processing.model_dump(include={"ocr_engine", "ocr_model", "page_count", "metrics"}) if parsed.processing else None,
         "_pages": len(parsed.pages),
         "_elements_count": len(parsed.elements),
         "_components": components,
@@ -326,6 +330,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
     # Process binary documents with ThreadPoolExecutor (governed by MAX_DOC_WORKERS)
     if binary_tasks:
         worker_count = min(len(binary_tasks), MAX_DOC_WORKERS) if MAX_DOC_WORKERS > 0 else 1
+        doc_sources: Dict[str, str] = {}  # doc_key -> cache | idp | xml_local | pyhanko | failed
 
         def _worker_task(task_tuple: Tuple[str, Path, str, str]) -> Tuple[str, Path, str, Optional[Dict[str, Any]]]:
             fname, fpath, doc_key, doc_id = task_tuple
@@ -348,6 +353,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
                                         cached_data["loan_agreement_signed"] = bool(sig_res.get("is_acceptable", False))
                                     except Exception as sig_err:
                                         logger.warning("pyHanko signature inspection failed on cache hit for %s: %s", fname, sig_err)
+                            doc_sources[doc_key] = "cache"
                             return fname, fpath, doc_key, cached_data
                     except Exception as cache_read_err:
                         logger.debug("Failed reading cached IDP extraction for %s: %s", doc_key, cache_read_err)
@@ -411,10 +417,13 @@ def idp_scan(state: PipelineState) -> PipelineState:
                         },
                         "_field_locations": {},
                     }
+                    doc_sources[doc_key] = "pyhanko"
                     return fname, fpath, doc_key, scan_res
 
                 # Standard IDP OCR processing for non-agreement documents (KYC, Statements, KFS, etc.)
                 scan_res = _process_single_document(fpath, doc_id=doc_id, doc_key=doc_key)
+                is_xml = fpath.suffix.lower() == ".xml" or doc_key == "aadhaar_xml"
+                doc_sources[doc_key] = ("xml_local" if is_xml else "idp") if scan_res else "failed"
                 # Aadhaar XML presence is proven by the file being classified as aadhaar_xml —
                 # the LLM cannot infer this from raw UIDAI XML tag content, so force it here.
                 if scan_res and doc_key == "aadhaar_xml":
@@ -422,11 +431,26 @@ def idp_scan(state: PipelineState) -> PipelineState:
                 return fname, fpath, doc_key, scan_res
             except Exception as scan_err:
                 logger.warning("Error processing %s: %s", fname, scan_err)
+                doc_sources[doc_key] = "failed"
                 return fname, fpath, doc_key, None
+
+        def _timed_worker_task(task_tuple: Tuple[str, Path, str, str]) -> Tuple[str, Path, str, Optional[Dict[str, Any]]]:
+            """_worker_task plus a per-document entry in the run's timing summary."""
+            started = time.perf_counter()
+            result = _worker_task(task_tuple)
+            doc_key, scan_res = result[2], result[3]
+            source = doc_sources.get(doc_key, "failed")
+            record_document(
+                doc_key,
+                source,
+                time.perf_counter() - started,
+                (scan_res or {}).get("_processing") if source == "idp" else None,
+            )
+            return result
 
         if worker_count > 1:
             with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="idp_doc_worker") as executor:
-                futures = [executor.submit(_worker_task, task) for task in binary_tasks]
+                futures = [executor.submit(_timed_worker_task, task) for task in binary_tasks]
                 for future in futures:
                     fname, fpath, doc_key, scan_res = future.result()
                     if scan_res:
@@ -434,7 +458,7 @@ def idp_scan(state: PipelineState) -> PipelineState:
                         save_s3_extracted(loan_id, doc_key, scan_res)
         else:
             for task in binary_tasks:
-                fname, fpath, doc_key, scan_res = _worker_task(task)
+                fname, fpath, doc_key, scan_res = _timed_worker_task(task)
                 if scan_res:
                     extracted_data[doc_key] = scan_res
                     save_s3_extracted(loan_id, doc_key, scan_res)

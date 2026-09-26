@@ -20,8 +20,6 @@ PyMuPDF>=1.28.2
 pypdf>=6.16.2
 boto3>=1.43.87
 pytesseract>=0.3.13
-transformers>=5.0.0
-torch>=2.4.0
 
 # ── Verification Engine ────────────────────────────────────────
 pyhanko>=0.37.0

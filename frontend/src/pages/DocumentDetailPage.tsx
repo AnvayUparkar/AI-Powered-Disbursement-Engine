@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Sparkles } from 'lucide-react';
 import { DocumentViewer } from '@/components/documents/DocumentViewer';
 import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
+import { OcrEngineBadge } from '@/components/documents/OcrEngineBadge';
+import { DocumentTimingPanel } from '@/components/pipeline/TimingBreakdown';
 import { Skeleton, CardSkeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
@@ -78,6 +80,7 @@ export default function DocumentDetailPage() {
             <p className="text-xs text-ink-500">Confidence</p>
             <div className="w-32 mt-0.5"><ConfidenceBar value={doc.confidence} /></div>
           </div>
+          <OcrEngineBadge info={doc.ocrEngine} />
           {doc.vlmUsed && (
             <span className="chip bg-review-50 text-review-700"><Sparkles className="h-3.5 w-3.5" /> VLM used</span>
           )}
@@ -89,7 +92,10 @@ export default function DocumentDetailPage() {
           <DocumentViewer document={doc} />
         </div>
         <div>
-          <ProcessingPipeline steps={doc.processingSteps} />
+          <div className="space-y-5">
+            <ProcessingPipeline steps={doc.processingSteps} />
+            <DocumentTimingPanel timing={doc.timing} />
+          </div>
         </div>
       </div>
     </div>

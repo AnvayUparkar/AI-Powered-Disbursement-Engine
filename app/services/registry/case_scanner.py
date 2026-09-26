@@ -12,7 +12,7 @@ from config.tenant import current_tenant_id
 from pipeline.engines.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
-from .normalizer import build_default_extracted_fields
+from .normalizer import build_default_extracted_fields, build_document_timing, build_lightonocr_processing_step, build_ocr_engine_info
 from .resolver import guess_doc_type
 
 logger = logging.getLogger("disbursement_pipeline.document_registry.case_scanner")
@@ -188,6 +188,9 @@ def _build_case_document_record(
         or struct_data.get("_raw_text")
     )
 
+    # Engine that produced the text, recorded by idp_scan.build_idp_result_from_parsed ("_processing").
+    ocr_engine = build_ocr_engine_info(ext_data.get("_processing") or struct_data.get("_processing"))
+
     document_markdown = (
         ext_data.get("documentMarkdown")
         or ext_data.get("document_markdown")
@@ -357,7 +360,9 @@ def _build_case_document_record(
             "ocr_tokens": ocr_tokens,
             "page_dimensions": struct_data.get("page_dimensions", []),
         },
-        "processingSteps": [
+        "ocrEngine": ocr_engine,
+        "timing": build_document_timing(ext_data.get("_processing") or struct_data.get("_processing")),
+        "processingSteps": [build_lightonocr_processing_step(doc_id, ocr_engine)] if ocr_engine and ocr_engine.get("engine") == "lightonocr" else [
             {
                 "id": f"stp-{doc_id}-1",
                 "component": "PaddleOCR",

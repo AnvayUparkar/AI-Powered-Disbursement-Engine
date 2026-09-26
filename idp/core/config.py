@@ -98,13 +98,24 @@ class Settings(BaseSettings):
     # is too aggressive for a specific document class in staging).
     ENABLE_SCAN_PREPROCESSING: bool = True
 
-    # LightOnOCR Configuration (for scanned pages)
+    # Record Docling's own per-model timings (layout, OCR, TableFormer, page parse) for the
+    # per-document timing summary. Docling only stores timestamps when this is on.
+    DOCLING_PROFILE_TIMINGS: bool = True
+
+    # LightOnOCR Configuration (for scanned pages). Always served by the LiteLLM gateway
+    # (OpenAI-compatible /chat/completions with the page image); never loaded in-process.
     LIGHTONOCR_ENABLED: bool = False
-    LIGHTONOCR_MODEL: str = "lightonai/LightOnOCR-2-1B"
-    LIGHTONOCR_DEVICE: str = "auto"  # "auto", "cpu", "cuda"
-    LIGHTONOCR_LAZY_LOAD: bool = True
-    LIGHTONOCR_TIMEOUT_SECONDS: int = 60
+    LIGHTONOCR_MODEL: str = "lightonai/LightOnOCR-2-1B"  # model_name alias LiteLLM exposes (GET /v1/models)
+    LIGHTONOCR_BASE_URL: Optional[str] = None  # LiteLLM gateway ending in /v1; falls back to LLM_BASE_URL
+    LIGHTONOCR_API_KEY: Optional[str] = None  # LiteLLM virtual key; falls back to LLM_API_KEY
+    LIGHTONOCR_TIMEOUT_SECONDS: int = 60  # per page request
+    LIGHTONOCR_MAX_TOKENS: int = 4096  # completion budget per page
     LIGHTONOCR_QUALITY_THRESHOLD: float = 0.40  # Below this -> VLM fallback
+    LIGHTONOCR_LOG_TEXT_PREVIEW: bool = False  # log first 300 chars of OCR text (contains KYC data)
+
+    # LiteLLM gateway shared with pipeline/engines/llm_client.py; used as the LightOnOCR fallback.
+    LLM_BASE_URL: Optional[str] = None
+    LLM_API_KEY: Optional[str] = None
 
 
 settings = Settings()

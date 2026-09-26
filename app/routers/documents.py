@@ -59,6 +59,23 @@ def _generate_fallback_pdf(title: str, case_id: str) -> bytes:
         return b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 595 842]/Parent 2 0 R>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\n0000000108 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF\n"
 
 
+@router.delete("/{doc_id}", summary="Delete a single document and its stored OCR output")
+def delete_document(doc_id: str):
+    """
+    Permanently delete one document (a General upload or a document inside a case).
+    """
+    result = document_registry.delete_document(doc_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+    return {
+        "status": "deleted",
+        "documentId": doc_id,
+        "caseId": result["caseId"],
+        "pathsDeleted": len(result["deleted"]),
+        "errors": result["errors"],
+    }
+
+
 @router.get("/preview/{case_id}/{doc_name}", summary="Preview document stream")
 def preview_document(
     case_id: str,

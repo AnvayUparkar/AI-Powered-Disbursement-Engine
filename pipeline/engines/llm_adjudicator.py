@@ -93,6 +93,7 @@ def llm_adjudicate(value_a: Any, value_b: Any, field_type: str, loan_id: str) ->
             temperature=temperature,
             max_tokens=1024,
             timeout=30.0,
+            purpose="adjudication",
         )
 
         status = parsed.get("match_status", "PARTIAL").upper()

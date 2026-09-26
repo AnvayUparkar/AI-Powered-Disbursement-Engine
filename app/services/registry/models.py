@@ -51,6 +51,11 @@ class DocumentRecord(TypedDict, total=False):
     sizeKb: int
     extractedFields: List[Dict[str, Any]]
     processingSteps: List[Dict[str, Any]]
+    # Which OCR engine produced the text (e.g. {"engine": "lightonocr", "label": "LightOnOCR via LiteLLM", ...});
+    # None when unknown. Built by registry.normalizer.build_ocr_engine_info.
+    ocrEngine: Optional[Dict[str, Any]]
+    # Per-stage seconds from the idp pod ({stages: [{stage, seconds}], totalSeconds, doclingModels}); None if not recorded.
+    timing: Optional[Dict[str, Any]]
     rawText: str
     formattedText: str
     debug: Dict[str, Any]

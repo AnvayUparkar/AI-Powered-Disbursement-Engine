@@ -18,6 +18,8 @@ from idp.services.extraction.comb_box_detector import CombBoxDetector
 from idp.utils.image_utils import normalize_bbox
 from idp.core.exceptions import SerializationError
 from idp.core.logging import logger, format_doc_log
+from idp.core.config import settings
+from idp.services.ocr.lightonocr_engine import LIGHTONOCR_ENGINE_ID
 
 
 class TableShapeDecision(str, Enum):
@@ -583,6 +585,10 @@ class DocumentSerializer:
             else:
                 metrics.average_confidence = 0.95
 
+            # Pages sent down the LightOnOCR route (succeeded or failed) mean that route replaced
+            # Docling+RapidOCR for this document, so report the engine that actually ran.
+            used_lightonocr = (metrics.lightonocr_pages_processed + metrics.lightonocr_pages_failed) > 0
+
             proc_meta = ProcessingMetadata(
                 document_id=doc_id,
                 processing_id=f"proc-{doc_id}",
@@ -591,8 +597,8 @@ class DocumentSerializer:
                 file_size_bytes=file_size_bytes,
                 page_count=page_count,
                 docling_used=docling_used,
-                ocr_engine="docling_rapidocr",
-                ocr_model="PP-OCRv6_MEDIUM",
+                ocr_engine=LIGHTONOCR_ENGINE_ID if used_lightonocr else "docling_rapidocr",
+                ocr_model=settings.LIGHTONOCR_MODEL if used_lightonocr else "PP-OCRv6_MEDIUM",
                 vlm_used=vlm_used,
                 vlm_provider=vlm_provider,
                 metrics=metrics

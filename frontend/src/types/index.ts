@@ -34,6 +34,7 @@ export type ProcessingComponent =
   | 'Docling'
   | 'PaddleOCR'
   | 'TableFormer'
+  | 'LightOnOCR'
   | 'VLM Fallback'
   | 'Field Extraction'
   | 'Validation'
@@ -170,7 +171,58 @@ export interface DocumentRecord {
   // Whole-document Docling export_to_markdown() (text + TableFormer tables, reading order) —
   // a single readable view, distinct from rawText's flat OCR text with embedded [TABLE] markers.
   documentMarkdown?: string;
+  /** Which OCR engine produced this document's text. Absent when unknown (older results, XML). */
+  ocrEngine?: OcrEngineInfo | null;
+  /** Per-stage seconds recorded by the idp pod; absent for documents processed before timing existed. */
+  timing?: DocumentTiming | null;
   debug?: DocumentDebugInfo;
+}
+
+export interface StageTiming {
+  stage: string;
+  seconds: number;
+}
+
+export interface DocumentTiming {
+  stages: StageTiming[];
+  totalSeconds: number;
+  /** Docling's own per-model totals (layout, ocr, table_structure, ...), summed across pages. */
+  doclingModels?: Record<string, number>;
+}
+
+/** s3_result/<id>/timing_summary.json, written at the end of each pipeline run. */
+export interface RunTimingSummary {
+  loan_id: string;
+  entry: string;
+  started_at: string;
+  finished_at: string;
+  total_seconds: number;
+  nodes: { node: string; seconds: number }[];
+  checkers: Record<string, number>;
+  documents: {
+    doc_key: string;
+    source: string;
+    seconds: number;
+    ocr_engine?: string | null;
+    idp_stages: Record<string, number>;
+    docling_models: Record<string, number>;
+    wait_seconds: number;
+    llm_structure_seconds?: number | null;
+  }[];
+  llm_calls: { count: number; failed: number; by_purpose: Record<string, number> };
+  services: { service: string; seconds: number }[];
+}
+
+export interface OcrEngineInfo {
+  engine: 'lightonocr' | 'docling';
+  /** Human-readable name, e.g. "LightOnOCR via LiteLLM". */
+  label: string;
+  model?: string | null;
+  viaLiteLLM: boolean;
+  /** LightOnOCR only: scanned pages read successfully / failed, and total time. */
+  pagesProcessed?: number;
+  pagesFailed?: number;
+  seconds?: number | null;
 }
 
 
@@ -212,6 +264,8 @@ export interface Case {
   processingSteps: ProcessingStep[];
   comparisonResults?: ComparisonResult[];
   hasLosData?: boolean;
+  /** Timing summary of the last pipeline run for this case; null until one has run. */
+  timingSummary?: RunTimingSummary | null;
 }
 
 export interface ReviewItem {
@@ -372,6 +426,11 @@ export interface Node2ProcessingMetadata {
     vlm_fallback_count: number;
     ocr_low_confidence_count: number;
     total_elements_extracted: number;
+    lightonocr_processing_time?: number;
+    lightonocr_pages_processed?: number;
+    lightonocr_pages_failed?: number;
+    stage_timings?: Record<string, number>;
+    docling_model_timings?: Record<string, number>;
   };
 }
 

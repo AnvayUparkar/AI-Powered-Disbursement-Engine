@@ -39,10 +39,19 @@ class LightOnOCRAdapter:
         Returns:
             OCRResult or None on failure
         """
+        logger.info(format_doc_log(
+            doc_id,
+            f"LightOnOCR page {page_number}: sending {image_width:.0f}x{image_height:.0f} page image to LiteLLM"
+        ))
+
         # Run LightOnOCR
         lightonocr_result = self.engine.process_page(image_bytes, page_number, doc_id)
-        
+
         if lightonocr_result is None:
+            logger.warning(format_doc_log(
+                doc_id,
+                f"LightOnOCR page {page_number}: no result from gateway - page marked extraction_failed"
+            ))
             return self._create_failed_ocr_result(page_number, image_width, image_height)
         
         # Check quality
@@ -62,6 +71,11 @@ class LightOnOCRAdapter:
             )
         
         # Quality OK - return result
+        logger.info(format_doc_log(
+            doc_id,
+            f"LightOnOCR page {page_number}: accepted (quality {lightonocr_result.quality_score:.2f} "
+            f">= {self.quality_threshold}, {len(lightonocr_result.text.strip())} chars)"
+        ))
         return self._convert_to_ocr_result(
             lightonocr_result,
             page_number,

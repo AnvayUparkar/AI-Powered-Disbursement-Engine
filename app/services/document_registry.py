@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from config.tenant import current_tenant_id
 
 from .registry.case_scanner import (
+    _find_extracted_and_structured_files,
     enrich_document_record,
     invalidate_case_cache,
     scan_case_documents,
@@ -72,6 +73,7 @@ class DocumentRegistry:
                 parsed_result=parsed_result,
                 uploaded_at=uploaded_at,
                 uploaded_timestamp=uploaded_timestamp,
+                status=status,
             )
             if status:
                 record["status"] = status
@@ -245,6 +247,86 @@ class DocumentRegistry:
             # Canonical alias fallback for synthetic references (e.g. doc-LOAN_004-sanction)
             all_candidates = list(reversed(list(self._dynamic_docs.values()))) + case_docs
             return resolve_synthetic_alias(doc_id, all_candidates)
+
+    def delete_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Permanently delete one document: its registry record and every stored copy of it.
+
+        Removes the idp mock-S3 raw upload and parsed JSON, and the staged raw file
+        (s3_raw/<case or GENERAL>/<name>) unless another registered document shares that file.
+        For a document that belongs to a case, also removes the case's DMS copy (otherwise the
+        next pipeline run's fetch_documents would copy it back into s3_raw) and its extracted /
+        structured OCR tier files. Existing case results in s3_result are left as they are.
+
+        Returns {"caseId", "deleted": [paths], "errors": [...]} or None when doc_id is unknown.
+        """
+        from config import DMS_DIR, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RAW_DIR
+        from config.doc_types import get_canonical_doc_type
+        from config.tenant import UnsafePathError, safe_id
+
+        with self._lock:
+            self._scan_idp_parsed_storage()
+            target_id = self._doc_aliases.get(doc_id, doc_id)
+            rec = self._dynamic_docs.get(target_id)
+            is_dynamic = rec is not None
+            if rec is None:
+                rec = next((d for d in self._get_case_documents() if d.get("id") == doc_id), None)
+            if rec is None:
+                return None
+
+            name = rec.get("name") or ""
+            case_id = (rec.get("caseId") or "GENERAL").strip() or "GENERAL"
+            deleted: List[str] = []
+            errors: List[str] = []
+
+            def _remove(path: Path) -> None:
+                try:
+                    if path.is_file():
+                        path.unlink()
+                        deleted.append(str(path))
+                except OSError as e:
+                    errors.append(f"{path}: {e}")
+
+            if is_dynamic:
+                self._delete_idp_temp_files(target_id, name)
+
+            # A filename must be a bare name before it is joined onto a storage directory.
+            if name and Path(name).name == name:
+                try:
+                    safe_id(case_id, "case_id")
+                except UnsafePathError as e:
+                    errors.append(str(e))
+                else:
+                    shared = any(
+                        d is not rec
+                        and d.get("name") == name
+                        and ((d.get("caseId") or "GENERAL").strip() or "GENERAL") == case_id
+                        for d in self._dynamic_docs.values()
+                    )
+                    if not shared:
+                        _remove(S3_RAW_DIR / case_id / name)
+                    if case_id != "GENERAL":
+                        _remove(DMS_DIR / case_id / name)
+                        doc_type = rec.get("type") or guess_doc_type(name)
+                        ext_file, struct_file = _find_extracted_and_structured_files(
+                            S3_EXTRACTED_DIR / case_id, case_id, name, doc_type
+                        )
+                        for f in (ext_file, struct_file):
+                            if f is not None:
+                                _remove(f)
+                        doc_key = get_canonical_doc_type(name)
+                        _remove(S3_EXTRACTED_STRUCTURED_DIR / case_id / f"{doc_key}.json")
+                        # idp_scan processes case files under the id "<case>_<doc_key>".
+                        self._delete_idp_temp_files(f"{case_id}_{doc_key}", None)
+            elif name:
+                errors.append(f"Refusing to delete files for unsafe document name: {name!r}")
+
+            self._dynamic_docs.pop(target_id, None)
+            for alias in [a for a, t in self._doc_aliases.items() if t == target_id or a == doc_id]:
+                del self._doc_aliases[alias]
+            invalidate_case_cache()
+            logger.info("Deleted document %s (case %s): %d file(s) removed, %d error(s)",
+                        doc_id, case_id, len(deleted), len(errors))
+            return {"caseId": case_id, "deleted": deleted, "errors": errors}
 
     def delete_case(self, case_id: str) -> int:
         """Purge registry entries for a deleted case: in-memory records/aliases, plus their

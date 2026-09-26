@@ -17,6 +17,12 @@ class ProcessingMetrics(BaseModel):
     lightonocr_pages_processed: int = 0
     lightonocr_pages_failed: int = 0
     average_confidence: float = 0.0
+    # Seconds per processing stage, in the order they ran (download, preprocess, scan_cleanup,
+    # docling | lightonocr, page_images, vlm, comb_grid, serialize, llm_field_extraction, ...).
+    stage_timings: Dict[str, float] = Field(default_factory=dict)
+    # Docling's own per-model totals from conv_result.timings (layout, ocr, table_structure, ...),
+    # summed across pages; stages overlap in Docling's threaded pipeline.
+    docling_model_timings: Dict[str, float] = Field(default_factory=dict)
 
 
 class ProcessingMetadata(BaseModel):

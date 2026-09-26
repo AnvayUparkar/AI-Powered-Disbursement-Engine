@@ -6,7 +6,93 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import IST, S3_EXTRACTED_DIR
+from idp.services.ocr.lightonocr_engine import LIGHTONOCR_ENGINE_ID
 from pipeline.engines.llm_field_extractor import format_template_json
+
+_DOCLING_ENGINE_IDS = {"docling_rapidocr", "docling_ocr"}
+
+
+def build_ocr_engine_info(processing: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Summarise which OCR engine produced a document's text, from ParsedDocument.processing.
+
+    Returns None when the document carries no engine record (older results, XML / signature
+    fast paths), so the UI shows nothing rather than guessing.
+    """
+    if not isinstance(processing, dict):
+        return None
+    engine_id = processing.get("ocr_engine")
+    metrics = processing.get("metrics") or {}
+    if engine_id == LIGHTONOCR_ENGINE_ID:
+        seconds = metrics.get("lightonocr_processing_time")
+        return {
+            "engine": "lightonocr",
+            "label": "LightOnOCR via LiteLLM",
+            "model": processing.get("ocr_model"),
+            "viaLiteLLM": True,
+            "pagesProcessed": int(metrics.get("lightonocr_pages_processed") or 0),
+            "pagesFailed": int(metrics.get("lightonocr_pages_failed") or 0),
+            "seconds": float(seconds) if seconds is not None else None,
+        }
+    if engine_id in _DOCLING_ENGINE_IDS:
+        return {
+            "engine": "docling",
+            "label": "Docling + RapidOCR",
+            "model": processing.get("ocr_model"),
+            "viaLiteLLM": False,
+        }
+    return None
+
+
+def build_document_timing(processing: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Per-document stage timings recorded by the idp pod (ProcessingMetrics.stage_timings), for the UI.
+
+    Returns None for documents processed before timings were recorded.
+    """
+    if not isinstance(processing, dict):
+        return None
+    metrics = processing.get("metrics") or {}
+    stages = metrics.get("stage_timings") or {}
+    if not stages:
+        return None
+    rows = [{"stage": k, "seconds": round(float(v), 3)} for k, v in stages.items() if isinstance(v, (int, float))]
+    return {
+        "stages": rows,
+        "totalSeconds": round(sum(r["seconds"] for r in rows), 3),
+        "doclingModels": {k: round(float(v), 3) for k, v in (metrics.get("docling_model_timings") or {}).items()
+                          if isinstance(v, (int, float))},
+    }
+
+
+def build_lightonocr_processing_step(doc_id: str, info: Dict[str, Any]) -> Dict[str, Any]:
+    """Processing step describing a LightOnOCR (via LiteLLM) pass over the scanned pages."""
+    processed = info.get("pagesProcessed", 0)
+    failed = info.get("pagesFailed", 0)
+    total = processed + failed
+    if failed == 0:
+        status = "COMPLETED"
+    elif processed == 0:
+        status = "FAILED"
+    else:
+        status = "WARNING"
+    detail = f"{info.get('model') or 'LightOnOCR'} via LiteLLM read {processed}/{total} scanned page(s)"
+    if failed:
+        detail += f", {failed} failed"
+    if info.get("seconds") is not None:
+        detail += f" ({info['seconds']:.1f}s)"
+    return {
+        "id": f"stp-{doc_id}-lightonocr",
+        "component": "LightOnOCR",
+        "status": status,
+        "detail": detail,
+        "startedAt": datetime.now().strftime("%H:%M:%S"),
+    }
+
+
+def build_processing_steps(doc_id: str, ocr_engine: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Processing steps for a document: the LightOnOCR step when that engine ran, else the defaults."""
+    if ocr_engine and ocr_engine.get("engine") == "lightonocr":
+        return [build_lightonocr_processing_step(doc_id, ocr_engine)]
+    return build_default_processing_steps(doc_id)
 
 
 def build_default_processing_steps(doc_id: str) -> List[Dict[str, Any]]:
@@ -209,12 +295,19 @@ def normalize_uploaded_record(
     parsed_result: Optional[Dict[str, Any]] = None,
     uploaded_at: Optional[str] = None,
     uploaded_timestamp: Optional[float] = None,
+    status: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create normalized DocumentRecord from uploaded data and parsing output."""
+    """Create normalized DocumentRecord from uploaded data and parsing output.
+
+    ``status`` is the upload's state while no parse result exists yet ("PROCESSING" when OCR was
+    queued, "PENDING" when the file was only staged). The registry re-reads PROCESSING records from
+    disk until the parsed JSON appears, so reporting COMPLETED here would freeze the placeholder text.
+    """
     now_ist = datetime.now(IST)
     upload_date = uploaded_at or now_ist.strftime("%Y-%m-%d %H:%M IST")
     upload_timestamp = uploaded_timestamp if uploaded_timestamp is not None else time.time()
-    processing_steps = build_default_processing_steps(doc_id)
+    ocr_engine = build_ocr_engine_info((parsed_result or {}).get("processing"))
+    processing_steps = build_processing_steps(doc_id, ocr_engine)
 
     pages_count = 1
     confidence = 95.0
@@ -261,6 +354,8 @@ def normalize_uploaded_record(
 
     ocr_status = "COMPLETED"
     extraction_status = "COMPLETED"
+    if not parsed_result and status in ("PROCESSING", "PENDING", "FAILED"):
+        ocr_status = extraction_status = status
 
     return {
         "id": doc_id,
@@ -277,6 +372,8 @@ def normalize_uploaded_record(
         "sizeKb": max(1, round(file_size_bytes / 1024)) if file_size_bytes else 45,
         "extractedFields": extracted_fields,
         "processingSteps": processing_steps,
+        "ocrEngine": ocr_engine,
+        "timing": build_document_timing((parsed_result or {}).get("processing")),
         "rawText": raw_text_val,
         "formattedText": fmt_text_val,
         "documentMarkdown": document_markdown_val,

@@ -95,6 +95,12 @@ def get_cached_converter(options: Optional[DoclingOptions] = None) -> Any:
         try:
             from docling.document_converter import DocumentConverter, PdfFormatOption
             from docling.datamodel.pipeline_options import PdfPipelineOptions
+            from docling.datamodel.settings import settings as docling_settings
+            from idp.core.config import settings as idp_settings
+
+            # Makes conv_result.timings report per-model time (layout, ocr, table_structure, ...)
+            # for the per-document timing summary. Global Docling switch; only records timestamps.
+            docling_settings.debug.profile_pipeline_timings = idp_settings.DOCLING_PROFILE_TIMINGS
 
             pipeline_options = PdfPipelineOptions()
             pipeline_options.do_ocr = options.do_ocr

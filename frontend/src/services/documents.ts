@@ -1,4 +1,4 @@
-import type { DocumentRecord, ExtractedField, Node2ParsedDocument } from '@/types';
+import type { DocumentRecord, DocumentTiming, ExtractedField, Node2ParsedDocument, OcrEngineInfo } from '@/types';
 import { documents as mockDocs } from '@/mock';
 import { apiClient } from './apiClient';
 import { node2Api } from '@/api/node2';
@@ -20,6 +20,58 @@ function guessDocType(filename?: string): DocumentRecord['type'] {
   return 'Miscellaneous';
 }
 
+// Must match idp/services/ocr/lightonocr_engine.py LIGHTONOCR_ENGINE_ID.
+const LIGHTONOCR_ENGINE_ID = 'lightonocr_litellm';
+
+/** Which OCR engine produced a document's text, from ParsedDocument.processing (mirrors the backend's
+ * app/services/registry/normalizer.build_ocr_engine_info). */
+export function ocrEngineFromProcessing(processing: Node2ParsedDocument['processing'] | undefined): OcrEngineInfo | null {
+  if (!processing?.ocr_engine) return null;
+  const m = processing.metrics;
+  if (processing.ocr_engine === LIGHTONOCR_ENGINE_ID) {
+    return {
+      engine: 'lightonocr',
+      label: 'LightOnOCR via LiteLLM',
+      model: processing.ocr_model,
+      viaLiteLLM: true,
+      pagesProcessed: m?.lightonocr_pages_processed ?? 0,
+      pagesFailed: m?.lightonocr_pages_failed ?? 0,
+      seconds: m?.lightonocr_processing_time ?? null,
+    };
+  }
+  if (processing.ocr_engine === 'docling_rapidocr' || processing.ocr_engine === 'docling_ocr') {
+    return { engine: 'docling', label: 'Docling + RapidOCR', model: processing.ocr_model, viaLiteLLM: false };
+  }
+  return null;
+}
+
+/** Per-stage timings recorded by the idp pod (mirrors normalizer.build_document_timing). */
+export function documentTimingFromProcessing(processing: Node2ParsedDocument['processing'] | undefined): DocumentTiming | null {
+  const stages = processing?.metrics?.stage_timings;
+  if (!stages || Object.keys(stages).length === 0) return null;
+  const rows = Object.entries(stages).map(([stage, seconds]) => ({ stage, seconds }));
+  return {
+    stages: rows,
+    totalSeconds: Math.round(rows.reduce((a, r) => a + r.seconds, 0) * 1000) / 1000,
+    doclingModels: processing?.metrics?.docling_model_timings || {},
+  };
+}
+
+/** Pipeline step for a LightOnOCR pass; COMPLETED, WARNING (some pages failed) or FAILED (all failed). */
+export function lightOnOcrStep(info: OcrEngineInfo, id = 'step-lightonocr'): DocumentRecord['processingSteps'][number] {
+  const processed = info.pagesProcessed ?? 0;
+  const failed = info.pagesFailed ?? 0;
+  const status = failed === 0 ? 'COMPLETED' : processed === 0 ? 'FAILED' : 'WARNING';
+  const secs = info.seconds != null ? ` (${info.seconds.toFixed(1)}s)` : '';
+  return {
+    id,
+    component: 'LightOnOCR',
+    status,
+    detail: `${info.model || 'LightOnOCR'} via LiteLLM read ${processed}/${processed + failed} scanned page(s)${failed ? `, ${failed} failed` : ''}${secs}`,
+    startedAt: new Date().toLocaleTimeString(),
+  };
+}
+
 export function adaptNode2DocumentToRecord(
   parsed: Node2ParsedDocument,
   caseId?: string
@@ -38,6 +90,7 @@ export function adaptNode2DocumentToRecord(
   const elements = parsed.elements || [];
   const tables = parsed.tables || [];
   const vlmUsed = parsed.processing?.vlm_used || false;
+  const ocrEngine = ocrEngineFromProcessing(parsed.processing);
 
   // Dynamically resolve caseId from source path or metadata if not explicitly provided
   let resolvedCaseId = caseId;
@@ -178,7 +231,9 @@ export function adaptNode2DocumentToRecord(
   const tableScorePct = parsed.table_score != null ? Math.round(parsed.table_score * 1000) / 10 : undefined;
   const hasTables = tables.length > 0;
 
-  const processingSteps: DocumentRecord['processingSteps'] = [
+  // LightOnOCR replaces Docling + RapidOCR + TableFormer for scanned pages, so it gets its own step
+  // instead of reporting stages that never ran.
+  const processingSteps: DocumentRecord['processingSteps'] = ocrEngine?.engine === 'lightonocr' ? [lightOnOcrStep(ocrEngine)] : [
     {
       id: 'step-1',
       component: 'Docling',
@@ -196,7 +251,7 @@ export function adaptNode2DocumentToRecord(
       confidence: ocrScorePct,
     },
   ];
-  if (hasTables) {
+  if (hasTables && ocrEngine?.engine !== 'lightonocr') {
     processingSteps.push({
       id: 'step-2b',
       component: 'TableFormer',
@@ -234,6 +289,8 @@ export function adaptNode2DocumentToRecord(
     sizeKb: Math.round((parsed.processing?.file_size_bytes || 240000) / 1024),
     extractedFields: extractedFields,
     processingSteps,
+    ocrEngine,
+    timing: documentTimingFromProcessing(parsed.processing),
     rawText: (parsed as any).raw_text || (parsed as any).rawText || parsed.text || '',
     formattedText: (() => {
       if ((parsed as any).formatted_text) return (parsed as any).formatted_text;
@@ -343,6 +400,16 @@ export const documentsService = {
       console.warn('API getTypes failed, falling back to mock:', e);
     }
     return Array.from(new Set(mockDocs.map((d) => d.type)));
+  },
+
+  /** Permanently delete one document (General upload or case document) and its stored OCR output. */
+  async deleteDocument(id: string): Promise<{ status: string; documentId: string; caseId: string; pathsDeleted: number; errors: string[] }> {
+    const res = await apiClient.delete<{ status: string; documentId: string; caseId: string; pathsDeleted: number; errors: string[] }>(
+      `/documents/${encodeURIComponent(id)}`,
+    );
+    const idx = mockDocs.findIndex((d) => d.id === id);
+    if (idx >= 0) mockDocs.splice(idx, 1); // drop the local stub UploadModal may have added
+    return res;
   },
 
   addUploadedDocument(doc: DocumentRecord): void {

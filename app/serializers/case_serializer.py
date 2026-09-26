@@ -564,7 +564,21 @@ def serialize_case(loan_id: str) -> dict[str, Any]:
         "documentIds": ctx.doc_ids,
         "processingSteps": proc_steps,
         "comparisonResults": ctx.records,
+        "timingSummary": _load_timing_summary(loan_id),
     }
+
+
+def _load_timing_summary(loan_id: str) -> dict[str, Any] | None:
+    """Last pipeline run's timing summary (written by pipeline.graph.finalize_run_timing), or None."""
+    path = S3_RESULT_DIR / loan_id / "timing_summary.json"
+    if not path.exists():
+        return None
+    try:
+        data = read_json(path)
+    except (OSError, ValueError) as e:
+        logger.warning("Unreadable timing summary for %s: %s", loan_id, e)
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def serialize_all_cases() -> list[dict[str, Any]]:

@@ -2,11 +2,13 @@
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Set
 
 from datetime import datetime
 from config import IST
+from config.settings import IDP_REQUEST_TIMEOUT
 from config.tenant import current_tenant_id
 from idp.core.config import settings as idp_settings
 
@@ -101,12 +103,23 @@ def scan_idp_parsed_storage(
                     mtime = None
                     up_at = None
 
+                # No parsed JSON exists for this raw upload, so it is not COMPLETED. Case uploads are only
+                # staged (the case pipeline OCRs them under its own id); a General upload is still being
+                # processed if it is younger than the OCR timeout, otherwise its OCR never finished.
+                if inferred_case:
+                    status = "PENDING"
+                elif mtime is not None and (time.time() - mtime) < IDP_REQUEST_TIMEOUT + 120:
+                    status = "PROCESSING"
+                else:
+                    status = "FAILED"
+
                 try:
                     register_func(
                         doc_id=doc_id,
                         filename=orig_filename,
                         case_id=inferred_case,
                         parsed_result=None,
+                        status=status,
                         file_size_bytes=size_bytes,
                         uploaded_at=up_at,
                         uploaded_timestamp=mtime,

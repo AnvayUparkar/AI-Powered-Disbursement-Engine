@@ -78,7 +78,7 @@ def _run_pipeline_task(self, loan_id: str) -> Dict[str, Any]:
     logger.info("Celery task %s started for loan: %s", self.request.id, loan_id)
     try:
         from pipeline.graph import run_pipeline
-        result_state = run_pipeline(loan_id)
+        result_state = run_pipeline(loan_id, entry="celery")
         scorecard = result_state.get("scorecard", {})
         logger.info(
             "Celery task %s completed for loan: %s. Decision: %s, Score: %s",

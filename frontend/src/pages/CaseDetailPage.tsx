@@ -24,6 +24,7 @@ import { DGCLScorecard } from '@/components/verification/DGCLScorecard';
 import { CheckpointDrawer } from '@/components/verification/CheckpointDrawer';
 import { PrintScorecardModal } from '@/components/verification/PrintScorecardModal';
 import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
+import { RunTimingPanel } from '@/components/pipeline/TimingBreakdown';
 import { UploadModal } from '@/components/documents/UploadModal';
 import { casesService, reviewService } from '@/services';
 import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
@@ -395,6 +396,8 @@ export default function CaseDetailPage() {
                 : c.processingSteps.filter((s) => s.component !== 'Validation' && s.component !== 'DGCL Engine')
             }
           />
+
+          <RunTimingPanel summary={c.timingSummary} />
 
           {reviews.length > 0 && (
             <div className="card p-4">

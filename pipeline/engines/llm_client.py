@@ -12,11 +12,14 @@ using standard configuration variables:
 from __future__ import annotations
 
 import json
+import time
 import logging
 import re
 from typing import Any, Optional
 
 import httpx
+
+from idp.utils.timing import record_llm_call
 
 from config.settings import (
     LLM_API_KEY,
@@ -116,8 +119,44 @@ def invoke_llm(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     timeout: float = 45.0,
+    purpose: str = "llm_call",
 ) -> str:
-    """Invokes the configured LLM provider and returns the raw response text string."""
+    """Invokes the configured LLM provider and returns the raw response text string.
+
+    ``purpose`` labels the call in the pipeline run's timing summary (see idp/utils/timing.py).
+    """
+    started = time.perf_counter()
+    ok = False
+    try:
+        result = _invoke_llm_unmetered(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_response=json_response,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        ok = True
+        return result
+    finally:
+        record_llm_call(purpose, time.perf_counter() - started, ok)
+
+
+def _invoke_llm_unmetered(
+    system_prompt: str,
+    user_prompt: str,
+    json_response: bool,
+    model: Optional[str],
+    api_key: Optional[str],
+    base_url: Optional[str],
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    timeout: float,
+) -> str:
+    """invoke_llm without timing: resolve provider settings and dispatch the request."""
     effective_key = api_key if api_key is not None else LLM_API_KEY
     effective_model = model if model is not None else LLM_MODEL
     effective_base_url = base_url if base_url is not None else LLM_BASE_URL
@@ -259,6 +298,7 @@ def invoke_llm_json(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     timeout: float = 45.0,
+    purpose: str = "llm_call",
 ) -> dict[str, Any]:
     """Invokes LLM and returns parsed JSON dict."""
     raw_response = invoke_llm(
@@ -271,6 +311,7 @@ def invoke_llm_json(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        purpose=purpose,
     )
     cleaned = clean_json_response(raw_response)
     if not cleaned:

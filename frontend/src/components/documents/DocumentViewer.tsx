@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import type { DocumentRecord, ExtractedField, OCRToken, TableCellRecord } from '@/types';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
+import { OcrEngineBadge } from '@/components/documents/OcrEngineBadge';
 
 const FIELD_PALETTE = [
   { border: 'border-blue-500', bg: 'bg-blue-500/20', hoverBg: 'hover:bg-blue-500/30', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-800 border-blue-300', hex: '#3b82f6' },
@@ -488,9 +489,14 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
             <div className="bg-white rounded-lg p-5 shadow-pop w-full h-full max-w-2xl overflow-y-auto font-mono text-xs text-ink-800 leading-relaxed whitespace-pre-wrap">
               <div className="flex items-center justify-between pb-3 mb-3 border-b border-ink-200 text-ink-500 font-sans">
                 <span className="font-semibold text-ink-900 text-sm">
-                  Raw OCR Text (Docling & RapidOCR PP-OCRv6)
+                  {document.ocrEngine?.engine === 'lightonocr'
+                    ? `Raw OCR Text (${document.ocrEngine.model || 'LightOnOCR'} via LiteLLM)`
+                    : 'Raw OCR Text (Docling & RapidOCR PP-OCRv6)'}
                 </span>
-                <span>{document.pages} Pages</span>
+                <span className="flex items-center gap-2">
+                  <OcrEngineBadge info={document.ocrEngine} className="text-[10px]" />
+                  {document.pages} Pages
+                </span>
               </div>
               {renderRawTextWithTableMarkdown(document.rawText, document.extractedFields)}
             </div>

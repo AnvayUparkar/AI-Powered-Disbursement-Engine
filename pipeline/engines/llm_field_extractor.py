@@ -269,6 +269,7 @@ def llm_extract_fields(
             temperature=effective_temperature,
             max_tokens=LLM_MAX_TOKENS,
             timeout=60.0,
+            purpose="field_extraction",
         )
         if not extracted or not isinstance(extracted, dict):
             logger.warning("[%s] LLM extraction response empty or invalid (doc_type=%s)", doc_id, doc_type)

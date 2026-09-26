@@ -21,6 +21,7 @@ from idp.utils.image_utils import crop_image_region
 from idp.core.config import settings
 from config.tenant import SAFE_ID_PATTERN, current_tenant_id
 from idp.core.logging import logger, format_doc_log
+from idp.utils.timing import StageClock, format_timing_table
 from idp.services.ocr.scan_preprocessor import preprocess_scanned_document
 
 
@@ -202,6 +203,7 @@ class DocumentProcessor:
             Dict containing document_id, status, output_location, and processing_time.
         """
         start_time = time.time()
+        clock = StageClock()
         bucket = s3_bucket if (isinstance(s3_bucket, str) and s3_bucket.strip()) else settings.S3_BUCKET
         temp_dir = create_temp_dir(prefix=f"node2_{document_id}_")
 
@@ -213,11 +215,13 @@ class DocumentProcessor:
             doc_type_hint = get_canonical_doc_type(filename)
             local_file_path = os.path.join(temp_dir, filename)
             await self.storage.download(key=s3_key, dest_path=local_file_path, bucket=bucket, doc_id=document_id)
+            clock.lap("download")
 
             # Step 2: Preprocess and validate document
             prep_doc: PreprocessedDocument = await asyncio.to_thread(
                 self.preprocessor.preprocess, local_file_path, doc_id=document_id
             )
+            clock.lap("preprocess")
 
             metrics = ProcessingMetrics()
 
@@ -230,8 +234,12 @@ class DocumentProcessor:
                     s3_bucket=bucket,
                     s3_key=s3_key
                 )
+                clock.lap("parse")
+                self._stamp_stage_timings(parsed_doc, clock)
                 output_location = await self._save_and_upload_output(parsed_doc, document_id, bucket)
+                clock.lap("save")
                 elapsed = time.time() - start_time
+                self._log_timing_summary(document_id, clock, elapsed)
                 return {
                     "document_id": document_id,
                     "status": "completed",
@@ -253,8 +261,12 @@ class DocumentProcessor:
                     s3_bucket=bucket,
                     s3_key=s3_key,
                 )
+                clock.lap("parse")
+                self._stamp_stage_timings(parsed_doc, clock)
                 output_location = await self._save_and_upload_output(parsed_doc, document_id, bucket)
+                clock.lap("save")
                 elapsed = time.time() - start_time
+                self._log_timing_summary(document_id, clock, elapsed)
                 return {
                     "document_id": document_id,
                     "status": "completed",
@@ -315,6 +327,7 @@ class DocumentProcessor:
                         f"Scan preprocessing failed (non-fatal), using original file: {scan_err}"
                     ))
                     docling_input_path = local_file_path
+                clock.lap("scan_cleanup")
 
             # ROUTING DECISION: LightOnOCR vs Docling for scanned pages
             # LightOnOCR receives the SAME preprocessed images as Docling would have
@@ -329,7 +342,8 @@ class DocumentProcessor:
 
                 logger.info(format_doc_log(
                     document_id,
-                    f"Routing {prep_doc.page_count} scanned pages to LightOnOCR-2-1B"
+                    f"Routing {prep_doc.page_count} scanned pages to LightOnOCR via LiteLLM "
+                    f"(model={settings.LIGHTONOCR_MODEL})"
                     f"{' (preprocessed)' if docling_input_path != local_file_path else ' (raw)'}"
                 ))
 
@@ -339,12 +353,16 @@ class DocumentProcessor:
 
                 # Extract page images from the PREPROCESSED PDF (same images Docling would use)
                 page_image_data_for_ocr = await self._get_page_images(docling_input_path, prep_doc)
+                clock.lap("page_images")
 
                 for page_idx, (page_bytes, img_w, img_h) in enumerate(page_image_data_for_ocr):
                     page_num = page_idx + 1
 
                     try:
-                        ocr_res = lightonocr_adapter.process_page_to_ocr_result(
+                        # Blocking HTTP call to LiteLLM: run it off the event loop so /health and
+                        # other in-flight requests on this idp pod keep being served.
+                        ocr_res = await asyncio.to_thread(
+                            lightonocr_adapter.process_page_to_ocr_result,
                             image_bytes=page_bytes,
                             page_number=page_num,
                             image_width=img_w,
@@ -383,6 +401,7 @@ class DocumentProcessor:
                         ))
                         lightonocr_pages_failed += 1
 
+                clock.lap("lightonocr")
                 metrics.lightonocr_processing_time = round(time.time() - lightonocr_start, 3)
                 metrics.lightonocr_pages_processed = lightonocr_pages_processed
                 metrics.lightonocr_pages_failed = lightonocr_pages_failed
@@ -400,6 +419,11 @@ class DocumentProcessor:
                 # ═══════════════════════════════════════════════════════════════
                 # EXISTING: Docling Path (digital PDFs and scanned when LightOnOCR disabled)
                 # ═══════════════════════════════════════════════════════════════
+                if prep_doc.is_scanned_pdf:
+                    logger.info(format_doc_log(
+                        document_id,
+                        "Scanned document but LIGHTONOCR_ENABLED is false - using Docling OCR"
+                    ))
                 ocr_results = []
                 docling_start = time.time()
                 docling_result = None
@@ -410,11 +434,15 @@ class DocumentProcessor:
                 except Exception as e:
                     logger.warning(format_doc_log(document_id, f"Docling parsing warning: {e}. Proceeding with fallback parsing."))
                 metrics.docling_processing_time = round(time.time() - docling_start, 3)
+                clock.lap("docling")
+                if docling_result is not None:
+                    metrics.docling_model_timings = dict(docling_result.model_timings)
 
             # Step 4: Capture page images for VLM region cropping
             # For LightOnOCR route: use the ORIGINAL file (not preprocessed) for VLM
             page_image_data = await self._get_page_images(local_file_path, prep_doc)
             page_images: List[bytes] = [item[0] for item in page_image_data]
+            clock.lap("page_images")
 
             # Step 5: Selective VLM Fallback Routing
             vlm_start = time.time()
@@ -511,6 +539,7 @@ class DocumentProcessor:
                         await asyncio.sleep(0.25)
 
             metrics.vlm_processing_time = round(time.time() - vlm_start, 3)
+            clock.lap("vlm")
 
             # Step 5.5: Recover comb-box fields that Docling welded into one line
             # element by reading the printed cell-divider grid off the page image
@@ -531,6 +560,7 @@ class DocumentProcessor:
                         document_id, f"Comb-grid recovery skipped (non-fatal): {grid_err}"
                     ))
 
+            clock.lap("comb_grid")
             metrics.total_processing_time = round(time.time() - start_time, 3)
 
             # Step 6: Serialize into Canonical Unified Document Representation
@@ -552,6 +582,8 @@ class DocumentProcessor:
                 vlm_provider=settings.VLM_PROVIDER if vlm_used else None
             )
 
+            clock.lap("serialize")
+
             # Assign raw OCR text
             parsed_doc.raw_text = parsed_doc.text
 
@@ -565,6 +597,7 @@ class DocumentProcessor:
                     raw_text=parsed_doc.text,
                     doc_id=document_id,
                 )
+                clock.lap("llm_field_extraction")
                 if llm_fields:
                     import json
                     from idp.services.extraction.field_location_resolver import FieldLocationResolver
@@ -604,13 +637,21 @@ class DocumentProcessor:
                     except Exception as loc_err:
                         logger.warning(format_doc_log(document_id, f"Field location resolution notice: {loc_err}"))
             except Exception as llm_err:
+                clock.lap("llm_field_extraction")
                 logger.warning(format_doc_log(document_id, f"LLM field extraction notice: {llm_err}"))
+            if llm_fields:
+                clock.lap("field_locations")
+            else:
+                clock.skip()
 
             # Step 8: Upload structured JSON to S3 parsed-documents prefix
+            self._stamp_stage_timings(parsed_doc, clock)
             output_location = await self._save_and_upload_output(parsed_doc, document_id, bucket)
+            clock.lap("save")
 
             elapsed = time.time() - start_time
             logger.info(format_doc_log(document_id, f"Node 2 processing completed successfully in {elapsed:.2f}s -> {output_location}"))
+            self._log_timing_summary(document_id, clock, elapsed, metrics.docling_model_timings)
 
             res_dict = {
                 "document_id": document_id,
@@ -623,6 +664,7 @@ class DocumentProcessor:
                 "extracted_fields": llm_fields,
                 "field_locations": parsed_doc.custom_metadata.get("field_locations", {}),
                 "ocr_tokens": parsed_doc.custom_metadata.get("ocr_tokens", []),
+                "stage_timings": dict(clock.timings),
             }
 
             if redis_client:
@@ -640,6 +682,33 @@ class DocumentProcessor:
         finally:
             cleanup_temp_dir(temp_dir)
 
+
+    @staticmethod
+    def _stamp_stage_timings(parsed_doc: ParsedDocument, clock: StageClock) -> None:
+        """Copy stage timings so far into the ParsedDocument before it is saved (the save itself
+        can only appear in the log summary, since it happens after this)."""
+        if parsed_doc.processing is not None:
+            parsed_doc.processing.metrics.stage_timings = dict(clock.timings)
+
+    @staticmethod
+    def _log_timing_summary(
+        document_id: str,
+        clock: StageClock,
+        elapsed: float,
+        docling_models: Optional[Dict[str, float]] = None,
+    ) -> None:
+        """Log where this document's time went, one row per stage."""
+        rows = []
+        for stage, seconds in clock.timings.items():
+            note = ""
+            if stage == "docling" and docling_models:
+                picked = [k for k in ("layout", "ocr", "table_structure", "page_parse", "reading_order") if k in docling_models]
+                note = "Docling models: " + ", ".join(f"{k} {docling_models[k]:.2f}s" for k in picked)
+            elif stage in ("lightonocr", "llm_field_extraction"):
+                note = "LiteLLM"
+            rows.append((stage, seconds, note))
+        if rows:
+            logger.info(format_doc_log(document_id, format_timing_table("Document timing summary", rows, elapsed)))
 
     async def _get_page_images(
         self, file_path: str, prep_doc: PreprocessedDocument

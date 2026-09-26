@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Search,
@@ -15,6 +15,9 @@ import {
   FileText,
   FlaskConical,
   X,
+  ScanText,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
@@ -43,6 +46,8 @@ export default function DocumentsPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
   const [expandedCases, setExpandedCases] = useState<Record<string, boolean>>({});
+  const [ocrOpen, setOcrOpen] = useState<Record<string, boolean>>({});
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const caseFilter = params.get('case') ?? undefined;
 
@@ -59,6 +64,14 @@ export default function DocumentsPage() {
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   };
+
+  // Re-fetch without the loading skeleton, so open groups, open OCR previews and the scroll
+  // position survive (used after a delete).
+  const refreshInPlace = () =>
+    documentsService
+      .list({ query: debounced, type, caseId: caseFilter }, page, PAGE_SIZE)
+      .then(setData)
+      .catch(() => {});
 
   useEffect(load, [debounced, type, caseFilter, page]);
 
@@ -77,6 +90,37 @@ export default function DocumentsPage() {
       return () => clearTimeout(timer);
     }
   }, [data, debounced, type, caseFilter, page]);
+
+  const toggleOcr = (id: string) => setOcrOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const deleteDocument = async (d: DocumentRecord) => {
+    const inCase = d.caseId && d.caseId !== 'GENERAL' && d.caseId !== 'SANDBOX' && d.caseId !== 'Unassigned';
+    const confirmed = window.confirm(
+      `Delete "${d.name}"?\n\nThis permanently removes the file and its OCR result.` +
+        (inCase
+          ? `\n\nIt is also removed from case ${d.caseId}. Existing verification results are not changed until the case is re-run.`
+          : ''),
+    );
+    if (!confirmed) return;
+    setDeletingId(d.id);
+    try {
+      const res = await documentsService.deleteDocument(d.id);
+      if (res.errors?.length) {
+        window.alert(`Deleted "${d.name}", but some files could not be removed:\n${res.errors.join('\n')}`);
+      }
+      setOcrOpen((prev) => {
+        const next = { ...prev };
+        delete next[d.id];
+        return next;
+      });
+      await refreshInPlace();
+    } catch (err) {
+      console.error('Delete document failed:', err);
+      window.alert(`Could not delete "${d.name}". It may already have been removed — refresh the list and try again.`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const toggleCase = (cId: string) => {
     setExpandedCases((prev) => {
@@ -116,11 +160,13 @@ export default function DocumentsPage() {
             <th className="table-head">Confidence</th>
             <th className="table-head">VLM</th>
             <th className="table-head">Uploaded (IST)</th>
+            <th className="table-head text-right w-20">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
           {docs.map((d) => (
-            <tr key={d.id} className="hover:bg-ink-50/50 transition-colors">
+            <Fragment key={d.id}>
+            <tr className="hover:bg-ink-50/50 transition-colors">
               <td className="table-cell font-medium text-ink-800">
                 <Link
                   to={`/documents/${d.id}`}
@@ -179,7 +225,63 @@ export default function DocumentsPage() {
               <td className="table-cell text-ink-500 font-mono text-xs whitespace-nowrap">
                 {d.uploadedAt}
               </td>
+              <td className="table-cell">
+                <div className="flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleOcr(d.id)}
+                    aria-expanded={!!ocrOpen[d.id]}
+                    aria-controls={`ocr-${d.id}`}
+                    title={ocrOpen[d.id] ? 'Hide OCR text' : 'View OCR text'}
+                    aria-label={`${ocrOpen[d.id] ? 'Hide' : 'View'} OCR text for ${d.name}`}
+                    className={`p-1.5 rounded ${
+                      ocrOpen[d.id] ? 'bg-brand-50 text-brand-700' : 'text-ink-500 hover:text-brand-700 hover:bg-brand-50'
+                    }`}
+                  >
+                    <ScanText className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteDocument(d)}
+                    disabled={deletingId === d.id}
+                    title={`Delete ${d.name}`}
+                    aria-label={`Delete ${d.name}`}
+                    className="p-1.5 rounded text-ink-400 hover:text-discrepancy-600 hover:bg-discrepancy-50 disabled:opacity-50"
+                  >
+                    {deletingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  </button>
+                </div>
+              </td>
             </tr>
+            {ocrOpen[d.id] && (
+              <tr id={`ocr-${d.id}`} className="bg-ink-50/40">
+                <td colSpan={9} className="px-4 pb-4 pt-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-ink-700">
+                      Raw OCR text · {d.pages} page{d.pages === 1 ? '' : 's'}
+                      {d.ocrEngine?.label ? ` · ${d.ocrEngine.label}` : ''}
+                    </span>
+                    <Link to={`/documents/${d.id}`} className="text-xs text-brand-600 hover:text-brand-700 inline-flex items-center gap-1">
+                      Open full viewer <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  </div>
+                  {d.ocrStatus === 'COMPLETED' && d.rawText?.trim() ? (
+                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-ink-200 bg-white p-3 font-mono text-xs leading-relaxed text-ink-800">
+                      {d.rawText}
+                    </pre>
+                  ) : (
+                    <p className="text-xs text-ink-500">
+                      {d.ocrStatus === 'PROCESSING'
+                        ? 'OCR is still running — the text appears here when it finishes.'
+                        : d.ocrStatus === 'PENDING'
+                        ? 'Not processed yet. Documents uploaded into a case are read when the case runs OCR or verification.'
+                        : 'No OCR text was produced for this document.'}
+                    </p>
+                  )}
+                </td>
+              </tr>
+            )}
+            </Fragment>
           ))}
         </tbody>
       </table>

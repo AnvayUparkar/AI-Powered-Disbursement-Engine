@@ -1,10 +1,12 @@
 """Node: LLM Structure — Structures raw extracted OCR text via LLM into S3 Extracted Structured tier."""
 import logging
+import time
 from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from typing import Any, Dict
 
 from config import MAX_DOC_WORKERS, SKIP_IDP
 from pipeline.engines.llm_field_extractor import llm_extract_fields
+from idp.utils.timing import record_llm_structure
 from pipeline.state import PipelineState
 from pipeline.storage import (
     get_all_s3_extracted_structured,
@@ -122,7 +124,11 @@ def llm_structure(state: PipelineState) -> PipelineState:
 
         def _worker(t: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
             dk, dv = t
-            return dk, _structure_single_document(dk, dv, loan_id)
+            started = time.perf_counter()
+            try:
+                return dk, _structure_single_document(dk, dv, loan_id)
+            finally:
+                record_llm_structure(dk, time.perf_counter() - started)
 
         with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="llm_struct_worker") as executor:
             futures = [executor.submit(_worker, t) for t in tasks]

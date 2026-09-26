@@ -9,13 +9,66 @@ Verifies:
 5. LightOnOCR timeout -> None (safe degradation)
 6. LightOnOCR result deduplication in serializer
 """
+import base64
+import contextlib
+import json
+import logging
+
+import httpx
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
-from idp.services.ocr.lightonocr_engine import LightOnOCREngine, LightOnOCRResult
+from idp.services.ocr.lightonocr_engine import LightOnOCREngine, LightOnOCRResult, LIGHTONOCR_PROMPT
 from idp.services.ocr.lightonocr_adapter import LightOnOCRAdapter
 from idp.models.ocr import OCRResult, OCRElement
 from idp.services.output.serializer import DocumentSerializer
 from idp.core.config import settings
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+GATEWAY = "http://litellm.test:4000/v1"
+API_KEY = "sk-lightonocr-test-key"
+PAGE_TEXT = "State Bank of India Loan Application Form Account Number 1234567890"
+
+_REAL_CLIENT = httpx.Client
+
+
+@contextlib.contextmanager
+def _gateway(handler):
+    """Route the engine's httpx.Client through an in-memory LiteLLM stand-in."""
+    def factory(*args, **kwargs):
+        return _REAL_CLIENT(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
+    with patch("idp.services.ocr.lightonocr_engine.httpx.Client", side_effect=factory):
+        yield
+
+
+@contextlib.contextmanager
+def _lightonocr_settings(**overrides):
+    values = {
+        "LIGHTONOCR_ENABLED": True,
+        "LIGHTONOCR_BASE_URL": GATEWAY,
+        "LIGHTONOCR_API_KEY": API_KEY,
+        "LIGHTONOCR_MODEL": "lightonai/LightOnOCR-2-1B",
+        "LIGHTONOCR_TIMEOUT_SECONDS": 30,
+        "LIGHTONOCR_MAX_TOKENS": 2048,
+        "LIGHTONOCR_LOG_TEXT_PREVIEW": False,
+        "LLM_BASE_URL": None,
+        "LLM_API_KEY": None,
+    }
+    values.update(overrides)
+    with contextlib.ExitStack() as stack:
+        for key, value in values.items():
+            stack.enter_context(patch.object(settings, key, value))
+        yield
+
+
+def _completion(text=PAGE_TEXT, finish_reason="stop"):
+    return {
+        "id": "chatcmpl-123",
+        "model": "lightonai/LightOnOCR-2-1B",
+        "choices": [{"index": 0, "finish_reason": finish_reason, "message": {"role": "assistant", "content": text}}],
+        "usage": {"prompt_tokens": 812, "completion_tokens": 40, "total_tokens": 852},
+    }
 
 
 class TestLightOnOCRRouting:
@@ -103,20 +156,15 @@ class TestLightOnOCRRouting:
         assert ocr_result.average_confidence == 0.0
     
     def test_lightonocr_timeout_returns_none(self):
-        """LightOnOCR timeout in engine returns None (safe degradation)."""
-        engine = LightOnOCREngine()
-        
-        with patch.object(engine, 'is_loaded', return_value=True), \
-             patch.object(engine, '_run_inference_with_timeout', return_value=None), \
-             patch.object(settings, 'LIGHTONOCR_ENABLED', True):
-            result = engine.process_page(
-                image_bytes=b"fake_image_bytes",
-                page_number=1,
-                doc_id="TEST-TIMEOUT"
-            )
-        
+        """LightOnOCR gateway timeout returns None (safe degradation)."""
+        def handler(request):
+            raise httpx.ReadTimeout("gateway too slow", request=request)
+
+        with _gateway(handler), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-TIMEOUT")
+
         assert result is None
-    
+
     def test_lightonocr_results_deduplicated_by_serializer(self):
         """LightOnOCR results must pass through _is_duplicate deduplication in serializer."""
         serializer = DocumentSerializer()
@@ -221,3 +269,189 @@ class TestQualityScoreComputation:
         engine = LightOnOCREngine()
         score = engine._compute_quality_score("ABCDE", 2.0, b"")
         assert score == 0.70
+
+
+class TestLightOnOCRViaLiteLLM:
+    """LightOnOCR is only ever reached through the LiteLLM gateway's /chat/completions."""
+
+    def test_page_image_is_sent_to_litellm_chat_completions(self):
+        """Happy path: request shape (URL, auth, model, base64 image, prompt) and parsed result."""
+        seen = []
+
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(200, json=_completion())
+
+        with _gateway(handler), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=2, doc_id="TEST-OK")
+
+        assert len(seen) == 1
+        req = seen[0]
+        assert str(req.url) == f"{GATEWAY}/chat/completions"
+        assert req.headers["Authorization"] == f"Bearer {API_KEY}"
+        body = json.loads(req.content)
+        assert body["model"] == "lightonai/LightOnOCR-2-1B"
+        assert body["max_tokens"] == 2048
+        assert body["temperature"] == 0.0
+        parts = body["messages"][0]["content"]
+        assert parts[0]["image_url"]["url"] == "data:image/png;base64," + base64.b64encode(PNG_BYTES).decode()
+        assert parts[1] == {"type": "text", "text": LIGHTONOCR_PROMPT}
+
+        assert result is not None
+        assert result.text == PAGE_TEXT
+        assert result.confidence == 0.95
+        assert result.bboxes == []
+        assert result.quality_score >= 0.80
+
+    def test_jpeg_page_is_sent_with_jpeg_mime(self):
+        seen = []
+
+        def handler(request):
+            seen.append(json.loads(request.content))
+            return httpx.Response(200, json=_completion())
+
+        with _gateway(handler), _lightonocr_settings():
+            LightOnOCREngine().process_page(JPEG_BYTES, page_number=1, doc_id="TEST-JPEG")
+
+        assert seen[0]["messages"][0]["content"][0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+    def test_falls_back_to_llm_gateway_settings(self):
+        """Edge case: no LIGHTONOCR_BASE_URL/API_KEY -> reuse LLM_BASE_URL/LLM_API_KEY."""
+        seen = []
+
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(200, json=_completion())
+
+        with _gateway(handler), _lightonocr_settings(
+            LIGHTONOCR_BASE_URL=None, LIGHTONOCR_API_KEY="",
+            LLM_BASE_URL="http://shared-gateway:4000/v1/", LLM_API_KEY="sk-shared",
+        ):
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-FALLBACK")
+
+        assert result is not None
+        assert str(seen[0].url) == "http://shared-gateway:4000/v1/chat/completions"
+        assert seen[0].headers["Authorization"] == "Bearer sk-shared"
+
+    def test_base_url_already_ending_in_chat_completions_is_not_doubled(self):
+        seen = []
+
+        def handler(request):
+            seen.append(str(request.url))
+            return httpx.Response(200, json=_completion())
+
+        with _gateway(handler), _lightonocr_settings(LIGHTONOCR_BASE_URL=f"{GATEWAY}/chat/completions"):
+            LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-URL")
+
+        assert seen == [f"{GATEWAY}/chat/completions"]
+
+    def test_content_parts_are_joined(self):
+        """Edge case: gateways that return content as a list of text parts."""
+        payload = _completion()
+        payload["choices"][0]["message"]["content"] = [{"type": "text", "text": "Line one "}, {"type": "text", "text": "line two"}]
+
+        with _gateway(lambda r: httpx.Response(200, json=payload)), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-PARTS")
+
+        assert result.text == "Line one line two"
+
+    def test_truncated_output_is_kept_and_warned(self, caplog):
+        with _gateway(lambda r: httpx.Response(200, json=_completion(finish_reason="length"))), _lightonocr_settings(), \
+             caplog.at_level(logging.WARNING, logger="node2_idp"):
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-TRUNC")
+
+        assert result is not None and result.text == PAGE_TEXT
+        assert any("truncated at max_tokens=2048" in r.getMessage() for r in caplog.records)
+
+    def test_request_and_response_are_logged_without_the_api_key(self, caplog):
+        with _gateway(lambda r: httpx.Response(200, json=_completion())), _lightonocr_settings(), \
+             caplog.at_level(logging.INFO, logger="node2_idp"):
+            LightOnOCREngine().process_page(PNG_BYTES, page_number=3, doc_id="TEST-LOG")
+
+        messages = [r.getMessage() for r in caplog.records]
+        request_line = next(m for m in messages if "request -> POST" in m)
+        response_line = next(m for m in messages if "response <- HTTP 200" in m)
+        assert f"{GATEWAY}/chat/completions" in request_line
+        assert "model=lightonai/LightOnOCR-2-1B" in request_line
+        assert "page=3" in request_line
+        assert "api_key_from=LIGHTONOCR_API_KEY" in request_line
+        assert "tokens(prompt=812, completion=40, total=852)" in response_line
+        assert "finish_reason=stop" in response_line
+        assert not any(API_KEY in m for m in messages)
+        assert not any("text preview" in m for m in messages)
+
+    def test_text_preview_logged_only_when_enabled(self, caplog):
+        with _gateway(lambda r: httpx.Response(200, json=_completion())), \
+             _lightonocr_settings(LIGHTONOCR_LOG_TEXT_PREVIEW=True), \
+             caplog.at_level(logging.INFO, logger="node2_idp"):
+            LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-PREVIEW")
+
+        assert any("text preview: State Bank of India" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize("status, body", [
+        (405, "<html><head><title>405 Not Allowed</title></head></html>"),
+        (401, '{"error": "invalid api key"}'),
+        (500, '{"error": "upstream failure"}'),
+    ])
+    def test_gateway_http_error_returns_none(self, status, body, caplog):
+        with _gateway(lambda r: httpx.Response(status, text=body)), _lightonocr_settings(), \
+             caplog.at_level(logging.ERROR, logger="node2_idp"):
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-HTTP")
+
+        assert result is None
+        assert any(f"gateway returned HTTP {status}" in r.getMessage() for r in caplog.records)
+
+    def test_unreachable_gateway_returns_none(self):
+        def handler(request):
+            raise httpx.ConnectError("connection refused", request=request)
+
+        with _gateway(handler), _lightonocr_settings():
+            assert LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-CONN") is None
+
+    def test_non_json_response_returns_none(self):
+        with _gateway(lambda r: httpx.Response(200, text="not json")), _lightonocr_settings():
+            assert LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-NONJSON") is None
+
+    def test_empty_choices_returns_none(self):
+        with _gateway(lambda r: httpx.Response(200, json={"id": "x", "choices": []})), _lightonocr_settings():
+            assert LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-NOCHOICE") is None
+
+    @pytest.mark.parametrize("overrides", [
+        {"LIGHTONOCR_BASE_URL": None, "LLM_BASE_URL": None},
+        {"LIGHTONOCR_API_KEY": None, "LLM_API_KEY": None},
+        {"LIGHTONOCR_MODEL": ""},
+    ])
+    def test_missing_gateway_config_never_calls_http(self, overrides):
+        calls = []
+
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json=_completion())
+
+        with _gateway(handler), _lightonocr_settings(**overrides):
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-NOCFG")
+
+        assert result is None
+        assert calls == []
+
+    def test_disabled_never_calls_http(self):
+        calls = []
+        with _gateway(lambda r: calls.append(r) or httpx.Response(200, json=_completion())), \
+             _lightonocr_settings(LIGHTONOCR_ENABLED=False):
+            assert LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-OFF") is None
+        assert calls == []
+
+    def test_empty_image_never_calls_http(self):
+        calls = []
+        with _gateway(lambda r: calls.append(r) or httpx.Response(200, json=_completion())), _lightonocr_settings():
+            assert LightOnOCREngine().process_page(b"", page_number=1, doc_id="TEST-EMPTY") is None
+        assert calls == []
+
+    def test_engine_has_no_local_model_path(self):
+        """The in-process transformers/torch path must be gone."""
+        import idp.services.ocr.lightonocr_engine as mod
+        engine = LightOnOCREngine()
+        for attr in ("_load_model_internal", "_run_inference_with_timeout", "unload_model", "is_loaded"):
+            assert not hasattr(engine, attr)
+        source = open(mod.__file__, encoding="utf-8").read()
+        assert "transformers" not in source and "import torch" not in source

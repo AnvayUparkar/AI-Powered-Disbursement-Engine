@@ -426,14 +426,16 @@ def test_run_pipeline_task_executes_as_given_tenant_and_resets(monkeypatch):
 
     seen = {}
 
-    def fake_run_pipeline(loan_id):
+    def fake_run_pipeline(loan_id, entry="run"):
         seen["tenant"] = current_tenant_id()
+        seen["entry"] = entry
         return {"scorecard": {"overall_score": 1}, "errors": []}
 
     monkeypatch.setattr("pipeline.graph.run_pipeline", fake_run_pipeline)
     result = run_pipeline_task.apply(args=["LOAN_001", TENANT_B]).get()
 
     assert seen["tenant"] == TENANT_B
+    assert seen["entry"] == "celery"  # timing summary labels worker runs
     assert result["status"] == "completed"
     with pytest.raises(TenantNotSetError):
         current_tenant_id()

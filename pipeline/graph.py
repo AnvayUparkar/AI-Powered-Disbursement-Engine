@@ -1,7 +1,8 @@
 """Pipeline graph definition — LangGraph orchestration for disbursement verification."""
 import logging
+import time
 from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
-from typing import Any, Dict, Iterator, List
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from langgraph.graph import END, StateGraph
 
@@ -16,9 +17,54 @@ from pipeline.nodes.idp_scan import idp_scan
 from pipeline.nodes.llm_structure import llm_structure
 from pipeline.nodes.push_results import push_results
 from pipeline.state import PipelineState
-from pipeline.storage import update_status
+from pipeline.storage import save_s3_result, update_status
+from idp.utils.timing import (
+    RunTimingCollector,
+    build_run_summary,
+    collect_run_timings,
+    format_run_summary,
+    record_checker,
+    record_node,
+)
 
 logger = logging.getLogger("disbursement_pipeline.graph")
+
+
+def _timed(node_name: str, fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Wrap a node or checker so its wall-clock time is recorded in the run's timing collector."""
+    def wrapper(state: Any) -> Any:
+        started = time.perf_counter()
+        try:
+            return fn(state)
+        finally:
+            record_node(node_name, time.perf_counter() - started)
+    wrapper.__name__ = getattr(fn, "__name__", node_name)
+    return wrapper
+
+
+def _timed_checker(name: str, fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    def wrapper(state: Any) -> Any:
+        started = time.perf_counter()
+        try:
+            return fn(state)
+        finally:
+            record_checker(name, time.perf_counter() - started)
+    return wrapper
+
+
+def finalize_run_timing(collector: RunTimingCollector) -> Optional[Dict[str, Any]]:
+    """Build, log and persist the run's timing summary (s3_result/<id>/timing_summary.json).
+
+    Never raises: timing is diagnostic and must not fail a completed pipeline run.
+    """
+    try:
+        summary = build_run_summary(collector)
+        logger.info("\n%s", format_run_summary(summary))
+        save_s3_result(collector.loan_id, "timing_summary.json", summary)
+        return summary
+    except Exception as e:  # noqa: BLE001 — diagnostic only
+        logger.warning("Timing summary failed for loan %s: %s", collector.loan_id, e)
+        return None
 
 
 def _run_parallel_checkers(state: PipelineState) -> PipelineState:
@@ -34,9 +80,9 @@ def _run_parallel_checkers(state: PipelineState) -> PipelineState:
     rollups: Dict[str, str] = {}
 
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="checker_worker") as executor:
-        future_kyc = executor.submit(check_kyc, state)
-        future_fin = executor.submit(check_financial, state)
-        future_app = executor.submit(check_loan_app, state)
+        future_kyc = executor.submit(_timed_checker("check_kyc", check_kyc), state)
+        future_fin = executor.submit(_timed_checker("check_financial", check_financial), state)
+        future_app = executor.submit(_timed_checker("check_loan_application", check_loan_app), state)
 
         checker_futures = [
             ("check_kyc", future_kyc),
@@ -77,14 +123,14 @@ def build_pipeline_graph():
     """Builds and compiles the clean LangGraph StateGraph pipeline without checker loops."""
     graph = StateGraph(PipelineState)
 
-    graph.add_node("fetch_los", fetch_los)
-    graph.add_node("fetch_documents", fetch_documents)
-    graph.add_node("idp_scan", idp_scan)
-    graph.add_node("llm_structure", llm_structure)
-    graph.add_node("check_parallel", _run_parallel_checkers)
-    graph.add_node("compile_report", compile_report)
-    graph.add_node("generate_scorecard", generate_scorecard)
-    graph.add_node("push_results", push_results)
+    graph.add_node("fetch_los", _timed("fetch_los", fetch_los))
+    graph.add_node("fetch_documents", _timed("fetch_documents", fetch_documents))
+    graph.add_node("idp_scan", _timed("idp_scan", idp_scan))
+    graph.add_node("llm_structure", _timed("llm_structure", llm_structure))
+    graph.add_node("check_parallel", _timed("check_parallel", _run_parallel_checkers))
+    graph.add_node("compile_report", _timed("compile_report", compile_report))
+    graph.add_node("generate_scorecard", _timed("generate_scorecard", generate_scorecard))
+    graph.add_node("push_results", _timed("push_results", push_results))
 
     graph.set_entry_point("fetch_los")
     graph.add_edge("fetch_los", "fetch_documents")
@@ -122,11 +168,16 @@ def create_initial_state(loan_id: str) -> PipelineState:
     }
 
 
-def run_pipeline(loan_id: str) -> dict:
-    """Synchronously executes the full disbursement verification pipeline for a given loan_id."""
+def run_pipeline(loan_id: str, entry: str = "run") -> dict:
+    """Synchronously executes the full disbursement verification pipeline for a given loan_id.
+
+    ``entry`` names the caller in the timing summary ("run", "celery", ...).
+    """
     initial_state = create_initial_state(loan_id)
     logger.info("Triggering verification pipeline execution for loan: %s", loan_id)
-    final_state = pipeline_app.invoke(initial_state)
+    with collect_run_timings(loan_id, entry) as collector:
+        final_state = pipeline_app.invoke(initial_state)
+        finalize_run_timing(collector)
     logger.info("Verification pipeline completed for loan: %s", loan_id)
     return final_state
 
@@ -135,9 +186,11 @@ def run_ocr_pipeline(loan_id: str) -> dict:
     """Synchronously executes only document fetch, IDP OCR scan, and LLM structuring nodes."""
     initial_state = create_initial_state(loan_id)
     logger.info("Triggering OCR + Structuring pipeline for loan: %s", loan_id)
-    state = fetch_documents(initial_state)
-    state = idp_scan(state)
-    state = llm_structure(state)
+    with collect_run_timings(loan_id, "run_ocr") as collector:
+        state = _timed("fetch_documents", fetch_documents)(initial_state)
+        state = _timed("idp_scan", idp_scan)(state)
+        state = _timed("llm_structure", llm_structure)(state)
+        finalize_run_timing(collector)
     logger.info("OCR + Structuring pipeline completed for loan: %s", loan_id)
     return state
 
@@ -167,22 +220,36 @@ def stream_pipeline(loan_id: str) -> Iterator[dict]:
         "node_history": [],
     }
 
-    for step_output in pipeline_app.stream(initial_state):
-        for node_name, state_update in step_output.items():
-            yield {
-                "stage": node_name,
-                "loan_id": loan_id,
-                "status": "completed",
-                "label": node_labels.get(node_name, f"Node: {node_name}"),
-                "subnode_rollups": state_update.get("subnode_rollups", {}),
-                "errors": state_update.get("errors", []),
-                "node_history": state_update.get("node_history", []),
-            }
+    # Not a `with` block: this generator yields between nodes, and each resume runs in the caller's
+    # captured context (cases.py iter_in_current_context), so set/reset are done explicitly.
+    timing_cm = collect_run_timings(loan_id, "stream")
+    collector = timing_cm.__enter__()
+    try:
+        for step_output in pipeline_app.stream(initial_state):
+            for node_name, state_update in step_output.items():
+                yield {
+                    "stage": node_name,
+                    "loan_id": loan_id,
+                    "status": "completed",
+                    "label": node_labels.get(node_name, f"Node: {node_name}"),
+                    "subnode_rollups": state_update.get("subnode_rollups", {}),
+                    "errors": state_update.get("errors", []),
+                    "node_history": state_update.get("node_history", []),
+                }
+        timing_summary = finalize_run_timing(collector)
+    finally:
+        try:
+            timing_cm.__exit__(None, None, None)
+        except ValueError:
+            # Client disconnected: the generator is being closed/collected outside the context
+            # that set the collector, so the token can't be reset there. Nothing to clean up.
+            pass
 
     yield {
         "stage": "finish",
         "loan_id": loan_id,
         "status": "done",
         "label": "Verification Complete",
+        "timing_summary": timing_summary,
         "node_history": ["fetch_los", "fetch_documents", "idp_scan", "llm_structure", "check_parallel", "compile_report", "generate_scorecard", "push_results", "done"],
     }

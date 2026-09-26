@@ -1,20 +1,40 @@
 """
-LightOnOCR-2-1B wrapper for scanned document OCR.
+LightOnOCR-2-1B client for scanned document OCR.
 
-Lazy-loaded, CPU-safe, timeout-protected OCR engine.
+LightOnOCR is never loaded in-process: every page is sent to the LiteLLM gateway's OpenAI-compatible
+/chat/completions endpoint as a base64 image, and the model's text reply is the page's OCR text.
 """
 from typing import Optional, List, Dict, Any, Tuple
-import io
+import base64
 import re
 import time
-import threading
-from PIL import Image
+import uuid
+
+import httpx
 from pydantic import BaseModel, Field
 
-from idp.models.ocr import OCRElement, OCRResult
 from idp.core.config import settings
 from idp.core.logging import logger, format_doc_log
-from idp.core.exceptions import OCRError
+
+
+# ProcessingMetadata.ocr_engine value recorded when a document went through this engine; the API and
+# UI key off it to show that LightOnOCR (via LiteLLM) produced the text.
+LIGHTONOCR_ENGINE_ID = "lightonocr_litellm"
+
+# Instruction sent alongside each page image.
+LIGHTONOCR_PROMPT = "Extract the text from this document."
+
+# The chat/completions API returns no per-token OCR confidence, so a fixed engine confidence is used
+# (same value the previous in-process implementation reported). The quality score below is what
+# actually gates the VLM fallback.
+_DEFAULT_CONFIDENCE = 0.95
+
+# Upper bound on how long a single connection attempt may take, independent of the overall request
+# timeout, so an unreachable gateway fails fast instead of consuming the whole page timeout.
+_CONNECT_TIMEOUT_SECONDS = 10.0
+
+# Response bodies are truncated to this many characters in error logs.
+_ERROR_BODY_LOG_CHARS = 500
 
 
 class LightOnOCRResult(BaseModel):
@@ -26,153 +46,43 @@ class LightOnOCRResult(BaseModel):
     quality_score: float = 0.0  # Custom quality metric
 
 
+def _image_mime_type(image_bytes: bytes) -> str:
+    """Return the MIME type of a page image from its magic bytes (PNG unless it is clearly JPEG)."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return "image/png"
+
+
+def _endpoint_url(base_url: str) -> str:
+    """Resolve the full /chat/completions URL from a gateway base URL ending in /v1."""
+    url = base_url.strip().rstrip("/")
+    return url if url.endswith("/chat/completions") else f"{url}/chat/completions"
+
+
 class LightOnOCREngine:
-    """
-    Lazy-loaded LightOnOCR-2-1B engine for scanned pages.
-    
-    Thread-safe singleton pattern with timeout protection.
-    """
-    
-    _instance = None
-    _lock = threading.Lock()
-    _model = None
-    _processor = None
-    _model_loaded: bool = False
-    _device: str = "cpu"
-    
-    def __new__(cls) -> "LightOnOCREngine":
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
-    
+    """LightOnOCR-2-1B served through the LiteLLM gateway (OpenAI-compatible chat/completions)."""
+
     def __init__(self) -> None:
         self.model_name: str = settings.LIGHTONOCR_MODEL
-        self.device: str = settings.LIGHTONOCR_DEVICE
         self.timeout_seconds: int = settings.LIGHTONOCR_TIMEOUT_SECONDS
-        self.lazy_load: bool = settings.LIGHTONOCR_LAZY_LOAD
-        
-        # Do NOT load model eagerly if lazy_load is True
-        if not self.lazy_load and settings.LIGHTONOCR_ENABLED:
-            self._load_model_internal()
-    
-    def _load_model_internal(self) -> None:
-        """Load LightOnOCR model (thread-safe)."""
-        if self._model_loaded:
-            return
-        
-        with self._lock:
-            if self._model_loaded:
-                return
-            
-            try:
-                logger.info(f"Loading LightOnOCR model: {self.model_name}")
-                start = time.time()
-                
-                import torch
-                
-                # Determine device and precision
-                if self.device == "auto":
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                else:
-                    device = self.device
-                
-                dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else (torch.float16 if device == "cuda" else torch.float32)
-                logger.info(f"LightOnOCR will run on: {device} (dtype={dtype})")
-                
-                # Dynamically resolve model and processor classes across transformers versions
-                model_cls = None
-                processor_cls = None
-                
-                # 1. Specialized LightOnOCR classes (transformers >= 5.0)
-                try:
-                    from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor
-                    model_cls = LightOnOcrForConditionalGeneration
-                    processor_cls = LightOnOcrProcessor
-                except ImportError:
-                    pass
-                
-                # 2. Vision2Seq from auto modeling module (transformers 4.x / 5.x)
-                if model_cls is None:
-                    try:
-                        from transformers.models.auto.modeling_auto import AutoModelForVision2Seq
-                        model_cls = AutoModelForVision2Seq
-                    except ImportError:
-                        pass
-                
-                # 3. ImageTextToText auto class
-                if model_cls is None:
-                    try:
-                        from transformers.models.auto.modeling_auto import AutoModelForImageTextToText
-                        model_cls = AutoModelForImageTextToText
-                    except ImportError:
-                        pass
-                
-                # 4. Seq2SeqLM or generic AutoModel
-                if model_cls is None:
-                    try:
-                        from transformers import AutoModelForSeq2SeqLM
-                        model_cls = AutoModelForSeq2SeqLM
-                    except ImportError:
-                        from transformers import AutoModel
-                        model_cls = AutoModel
-                
-                if processor_cls is None:
-                    from transformers import AutoProcessor
-                    processor_cls = AutoProcessor
-                
-                logger.info(f"Using model class: {model_cls.__name__}, processor class: {processor_cls.__name__}")
-                
-                # Load processor and model with remote code trust
-                self._processor = processor_cls.from_pretrained(
-                    self.model_name,
-                    trust_remote_code=True
-                )
-                
-                self._model = model_cls.from_pretrained(
-                    self.model_name,
-                    torch_dtype=dtype,
-                    trust_remote_code=True
-                ).to(device)
-                
-                self._model.eval()  # Inference mode
-                self._device = device
-                self._model_loaded = True
-                
-                elapsed = time.time() - start
-                logger.info(f"LightOnOCR loaded successfully in {elapsed:.2f}s on {device}")
-                
-            except Exception as e:
-                logger.error(f"Failed to load LightOnOCR model: {e}")
-                self._model_loaded = False
-                self._model = None
-                self._processor = None
-                raise OCRError(f"LightOnOCR model loading failed: {e}")
-    
-    def is_loaded(self) -> bool:
-        """Check if model is loaded."""
-        return self._model_loaded and self._model is not None
-    
-    def unload_model(self) -> None:
-        """Unload model to free memory."""
-        with self._lock:
-            if self._model is not None:
-                del self._model
-                del self._processor
-                self._model = None
-                self._processor = None
-                self._model_loaded = False
-                
-                # Force garbage collection
-                import gc
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                gc.collect()
-                
-                logger.info("LightOnOCR model unloaded from memory")
-    
+        self.max_tokens: int = settings.LIGHTONOCR_MAX_TOKENS
+
+    def _resolve_gateway(self) -> Tuple[Optional[str], Optional[str], str, str]:
+        """Return (base_url, api_key, base_url_source, api_key_source).
+
+        LIGHTONOCR_BASE_URL / LIGHTONOCR_API_KEY win; otherwise the LLM gateway settings are reused,
+        since both are served by the same LiteLLM deployment.
+        """
+        if settings.LIGHTONOCR_BASE_URL:
+            base_url, base_src = settings.LIGHTONOCR_BASE_URL, "LIGHTONOCR_BASE_URL"
+        else:
+            base_url, base_src = settings.LLM_BASE_URL, "LLM_BASE_URL (fallback)"
+        if settings.LIGHTONOCR_API_KEY:
+            api_key, key_src = settings.LIGHTONOCR_API_KEY, "LIGHTONOCR_API_KEY"
+        else:
+            api_key, key_src = settings.LLM_API_KEY, "LLM_API_KEY (fallback)"
+        return base_url, api_key, base_src, key_src
+
     def process_page(
         self,
         image_bytes: bytes,
@@ -180,167 +90,144 @@ class LightOnOCREngine:
         doc_id: str = "DOC"
     ) -> Optional[LightOnOCRResult]:
         """
-        Run LightOnOCR inference on a single page.
-        
+        Run LightOnOCR on a single page through the LiteLLM gateway.
+
         Args:
             image_bytes: Page image (PNG/JPEG)
             page_number: Page number (1-indexed)
             doc_id: Document ID for logging
-        
+
         Returns:
             LightOnOCRResult or None on failure
         """
         if not settings.LIGHTONOCR_ENABLED:
+            logger.debug(format_doc_log(doc_id, f"LightOnOCR disabled; skipping page {page_number}"))
             return None
-        
-        # Lazy load on first use
-        if not self.is_loaded():
-            try:
-                self._load_model_internal()
-            except Exception as e:
-                logger.error(format_doc_log(doc_id, f"LightOnOCR model loading failed: {e}"))
-                return None
-        
-        try:
-            logger.info(format_doc_log(
-                doc_id, 
-                f"Running LightOnOCR on page {page_number}"
-            ))
-            
-            start_time = time.time()
-            
-            # Convert bytes to PIL Image
-            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            
-            # Prepare inputs
-            inputs = None
-            if hasattr(self._processor, "apply_chat_template"):
-                try:
-                    conversation = [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "image", "image": image},
-                                {"type": "text", "text": "Extract the text from this document."}
-                            ]
-                        }
-                    ]
-                    inputs = self._processor.apply_chat_template(
-                        conversation,
-                        add_generation_prompt=True,
-                        tokenize=True,
-                        return_dict=True,
-                        return_tensors="pt"
-                    )
-                    import torch
-                    inputs = {k: v.to(device=self._device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-                except Exception:
-                    inputs = None
 
-            if inputs is None:
-                inputs = self._processor(images=image, return_tensors="pt").to(self._device)
-            
-            # Run inference with timeout protection
-            result = self._run_inference_with_timeout(inputs, doc_id)
-            
-            if result is None:
-                return None
-            
-            inference_time = (time.time() - start_time) * 1000  # ms
-            
-            # Parse LightOnOCR output
-            text = result.get("text", "")
-            confidence = float(result.get("confidence", 0.0))
-            bboxes = result.get("bboxes", [])
-            
-            quality_score = self._compute_quality_score(text, confidence, image_bytes)
-            
-            logger.info(format_doc_log(
-                doc_id,
-                f"LightOnOCR page {page_number}: {len(text)} chars, "
-                f"conf={confidence:.2f}, quality={quality_score:.2f}, "
-                f"time={inference_time:.0f}ms"
-            ))
-            
-            return LightOnOCRResult(
-                text=text,
-                confidence=confidence,
-                bboxes=bboxes,
-                inference_time_ms=inference_time,
-                quality_score=quality_score
-            )
-            
-        except Exception as e:
+        call_id = uuid.uuid4().hex[:12]
+        tag = f"[LightOnOCR call={call_id} page={page_number}]"
+
+        base_url, api_key, base_src, key_src = self._resolve_gateway()
+        missing = [name for name, val in (("base URL", base_url), ("API key", api_key), ("model", self.model_name)) if not val]
+        if missing:
             logger.error(format_doc_log(
                 doc_id,
-                f"LightOnOCR inference failed on page {page_number}: {e}"
+                f"{tag} not configured: missing {', '.join(missing)}. Set LIGHTONOCR_BASE_URL/LIGHTONOCR_MODEL "
+                f"(config) and LIGHTONOCR_API_KEY or LLM_API_KEY (secret)."
             ))
             return None
-    
-    def _run_inference_with_timeout(
-        self,
-        inputs: Any,
-        doc_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Run model inference with timeout protection.
-        
-        Uses threading to enforce timeout.
-        """
-        result_container: Dict[str, Any] = {"result": None, "error": None}
-        
-        def inference_worker() -> None:
-            try:
-                import torch
-                with torch.no_grad():
-                    outputs = self._model.generate(**inputs, max_new_tokens=1024)
-                    
-                    input_ids = inputs.get("input_ids") if isinstance(inputs, dict) else None
-                    if input_ids is not None and hasattr(outputs, "shape") and len(outputs.shape) > 1 and outputs.shape[-1] > input_ids.shape[-1]:
-                        generated_ids = outputs[0, input_ids.shape[1]:]
-                    else:
-                        generated_ids = outputs[0] if hasattr(outputs, "__getitem__") else outputs
-                    
-                    if hasattr(self._processor, "decode"):
-                        text = self._processor.decode(generated_ids, skip_special_tokens=True)
-                    elif hasattr(self._processor, "batch_decode"):
-                        text = self._processor.batch_decode(outputs, skip_special_tokens=True)[0]
-                    else:
-                        text = str(generated_ids)
-                    
-                    # Extract bboxes if available (model-specific)
-                    bboxes: List[List[float]] = []
-                    confidence = 0.95  # Default if not provided by model
-                    
-                    result_container["result"] = {
-                        "text": text,
-                        "confidence": confidence,
-                        "bboxes": bboxes
-                    }
-            except Exception as e:
-                result_container["error"] = str(e)
-        
-        inference_thread = threading.Thread(target=inference_worker)
-        inference_thread.daemon = True
-        inference_thread.start()
-        inference_thread.join(timeout=float(self.timeout_seconds))
-        
-        if inference_thread.is_alive():
+
+        if not image_bytes:
+            logger.error(format_doc_log(doc_id, f"{tag} empty page image; nothing to send"))
+            return None
+
+        endpoint = _endpoint_url(base_url)
+        mime = _image_mime_type(image_bytes)
+        b64_img = base64.b64encode(image_bytes).decode("utf-8")
+        payload: Dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_img}"}},
+                        {"type": "text", "text": LIGHTONOCR_PROMPT},
+                    ],
+                }
+            ],
+            "max_tokens": self.max_tokens,
+            "temperature": 0.0,
+        }
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        logger.info(format_doc_log(
+            doc_id,
+            f"{tag} request -> POST {endpoint} model={self.model_name} image={mime} "
+            f"{len(image_bytes)} bytes (base64 {len(b64_img)} chars) max_tokens={self.max_tokens} "
+            f"timeout={self.timeout_seconds}s base_url_from={base_src} api_key_from={key_src}"
+        ))
+
+        start_time = time.time()
+        timeout = httpx.Timeout(float(self.timeout_seconds), connect=min(_CONNECT_TIMEOUT_SECONDS, float(self.timeout_seconds)))
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(endpoint, headers=headers, json=payload)
+        except httpx.TimeoutException as e:
+            elapsed = (time.time() - start_time) * 1000
+            logger.error(format_doc_log(
+                doc_id, f"{tag} timed out after {elapsed:.0f}ms ({type(e).__name__}; limit {self.timeout_seconds}s) at {endpoint}"
+            ))
+            return None
+        except httpx.HTTPError as e:
+            elapsed = (time.time() - start_time) * 1000
+            logger.error(format_doc_log(
+                doc_id, f"{tag} transport error after {elapsed:.0f}ms calling {endpoint}: {type(e).__name__}: {e}"
+            ))
+            return None
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        if response.status_code >= 400:
             logger.error(format_doc_log(
                 doc_id,
-                f"LightOnOCR inference timeout ({self.timeout_seconds}s exceeded)"
+                f"{tag} gateway returned HTTP {response.status_code} after {elapsed_ms:.0f}ms: "
+                f"{response.text[:_ERROR_BODY_LOG_CHARS]}"
             ))
             return None
-        
-        if result_container["error"]:
+
+        try:
+            data = response.json()
+        except ValueError as e:
             logger.error(format_doc_log(
                 doc_id,
-                f"LightOnOCR inference error: {result_container['error']}"
+                f"{tag} response is not JSON (HTTP {response.status_code}, {elapsed_ms:.0f}ms): {e}; "
+                f"body={response.text[:_ERROR_BODY_LOG_CHARS]}"
             ))
             return None
-        
-        return result_container["result"]
-    
+
+        choices = data.get("choices") or []
+        if not choices:
+            logger.error(format_doc_log(
+                doc_id, f"{tag} response has no choices (HTTP {response.status_code}, {elapsed_ms:.0f}ms): {str(data)[:_ERROR_BODY_LOG_CHARS]}"
+            ))
+            return None
+
+        choice = choices[0] or {}
+        message = choice.get("message") or {}
+        content = message.get("content")
+        if isinstance(content, list):  # some gateways return content parts
+            content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+        text = content if isinstance(content, str) else ""
+        finish_reason = choice.get("finish_reason")
+        usage = data.get("usage") or {}
+
+        confidence = _DEFAULT_CONFIDENCE
+        quality_score = self._compute_quality_score(text, confidence, image_bytes)
+
+        logger.info(format_doc_log(
+            doc_id,
+            f"{tag} response <- HTTP {response.status_code} in {elapsed_ms:.0f}ms id={data.get('id')} "
+            f"served_model={data.get('model')} finish_reason={finish_reason} "
+            f"tokens(prompt={usage.get('prompt_tokens')}, completion={usage.get('completion_tokens')}, "
+            f"total={usage.get('total_tokens')}) chars={len(text)} conf={confidence:.2f} quality={quality_score:.2f}"
+        ))
+        if finish_reason == "length":
+            logger.warning(format_doc_log(
+                doc_id, f"{tag} output truncated at max_tokens={self.max_tokens}; raise LIGHTONOCR_MAX_TOKENS"
+            ))
+        if not text.strip():
+            logger.warning(format_doc_log(doc_id, f"{tag} gateway returned empty text"))
+        if settings.LIGHTONOCR_LOG_TEXT_PREVIEW:
+            preview = text[:300].replace("\n", " | ")
+            logger.info(format_doc_log(doc_id, f"{tag} text preview: {preview}"))
+
+        return LightOnOCRResult(
+            text=text,
+            confidence=confidence,
+            bboxes=[],
+            inference_time_ms=elapsed_ms,
+            quality_score=quality_score
+        )
+
     def _compute_quality_score(
         self,
         text: str,
@@ -349,13 +236,13 @@ class LightOnOCREngine:
     ) -> float:
         """
         Compute quality score for LightOnOCR result.
-        
+
         Quality heuristics:
         - Non-empty text with length gating: up to +0.3
         - Text depth (sufficient content for a full-page document): up to +0.2
         - Engine confidence: up to +0.3
         - Valid character ratio (scaled by length confidence): up to +0.2
-        
+
         Returns: 0.0 to 1.0
         """
         cleaned = text.strip() if text else ""

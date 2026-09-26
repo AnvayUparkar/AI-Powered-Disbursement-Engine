@@ -83,6 +83,21 @@ class DoclingParseResult(BaseModel):
     # a single readable view, as opposed to raw_text's flat OCR text with embedded [TABLE]
     # markers. None when the export itself fails (defensive: never blocks the rest of parsing).
     document_markdown: Optional[str] = None
+    # Docling's own per-model seconds from conv_result.timings (layout, ocr, table_structure,
+    # page_parse, doc_build, pipeline_total, ...), summed across pages. Empty unless
+    # DOCLING_PROFILE_TIMINGS is on.
+    model_timings: Dict[str, float] = Field(default_factory=dict)
+
+
+def _docling_model_timings(conv_result: Any) -> Dict[str, float]:
+    """Per-model totals from Docling's profiler; {} when profiling is off or unavailable."""
+    out: Dict[str, float] = {}
+    for key, item in (getattr(conv_result, "timings", None) or {}).items():
+        try:
+            out[str(key)] = round(float(item.total()), 3)
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return out
 
 
 class DoclingParser:
@@ -439,6 +454,7 @@ class DoclingParser:
                 parse_score=_finite(getattr(conf_report, "parse_score", None)),
                 quality_grade=_grade_str(grade),
                 document_markdown=document_markdown,
+                model_timings=_docling_model_timings(conv_result),
             )
             logger.info(format_doc_log(
                 doc_id,
