@@ -139,38 +139,65 @@ def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
             result[k] = bool(val) if val is not None else False
         else:
             result[k] = norm.get(k, None)
+
+    # Append all other extracted key-value pairs, ignoring internal metadata and duplicate aliases
+    _skip_keys = {
+        "rawText", "formattedText", "documentMarkdown", "document_markdown",
+        "customer_name", "borrower_name", "full_name", "name", "account_no",
+        "loan_no", "loan_account_no", "application_id", "loan_id", "appl_no", "los_id",
+        "pan", "aadhaar", "sanctioned_amount", "funding_amount", "disbursal_amount",
+        "requested_loan_amount", "tenure_months", "tenure", "tenor", "tenure_of_loan",
+        "type_of_loan", "end_use", "purpose_of_loan", "bpi", "broken_period_interest",
+        "roi", "interest_rate", "irr", "consent", "is_consented", "otp_consent",
+        "borrower_consent", "customer_acceptance", "address_text",
+    }
+    for k, v in norm.items():
+        if not k.startswith("_") and k not in result and k not in _skip_keys:
+            result[k] = v
+
     return result
 
 # ── Universal extraction prompt ────────────────────────────────────────────
 _SYSTEM_PROMPT: str = (
-    "You are a financial document field extraction engine.\n"
-    "Your task: extract specific fields from the document text provided.\n"
-    "Return ONLY a valid JSON object with exactly the keys listed below.\n"
-    "If a text/numeric field is not present or not clearly stated in the text, set its value to null.\n"
-    "For presence/signed flags, set to boolean true or false (default false if not present).\n"
-    "Do NOT guess, infer, or hallucinate values that are not explicitly present in the text.\n"
-    "Do NOT add extra keys beyond those listed.\n\n"
-    "Extract these fields:\n"
-    "- applicant_name          : Full name of the applicant / borrower / customer\n"
-    "- fathers_name            : Father's full name\n"
-    "- dob                     : Date of birth (preserve original format exactly)\n"
-    "- mobile_no               : Mobile or phone number\n"
-    "- gender                  : Gender (Male / Female / Other)\n"
-    "- aadhaar_number          : 12-digit Aadhaar UID or masked UID (e.g. XXXXXXXX5552)\n"
-    "- pan_number              : PAN number (format: AAAAA9999A — five letters, four digits, one letter)\n"
-    "- address                 : Full address text as it appears in the document\n"
-    "- current_address         : Current / residential address if separately stated\n"
-    "- bank_account_no         : Bank account number\n"
-    "- type_of_account         : Type of bank account (SB / CA / CC / etc.)\n"
-    "- loan_amount             : Loan / sanctioned / disbursed amount — digits only, no currency symbol\n"
-    "- loan_validity           : Loan tenure or period (e.g. '36 Months', '2 years')\n"
-    "- loan_type               : Type of loan (e.g. 'TW', 'Personal Loan', 'Home Loan')\n"
-    "- application_no          : Application number / application ID\n"
-    "- application_date        : Date of application (preserve original format)\n"
-    "- BPI                     : Broken Period Interest (BPI) amount if stated (digits/float or null)\n"
-    "- irr_percent             : Contractual Interest Rate (ROI) or Internal Rate of Return (IRR) % (e.g. 17.0). Must be the base/nominal rate (labeled 'Interest Rate', 'Rate of Interest', or 'ROI'). NEVER extract APR (Annual Percentage Rate) into this field. If both Interest Rate and APR are present, always extract the Interest Rate / IRR.\n"
-    "- emi                     : Equated Monthly Installment (EMI / EPI) amount\n"
-    "- customer_consent        : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
+    "You are an expert financial document information extraction engine.\n"
+    "Your task: extract ALL key-value pairs, labeled fields, tabular data, attributes, and terms "
+    "present in the provided raw document OCR text, and return them as a valid JSON object.\n\n"
+    "CRITICAL REQUIREMENTS:\n"
+    "1. Comprehensive Key-Value Extraction: Extract EVERY key-value pair and piece of factual information "
+    "found in the text (including applicant/borrower details, co-borrower details, loan parameters, vehicle/asset details, "
+    "bank/branch details, fees/charges, dates, identifiers, addresses, covenants, and terms). "
+    "Do NOT omit any field present in the raw OCR output.\n"
+    "2. Key Naming: Use clean, descriptive snake_case strings for all JSON keys "
+    "(e.g., 'loan_amount', 'dealer_name', 'chassis_number', 'processing_fee', 'interest_rate').\n"
+    "3. Standard Canonical Fields: If the document contains any of the following standard financial/KYC fields, "
+    "you MUST map and extract them using these EXACT canonical keys:\n"
+    "   - applicant_name   : Full name of the applicant / borrower / customer\n"
+    "   - fathers_name     : Father's full name\n"
+    "   - dob              : Date of birth (preserve original format exactly)\n"
+    "   - mobile_no        : Mobile or phone number\n"
+    "   - gender           : Gender (Male / Female / Other)\n"
+    "   - aadhaar_number   : 12-digit Aadhaar UID or masked UID (e.g. XXXXXXXX5552)\n"
+    "   - pan_number       : PAN number (format: AAAAA9999A — five letters, four digits, one letter)\n"
+    "   - address          : Full address text as it appears in the document\n"
+    "   - current_address  : Current / residential address if separately stated\n"
+    "   - bank_account_no  : Bank account number\n"
+    "   - type_of_account  : Type of bank account (SB / CA / CC / etc.)\n"
+    "   - loan_amount      : Loan / sanctioned / disbursed amount — digits only, no currency symbol\n"
+    "   - loan_validity    : Loan tenure or period (e.g. '36 Months', '2 years')\n"
+    "   - loan_type        : Type of loan (e.g. 'TW', 'Personal Loan', 'Home Loan')\n"
+    "   - application_no   : Application number / application ID\n"
+    "   - application_date : Date of application (preserve original format)\n"
+    "   - BPI              : Broken Period Interest (BPI) amount if stated (digits/float or null)\n"
+    "   - irr_percent      : Contractual Interest Rate (ROI) or Internal Rate of Return (IRR) % (e.g. 17.0). Must be the base/nominal rate (labeled 'Interest Rate', 'Rate of Interest', or 'ROI'). NEVER extract APR (Annual Percentage Rate) into this field. If both Interest Rate and APR are present, always extract the Interest Rate / IRR.\n"
+    "   - emi              : Equated Monthly Installment (EMI / EPI) amount\n"
+    "   - customer_consent : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
+    "   (For standard canonical fields, if a text/numeric field is not present in the document, set its value to null; "
+    "   for customer_consent, set to false if not explicitly present).\n"
+    "4. All Other Fields: Extract all additional data points and key-value pairs from the document text alongside "
+    "the standard canonical fields.\n"
+    "5. Factuality: Do NOT guess, infer, or hallucinate values. Extract only what is explicitly stated in the document text.\n"
+    "6. Response Format: Return ONLY a valid JSON object containing all extracted key-value pairs. "
+    "Do NOT include markdown fences, preambles, explanations, or conversational commentary.\n"
 )
 
 

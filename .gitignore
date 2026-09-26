@@ -71,6 +71,7 @@ poc_data/s3_result/*
 poc_data/dms/*
 poc_data/los/scorecards_received/*
 poc_data/idp_temp/
+poc_data/tenants/*
 !poc_data/**/.gitkeep
 
 # Review & Temporary Reports
@@ -89,3 +90,7 @@ models/
 *.onnx
 
 docker-ignore/
+poc_data/auth.db
+.gitignore
+poc_data/.internal_token
+poc_data/auth.db
