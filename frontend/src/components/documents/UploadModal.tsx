@@ -95,8 +95,8 @@ export function UploadModal({
     const n = name.toLowerCase();
     if (n.includes('app')) return 'Application Form';
     if (n.includes('pan')) return 'PAN';
-    if (n.includes('aadhaar') && n.includes('xml')) return 'Aadhaar XML';
-    if (n.includes('aadhaar')) return 'Aadhaar';
+    if ((n.includes('aadhaar') || n.includes('aadhar') || n.includes('adhar')) && n.includes('xml')) return 'Aadhaar XML';
+    if (n.includes('aadhaar') || n.includes('aadhar') || n.includes('adhar')) return 'Aadhaar';
     if (n.includes('kyc')) return 'KYC';
     if (n.includes('kfs')) return 'KFS';
     if (n.includes('sanction')) return 'Sanction Letter';

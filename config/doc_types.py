@@ -5,12 +5,12 @@ from typing import Optional
 
 # Canonical document key mapping and aliases
 DOC_TYPE_ALIASES: dict[str, list[str]] = {
-    "aadhaar": ["aadhaar", "kyc_address_proof", "aadhaar_card", "aadhar"],
+    "aadhaar": ["aadhaar", "kyc_address_proof", "aadhaar_card", "aadhar_card", "aadhar", "adhar"],
     "aadhaar_xml": ["aadhaar_xml", "aadhaarxml", "xml_aadhaar"],
     "pan": ["pan", "kyc_pan", "pan_card"],
     "application_form": ["application_form", "loan_application", "application", "appform", "app_form"],
-    "account_statement": ["account_statement", "bank_statement", "bank_account_statement", "bank_statement_6m"],
     "kfs": ["kfs", "key_fact_statement", "key_fact_statement_kfs"],
+    "account_statement": ["account_statement", "bank_statement", "bank_account_statement", "bank_statement_6m"],
     "sanction_letter": ["sanction_letter", "sanction"],
     "loan_agreement": ["loan_agreement", "agreement"],
     "disbursal_memo": ["disbursal_memo", "disbursement_memo", "memo", "disbursalmemo"],
@@ -76,7 +76,7 @@ def get_canonical_doc_type(name_or_key: str) -> str:
     # Substring heuristics — prioritize distinctive keywords over short prefixes
     if "xml" in stem and ("aadhaar" in stem or "aadhar" in stem):
         return "aadhaar_xml"
-    if "aadhaar" in stem or "aadhar" in stem:
+    if "aadhaar" in stem or ("aadhar" in stem or "adhar" in stem):
         return "aadhaar"
     if "kfs" in stem or ("key" in stem and "fact" in stem):
         return "kfs"

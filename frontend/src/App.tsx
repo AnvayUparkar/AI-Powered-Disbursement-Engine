@@ -35,7 +35,7 @@ function AuthGate() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/cases" replace />} />
+          <Route index element={<Navigate to="/documents" replace />} />
           <Route path="/dashboard" element={<Suspense fallback={<PageFallback />}><DashboardPage /></Suspense>} />
           <Route path="/cases" element={<Suspense fallback={<PageFallback />}><CasesPage /></Suspense>} />
           <Route path="/cases/:caseId" element={<Suspense fallback={<PageFallback />}><CaseDetailPage /></Suspense>} />
@@ -48,7 +48,7 @@ function AuthGate() {
           <Route path="/reports" element={<Suspense fallback={<PageFallback />}><ReportsPage /></Suspense>} />
           <Route path="/audit" element={<Suspense fallback={<PageFallback />}><AuditPage /></Suspense>} />
           <Route path="/settings" element={<Suspense fallback={<PageFallback />}><SettingsPage /></Suspense>} />
-          <Route path="*" element={<Navigate to="/cases" replace />} />
+          <Route path="*" element={<Navigate to="/documents" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

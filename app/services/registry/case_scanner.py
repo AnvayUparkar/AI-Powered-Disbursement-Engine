@@ -12,6 +12,7 @@ from config.tenant import current_tenant_id
 from pipeline.engines.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
+from config.doc_types import get_canonical_doc_type
 from .normalizer import build_default_extracted_fields, build_document_timing, build_lightonocr_processing_step, build_ocr_engine_info
 from .resolver import guess_doc_type
 
@@ -90,36 +91,17 @@ def _find_extracted_and_structured_files(
         return None, None
 
     stem = Path(doc_filename).stem.lower().replace(" ", "_")
-    type_clean = doc_type.lower().replace(" ", "_")
+    canonical_key = get_canonical_doc_type(doc_filename)
+    type_canonical = get_canonical_doc_type(doc_type)
 
-    mapped_key = ""
-    fn_lower = doc_filename.lower()
-    if "pan" in fn_lower:
-        mapped_key = "kyc_pan"
-    elif "application" in fn_lower:
-        mapped_key = "application_form"
-    elif "agreement" in fn_lower:
-        mapped_key = "loan_agreement"
-    elif "kfs" in fn_lower:
-        mapped_key = "kfs"
-    elif "sanction" in fn_lower:
-        mapped_key = "sanction_letter"
-    elif "aadhaar" in fn_lower or "kyc" in fn_lower or "address" in fn_lower:
-        mapped_key = "kyc_address_proof"
-    elif "bank" in fn_lower or "statement" in fn_lower:
-        mapped_key = "bank_statement"
-    elif "memo" in fn_lower or "disbursal" in fn_lower:
-        mapped_key = "disbursal_memo"
-
-    candidates = []
-    if mapped_key:
-        candidates.extend([f"{mapped_key}.json", f"{mapped_key}_structured.json"])
-    candidates.extend([
+    candidates = [
+        f"{canonical_key}.json",
+        f"{canonical_key}_structured.json",
+        f"{type_canonical}.json",
+        f"{type_canonical}_structured.json",
         f"{stem}.json",
         f"{stem}_structured.json",
-        f"{type_clean}.json",
-        f"{type_clean}_structured.json",
-    ])
+    ]
 
     ext_file: Optional[Path] = None
     struct_file: Optional[Path] = None
@@ -411,11 +393,11 @@ def scan_case_documents(dynamic_doc_ids: Optional[Set[str]] = None, use_cache: b
 
 def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Enrich an existing document record with formatted text and canonical fields from on-disk JSONs
-    if formattedText is missing or empty.
+    Enrich an existing document record with raw text, markdown, formatted text, and canonical
+    fields from on-disk extracted JSONs if raw text or formattedText is missing or empty.
     """
-    if (doc.get("formattedText") or "").strip().startswith("{"):
-        return doc
+    raw_val = (doc.get("rawText") or "").strip()
+    is_placeholder_raw = not raw_val or raw_val.startswith("Document Name:")
 
     doc_id = doc.get("id", "")
     c_id = doc.get("caseId")
@@ -432,45 +414,64 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
     c_struct = S3_EXTRACTED_STRUCTURED_DIR / c_id
     stem = Path(doc.get("name", "")).stem.lower().replace(" ", "_")
     clean_stem = re.sub(r"^(loan_\d+|appl\d+)_", "", stem)
+    canonical_key = get_canonical_doc_type(doc.get("name", ""))
+    type_canonical = get_canonical_doc_type(doc.get("type", ""))
 
     cands = [
+        c_struct / f"{canonical_key}.json" if c_struct.exists() else None,
+        c_ext / f"{canonical_key}.json" if c_ext.exists() else None,
+        c_struct / f"{type_canonical}.json" if c_struct.exists() else None,
+        c_ext / f"{type_canonical}.json" if c_ext.exists() else None,
         c_struct / f"{clean_stem}.json" if c_struct.exists() else None,
         c_ext / f"{clean_stem}.json" if c_ext.exists() else None,
         c_ext / f"{doc.get('name')}.json" if c_ext.exists() else None,
         c_ext / f"{Path(doc.get('name', '')).stem}.json" if c_ext.exists() else None,
         c_ext / f"{stem}.json" if c_ext.exists() else None,
-        c_ext / f"{(doc.get('type') or '').lower().replace(' ', '_')}.json" if c_ext.exists() else None,
-        (c_ext / "Application Form.json") if c_ext.exists() and "app" in stem else None,
-        (c_ext / "application_form.json") if c_ext.exists() and "app" in stem else None,
     ]
 
     for cp in cands:
         if cp and cp.exists() and cp.is_file():
             try:
                 loaded = json.loads(cp.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict) and any(
-                    k in loaded for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")
-                ):
-                    tpl = format_template_json(loaded)
-                    doc["formattedText"] = json.dumps(tpl, indent=2)
+                if isinstance(loaded, dict):
+                    loaded_raw = (loaded.get("_raw_text") or loaded.get("rawText") or loaded.get("raw_text") or "").strip()
+                    if is_placeholder_raw and loaded_raw:
+                        doc["rawText"] = loaded_raw
+                        is_placeholder_raw = False
 
-                    # Also add canonical fields to extractedFields if missing
-                    existing_fnames = {f.get("name") for f in doc.get("extractedFields", [])}
-                    for tk, tv in tpl.items():
-                        nice_name = tk.replace("_", " ").title()
-                        if tv is not None and nice_name not in existing_fnames:
-                            doc.setdefault("extractedFields", []).append({
-                                "id": f"llm-{tk}",
-                                "name": nice_name,
-                                "value": str(tv),
-                                "confidence": 98.0,
-                                "sourceDocumentId": doc_id,
-                                "page": 1,
-                                "type": "key_value",
-                                "source": "OPENROUTER_LLM",
-                            })
+                    if not doc.get("documentMarkdown") and (loaded.get("documentMarkdown") or loaded.get("document_markdown")):
+                        doc["documentMarkdown"] = loaded.get("documentMarkdown") or loaded.get("document_markdown")
+
+                    if not doc.get("timing") and loaded.get("_processing"):
+                        doc["timing"] = build_document_timing(loaded.get("_processing"))
+
+                    if loaded_raw or any(k in loaded for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")):
+                        doc["ocrStatus"] = "COMPLETED"
+                        doc["extractionStatus"] = "COMPLETED"
+                        doc["status"] = "processed"
+
+                    if not (doc.get("formattedText") or "").strip().startswith("{"):
+                        if any(k in loaded for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")):
+                            tpl = format_template_json(loaded)
+                            doc["formattedText"] = json.dumps(tpl, indent=2)
+
+                            existing_fnames = {f.get("name") for f in doc.get("extractedFields", [])}
+                            for tk, tv in tpl.items():
+                                nice_name = tk.replace("_", " ").title()
+                                if tv is not None and nice_name not in existing_fnames:
+                                    doc.setdefault("extractedFields", []).append({
+                                        "id": f"llm-{tk}",
+                                        "name": nice_name,
+                                        "value": str(tv),
+                                        "confidence": 98.0,
+                                        "sourceDocumentId": doc_id,
+                                        "page": 1,
+                                        "type": "key_value",
+                                        "source": "OPENROUTER_LLM",
+                                    })
                     break
             except Exception:
                 pass
 
     return doc
+

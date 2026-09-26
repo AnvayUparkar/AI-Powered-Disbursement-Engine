@@ -1,11 +1,9 @@
 import { NavLink } from 'react-router-dom';
 import {
-  FolderKanban,
   FileText,
 } from 'lucide-react';
 
 const nav = [
-  { to: '/cases', label: 'Loan Cases', icon: FolderKanban },
   { to: '/documents', label: 'Documents', icon: FileText },
 ];
 
