@@ -463,14 +463,14 @@ export default function DocumentsPage() {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <Link
+                    {/* <Link
                       to={`/cases/${cId}`}
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 px-2.5 py-1.5 rounded-md border border-ink-200 transition-colors shadow-2xs"
                     >
                       <span>View Case Details</span>
                       <ExternalLink className="h-3.5 w-3.5" />
-                    </Link>
+                    </Link> */}
                     <button className="text-ink-400 hover:text-ink-600 p-1">
                       {isExpanded ? (
                         <ChevronDown className="h-5 w-5" />

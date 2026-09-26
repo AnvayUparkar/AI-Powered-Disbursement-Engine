@@ -157,48 +157,11 @@ def format_template_json(extracted: dict[str, Any] | None) -> dict[str, Any]:
 
     return result
 
-# ── Universal extraction prompt ────────────────────────────────────────────
-_SYSTEM_PROMPT: str = (
-    "You are an expert financial document information extraction engine.\n"
-    "Your task: extract ALL key-value pairs, labeled fields, tabular data, attributes, and terms "
-    "present in the provided raw document OCR text, and return them as a valid JSON object.\n\n"
-    "CRITICAL REQUIREMENTS:\n"
-    "1. Comprehensive Key-Value Extraction: Extract EVERY key-value pair and piece of factual information "
-    "found in the text (including applicant/borrower details, co-borrower details, loan parameters, vehicle/asset details, "
-    "bank/branch details, fees/charges, dates, identifiers, addresses, covenants, and terms). "
-    "Do NOT omit any field present in the raw OCR output.\n"
-    "2. Key Naming: Use clean, descriptive snake_case strings for all JSON keys "
-    "(e.g., 'loan_amount', 'dealer_name', 'chassis_number', 'processing_fee', 'interest_rate').\n"
-    "3. Standard Canonical Fields: If the document contains any of the following standard financial/KYC fields, "
-    "you MUST map and extract them using these EXACT canonical keys:\n"
-    "   - applicant_name   : Full name of the applicant / borrower / customer\n"
-    "   - fathers_name     : Father's full name\n"
-    "   - dob              : Date of birth (preserve original format exactly)\n"
-    "   - mobile_no        : Mobile or phone number\n"
-    "   - gender           : Gender (Male / Female / Other)\n"
-    "   - aadhaar_number   : 12-digit Aadhaar UID or masked UID (e.g. XXXXXXXX5552)\n"
-    "   - pan_number       : PAN number (format: AAAAA9999A — five letters, four digits, one letter)\n"
-    "   - address          : Full address text as it appears in the document\n"
-    "   - current_address  : Current / residential address if separately stated\n"
-    "   - bank_account_no  : Bank account number\n"
-    "   - type_of_account  : Type of bank account (SB / CA / CC / etc.)\n"
-    "   - loan_amount      : Loan / sanctioned / disbursed amount — digits only, no currency symbol\n"
-    "   - loan_validity    : Loan tenure or period (e.g. '36 Months', '2 years')\n"
-    "   - loan_type        : Type of loan (e.g. 'TW', 'Personal Loan', 'Home Loan')\n"
-    "   - application_no   : Application number / application ID\n"
-    "   - application_date : Date of application (preserve original format)\n"
-    "   - BPI              : Broken Period Interest (BPI) amount if stated (digits/float or null)\n"
-    "   - irr_percent      : Contractual Interest Rate (ROI) or Internal Rate of Return (IRR) % (e.g. 17.0). Must be the base/nominal rate (labeled 'Interest Rate', 'Rate of Interest', or 'ROI'). NEVER extract APR (Annual Percentage Rate) into this field. If both Interest Rate and APR are present, always extract the Interest Rate / IRR.\n"
-    "   - emi              : Equated Monthly Installment (EMI / EPI) amount\n"
-    "   - customer_consent : Is explicit customer consent, OTP verification (e.g. 'Customer consent provided on KFS via OTP...'), or borrower acceptance present? (boolean: true / false)\n"
-    "   (For standard canonical fields, if a text/numeric field is not present in the document, set its value to null; "
-    "   for customer_consent, set to false if not explicitly present).\n"
-    "4. All Other Fields: Extract all additional data points and key-value pairs from the document text alongside "
-    "the standard canonical fields.\n"
-    "5. Factuality: Do NOT guess, infer, or hallucinate values. Extract only what is explicitly stated in the document text.\n"
-    "6. Response Format: Return ONLY a valid JSON object containing all extracted key-value pairs. "
-    "Do NOT include markdown fences, preambles, explanations, or conversational commentary.\n"
-)
+# ── Per-document-type system prompt dispatcher ────────────────────────────
+# Prompts live in pipeline/engines/prompts/<doc_type>.py.
+# get_system_prompt() returns the tailored schema prompt for each canonical
+# type, falling back to the universal misc prompt for unknown types.
+from pipeline.engines.prompts import get_system_prompt as _get_system_prompt
 
 
 
@@ -285,10 +248,18 @@ def llm_extract_fields(
 
     user_content = _build_user_content(doc_type, raw_text)
 
+    system_prompt = _get_system_prompt(doc_type)
+    logger.debug(
+        "[%s] Using system prompt for doc_type=%r (prompt length=%d chars)",
+        doc_id,
+        doc_type,
+        len(system_prompt),
+    )
+
     try:
         from pipeline.engines.llm_client import invoke_llm_json
         extracted = invoke_llm_json(
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=user_content,
             model=effective_model,
             api_key=effective_api_key,
