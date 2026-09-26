@@ -6,6 +6,7 @@ LightOnOCR is never loaded in-process: every page is sent to the LiteLLM gateway
 """
 from typing import Optional, List, Dict, Any, Tuple
 import base64
+import html as html_lib
 import re
 import time
 import uuid
@@ -35,6 +36,37 @@ _CONNECT_TIMEOUT_SECONDS = 10.0
 
 # Response bodies are truncated to this many characters in error logs.
 _ERROR_BODY_LOG_CHARS = 500
+
+# Only tags a genuine HTML reply would use to open a document/table -- deliberately excludes bare
+# "<"/">" so a scanned document's own content (a comparison like "< 50000", a stray angle bracket)
+# is never mistaken for markup and passed through _strip_html_markup unnecessarily.
+_HTML_HINT_RE = re.compile(r"<(?:html|body|table|thead|tbody|tr|td|th|p|br)\b", re.IGNORECASE)
+_BLOCK_TAG_RE = re.compile(r"</?(?:tr|p|div|h[1-6]|li)\b[^>]*>", re.IGNORECASE)
+_BR_TAG_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_CELL_END_RE = re.compile(r"</td>|</th>", re.IGNORECASE)
+_ANY_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _looks_like_html(text: str) -> bool:
+    return bool(text) and bool(_HTML_HINT_RE.search(text))
+
+
+def _strip_html_markup(text: str) -> str:
+    """Turn an HTML-formatted model reply back into plain text, preserving rough structure.
+
+    Block-level tags become a newline (so table rows / paragraphs don't glue into one run-on
+    line) before every remaining tag is dropped and HTML entities (&amp;, &nbsp;, ...) are
+    unescaped. Not a full HTML parser -- good enough to recover readable OCR text, not to
+    round-trip arbitrary markup.
+    """
+    text = _BLOCK_TAG_RE.sub("\n", text)
+    text = _BR_TAG_RE.sub("\n", text)
+    text = _CELL_END_RE.sub("\t", text)
+    text = _ANY_TAG_RE.sub("", text)
+    text = html_lib.unescape(text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 class LightOnOCRResult(BaseModel):
@@ -197,6 +229,19 @@ class LightOnOCREngine:
         if isinstance(content, list):  # some gateways return content parts
             content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
         text = content if isinstance(content, str) else ""
+        if _looks_like_html(text):
+            # Some vision models answer with structural HTML (<table>, <p>, <br>) instead of plain
+            # text. Left as-is this corrupts three downstream consumers that all expect plain OCR
+            # prose: the quality score below (its char-validity check penalises '<'/'>'/'='), the
+            # Raw OCR Text viewer (it looks for our own [TABLE]...[/TABLE] marker, not real <table>
+            # tags, so the raw tags would just show up as visible text), and the LLM field-extraction
+            # step that reads this same text. Only runs when the reply actually looks like markup, so
+            # a stray '<'/'>' in scanned financial text (e.g. "< 50000") is never touched.
+            stripped = _strip_html_markup(text)
+            logger.info(format_doc_log(
+                doc_id, f"{tag} response looked like HTML ({len(text)} chars) -- stripped to plain text ({len(stripped)} chars)"
+            ))
+            text = stripped
         finish_reason = choice.get("finish_reason")
         usage = data.get("usage") or {}
 

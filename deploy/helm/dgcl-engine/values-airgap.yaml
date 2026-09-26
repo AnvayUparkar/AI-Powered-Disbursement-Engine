@@ -70,17 +70,17 @@ global:
 image:
   backend:
     repository: dgcl-engine-backend   # prefixed with global.imageRegistry
-    tag: "v1.1.0" # pinned — do not leave blank/"latest" in an airgapped environment (no registry re-pull to fall back on)
+    tag: "v1.1.1" # pinned — do not leave blank/"latest" in an airgapped environment (no registry re-pull to fall back on)
     pullPolicy: IfNotPresent
   backendGpu:
     # Built from docker/Dockerfile.backend-gpu — only referenced when
     # idp.gpu.enabled is true (see idp.gpu below).
     repository: dgcl-engine-backend-gpu
-    tag: "v1.1.0"
+    tag: "v1.1.1"
     pullPolicy: IfNotPresent
   frontend:
     repository: dgcl-engine-frontend
-    tag: "v1.1.0"
+    tag: "v1.1.1"
     pullPolicy: IfNotPresent
 
 # Pod-level securityContext for api/idp/worker. The image runs as uid 10001; fsGroup makes mounted

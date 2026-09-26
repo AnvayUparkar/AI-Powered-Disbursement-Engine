@@ -455,3 +455,75 @@ class TestLightOnOCRViaLiteLLM:
             assert not hasattr(engine, attr)
         source = open(mod.__file__, encoding="utf-8").read()
         assert "transformers" not in source and "import torch" not in source
+
+
+class TestHtmlReplySanitization:
+    """Some vision models answer with structural HTML instead of plain text. Left as-is this
+    corrupts the quality score (its char-validity regex penalises '<'/'>'/'='), the Raw OCR Text
+    viewer (it looks for our own [TABLE] marker, not real <table> tags), and the LLM
+    field-extraction step -- all three assume plain OCR prose."""
+
+    def test_html_table_reply_is_converted_to_plain_text(self):
+        payload = _completion(text=(
+            "<table><tr><td>Name</td><td>RAVI KUMAR</td></tr>"
+            "<tr><td>PAN</td><td>ABCDE1234F</td></tr></table>"
+        ))
+        with _gateway(lambda r: httpx.Response(200, json=payload)), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-HTML-TABLE")
+
+        assert result is not None
+        assert "<" not in result.text and ">" not in result.text
+        assert "RAVI KUMAR" in result.text and "ABCDE1234F" in result.text
+        # Table rows must not be glued into one run-on line/word.
+        assert "Name" in result.text.splitlines()[0]
+
+    def test_html_paragraphs_and_br_become_newlines(self):
+        payload = _completion(text="<p>Loan Application Form</p><p>Applicant: RAVI KUMAR</p><br>Amount: 500000")
+        with _gateway(lambda r: httpx.Response(200, json=payload)), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-HTML-P")
+
+        assert result.text.splitlines() == ["Loan Application Form", "", "Applicant: RAVI KUMAR", "", "Amount: 500000"]
+
+    def test_html_entities_are_unescaped(self):
+        payload = _completion(text="<p>Fees &amp; charges: Rs.&nbsp;500 &lt;total&gt;</p>")
+        with _gateway(lambda r: httpx.Response(200, json=payload)), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-HTML-ENT")
+
+        assert "Fees & charges: Rs.\xa0500 <total>" in result.text
+
+    def test_plain_text_with_comparison_operators_is_never_touched(self):
+        """Failure mode this guards against: a genuinely scanned financial document's own content
+        (a real '<'/'>' comparison) must never be mistaken for markup and mangled."""
+        original = "Eligibility: balance < 50000 and income > 10000 per month"
+        payload = _completion(text=original)
+        with _gateway(lambda r: httpx.Response(200, json=payload)), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-PLAIN")
+
+        assert result.text == original
+
+    def test_quality_score_is_computed_on_the_cleaned_text_not_the_raw_markup(self):
+        """The whole point of stripping first: markup characters must not drag the quality score
+        below threshold for what is otherwise a clean, complete extraction."""
+        clean_equivalent = "Name RAVI KUMAR PAN ABCDE1234F Loan Amount 500000"
+        html_version = "<table><tr><td>Name</td><td>RAVI KUMAR</td></tr><tr><td>PAN</td><td>ABCDE1234F</td></tr><tr><td>Loan Amount</td><td>500000</td></tr></table>"
+
+        with _gateway(lambda r: httpx.Response(200, json=_completion(text=html_version))), _lightonocr_settings():
+            html_result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-QS-HTML")
+        with _gateway(lambda r: httpx.Response(200, json=_completion(text=clean_equivalent))), _lightonocr_settings():
+            plain_result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-QS-PLAIN")
+
+        # Stripped-HTML quality must land in the same ballpark as equivalent plain text, not be
+        # dragged down by leftover '<'/'>'/'=' characters that a naive approach would still count.
+        assert abs(html_result.quality_score - plain_result.quality_score) < 0.05
+
+    def test_empty_reply_is_not_treated_as_html(self):
+        with _gateway(lambda r: httpx.Response(200, json=_completion(text=""))), _lightonocr_settings():
+            result = LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-EMPTY")
+        assert result.text == ""
+
+    def test_stripping_is_logged(self, caplog):
+        payload = _completion(text="<p>hello</p>")
+        with _gateway(lambda r: httpx.Response(200, json=payload)), _lightonocr_settings(), \
+             caplog.at_level(logging.INFO, logger="node2_idp"):
+            LightOnOCREngine().process_page(PNG_BYTES, page_number=1, doc_id="TEST-LOG-STRIP")
+        assert any("looked like HTML" in r.getMessage() for r in caplog.records)

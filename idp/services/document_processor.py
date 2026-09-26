@@ -438,9 +438,21 @@ class DocumentProcessor:
                 if docling_result is not None:
                     metrics.docling_model_timings = dict(docling_result.model_timings)
 
-            # Step 4: Capture page images for VLM region cropping
+            # Step 4: Capture page images for VLM region cropping and comb-grid recovery.
+            # This re-rasterises every page a second time (the OCR/LightOnOCR pass above already
+            # rasterised them once) -- expensive on both CPU and memory for a multi-page scanned
+            # document, so skip it entirely when nothing downstream can use it: both VLM branches
+            # below require settings.VLM_ENABLED, and comb-grid recovery only runs when
+            # docling_result is not None (never true on the LightOnOCR route, since that route
+            # leaves docling_result as None). Previously this ran unconditionally, so with
+            # VLM_ENABLED=False (this deployment's default) every scanned document paid the full
+            # cost of a second full-document rasterisation for zero benefit.
             # For LightOnOCR route: use the ORIGINAL file (not preprocessed) for VLM
-            page_image_data = await self._get_page_images(local_file_path, prep_doc)
+            needs_page_images = settings.VLM_ENABLED or docling_result is not None
+            if needs_page_images:
+                page_image_data = await self._get_page_images(local_file_path, prep_doc)
+            else:
+                page_image_data = []
             page_images: List[bytes] = [item[0] for item in page_image_data]
             clock.lap("page_images")
 
