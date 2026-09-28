@@ -173,10 +173,18 @@ idp:
   # Model-load allowance before liveness applies: startupFailureThreshold x 10s (60 = 10 minutes).
   startupFailureThreshold: 60
   command: ["uvicorn"]
-  args: ["idp.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+  # --workers bumped 1 -> 4: with --workers 1 a single Python process (one GIL) handled every
+  # request, so however much CPU the pod was given, only one document's CPU-bound work
+  # (Docling layout/table parsing, PDF rasterisation) could run at a time and everything else
+  # queued behind it. 4 processes let up to 4 documents progress genuinely in parallel.
+  args: ["idp.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "4"]
   resources:
-    requests: { cpu: "1", memory: 1Gi }
-    limits: { cpu: "2", memory: 2Gi }
+    # Sized for a node dedicated to this pod with 16Gi/12 cores: replicaCount 2 x limit cpu "5"/
+    # memory 7Gi = 10 cores / 14Gi ceiling, leaving ~2 cores / ~2Gi headroom for the kubelet and
+    # system daemons. The old cpu:"2" limit was the actual cause of "only 2-3 cores used, rest
+    # queued" -- Kubernetes was hard-throttling the container there regardless of node capacity.
+    requests: { cpu: "4", memory: 6Gi }
+    limits: { cpu: "5", memory: 7Gi }
   autoscaling:
     enabled: true
     minReplicas: 2

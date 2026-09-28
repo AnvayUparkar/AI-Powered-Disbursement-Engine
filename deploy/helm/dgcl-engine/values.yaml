@@ -173,10 +173,18 @@ idp:
   # Model-load allowance before liveness applies: startupFailureThreshold x 10s (60 = 10 minutes).
   startupFailureThreshold: 60
   command: ["uvicorn"]
-  args: ["idp.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+  # --workers bumped 1 -> 4: with --workers 1 a single Python process (one GIL) handled every
+  # request, so however much CPU the pod was given, only one document's CPU-bound work
+  # (Docling layout/table parsing, PDF rasterisation) could run at a time and everything else
+  # queued behind it. 4 processes let up to 4 documents progress genuinely in parallel.
+  args: ["idp.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "4"]
   resources:
-    requests: { cpu: "1", memory: 1Gi }
-    limits: { cpu: "2", memory: 2Gi }
+    # Sized for a node dedicated to this pod with 16Gi/12 cores: replicaCount 2 x limit cpu "5"/
+    # memory 7Gi = 10 cores / 14Gi ceiling, leaving ~2 cores / ~2Gi headroom for the kubelet and
+    # system daemons. The old cpu:"2" limit was the actual cause of "only 2-3 cores used, rest
+    # queued" -- Kubernetes was hard-throttling the container there regardless of node capacity.
+    requests: { cpu: "4", memory: 6Gi }
+    limits: { cpu: "5", memory: 7Gi }
   autoscaling:
     enabled: true
     minReplicas: 2
@@ -339,6 +347,20 @@ config:
   # *_MODEL must be a model_name alias defined in the LiteLLM config.
   LLM_BASE_URL: "https://tsguat1.hdbfs.com:560/v1"   # >>> FILL IN (confirm): the LiteLLM gateway URL, ending in /v1
   LLM_MODEL: "anthropic.claude-3-haiku-20240307-v1:0"   # exact model name LiteLLM lists for this key (GET /v1/models); Claude 3 Haiku on Bedrock
+  # LiteLLM gateway: each page image is POSTed to <LIGHTONOCR_BASE_URL>/chat/completions. No model is
+  # loaded inside the idp pod. Pages that fail or score below LIGHTONOCR_QUALITY_THRESHOLD are only
+  # re-read by the VLM when VLM_ENABLED is "True"; otherwise they come back with no text.
+  LIGHTONOCR_ENABLED: "true"
+  LIGHTONOCR_BASE_URL: "https://tsguat1.hdbfs.com:560/v1"   # >>> FILL IN (confirm): LiteLLM gateway, ending in /v1 (omit to reuse LLM_BASE_URL)
+  LIGHTONOCR_MODEL: "lightonai/LightOnOCR-2-1B"         # >>> FILL IN (confirm): the model_name LiteLLM lists for LightOnOCR (GET /v1/models)
+  LIGHTONOCR_TIMEOUT_SECONDS: "60"                      # per page request
+  LIGHTONOCR_MAX_TOKENS: "4096"                         # per page; a "truncated" warning in the idp log means raise this
+  LIGHTONOCR_QUALITY_THRESHOLD: "0.40"
+  # Every LightOnOCR call logs at INFO on the idp pod: endpoint, model, image size, HTTP status, latency,
+  # token usage, finish_reason, characters and quality. "true" also logs the first 300 characters of the
+  # recognised text — KYC data: the idp log filter masks Aadhaar/PAN numbers but not names, addresses or
+  # dates, so keep it off outside debugging.
+  LIGHTONOCR_LOG_TEXT_PREVIEW: "true"
   OCR_ENGINE: "docling_ocr"
   OCR_MODEL: "PP-OCRv6_medium"
   OCR_CONFIDENCE_THRESHOLD: "0.70"
