@@ -78,8 +78,8 @@ def _structure_single_document(doc_key: str, doc_data: dict[str, Any], loan_id: 
         except Exception as e:
             logger.debug("Field location resolution skipped for %s: %s", doc_key, e)
 
-    import json
-    formatted_json = doc_data.get("_formatted_text") or doc_data.get("formattedText") or json.dumps(template_fields, indent=2)
+    from pipeline.engines.doc_templates import format_ui_json_text
+    formatted_json = doc_data.get("_formatted_text") or doc_data.get("formattedText") or format_ui_json_text(doc_key, template_fields)
     structured["_formatted_text"] = formatted_json
     structured["formattedText"] = formatted_json
 

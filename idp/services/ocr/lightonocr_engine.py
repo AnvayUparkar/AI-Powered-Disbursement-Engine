@@ -210,12 +210,15 @@ class LightOnOCREngine:
             f"tokens(prompt={usage.get('prompt_tokens')}, completion={usage.get('completion_tokens')}, "
             f"total={usage.get('total_tokens')}) chars={len(text)} conf={confidence:.2f} quality={quality_score:.2f}"
         ))
+        
         if finish_reason == "length":
             logger.warning(format_doc_log(
                 doc_id, f"{tag} output truncated at max_tokens={self.max_tokens}; raise LIGHTONOCR_MAX_TOKENS"
             ))
+
         if not text.strip():
             logger.warning(format_doc_log(doc_id, f"{tag} gateway returned empty text"))
+
         if settings.LIGHTONOCR_LOG_TEXT_PREVIEW:
             preview = text[:300].replace("\n", " | ")
             logger.info(format_doc_log(doc_id, f"{tag} text preview: {preview}"))

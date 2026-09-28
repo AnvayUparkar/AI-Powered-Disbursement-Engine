@@ -611,13 +611,13 @@ class DocumentProcessor:
                 )
                 clock.lap("llm_field_extraction")
                 if llm_fields:
-                    import json
                     from idp.services.extraction.field_location_resolver import FieldLocationResolver
+                    from pipeline.engines.doc_templates import format_ui_json_text
 
                     if not isinstance(parsed_doc.custom_metadata, dict):
                         parsed_doc.custom_metadata = {}
                     parsed_doc.custom_metadata["llm_extracted_fields"] = llm_fields
-                    parsed_doc.formatted_text = json.dumps(llm_fields, indent=2)
+                    parsed_doc.formatted_text = format_ui_json_text(doc_type_hint, llm_fields)
 
                     try:
                         resolver = FieldLocationResolver()

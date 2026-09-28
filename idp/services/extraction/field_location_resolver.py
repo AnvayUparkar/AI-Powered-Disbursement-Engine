@@ -16,6 +16,18 @@ def _clean_text(s: Any) -> str:
     return re.sub(r"\s+", " ", str(s)).strip()
 
 
+def _flatten_nested_fields(fields: Dict[str, Any]) -> List[Tuple[str, Any]]:
+    """Expand one level of nested values ({"reference_1": {"name": ..}}) into "reference_1.name"
+    entries, so each sub-field is located on the page on its own."""
+    flat: List[Tuple[str, Any]] = []
+    for name, value in fields.items():
+        if isinstance(value, dict):
+            flat.extend((f"{name}.{sub}", sub_value) for sub, sub_value in value.items())
+        else:
+            flat.append((name, value))
+    return flat
+
+
 def _clean_alphanumeric(s: Any) -> str:
     """Extracts only alphanumeric lowercase characters."""
     return re.sub(r"[^a-zA-Z0-9]", "", _clean_text(s)).lower()
@@ -185,7 +197,7 @@ class FieldLocationResolver:
 
         results: Dict[str, FieldLocation] = {}
 
-        for field_name, value in extracted_fields.items():
+        for field_name, value in _flatten_nested_fields(extracted_fields):
             if field_name.startswith("_") or value is None:
                 continue
             if isinstance(value, bool):

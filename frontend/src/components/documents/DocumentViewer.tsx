@@ -164,32 +164,6 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
 
   const imageUrl = `/api/documents/preview/${encodeURIComponent(document.caseId)}/${encodeURIComponent(document.name)}?page=${page}&format=image`;
 
-  const CANONICAL_TEMPLATE_FIELDS = [
-    'applicant_name',
-    'fathers_name',
-    'dob',
-    'mobile_no',
-    'gender',
-    'aadhaar_number',
-    'pan_number',
-    'address',
-    'current_address',
-    'bank_account_no',
-    'type_of_account',
-    'loan_amount',
-    'loan_validity',
-    'loan_type',
-    'application_no',
-    'application_date',
-    'BPI',
-    'irr_percent',
-    'emi',
-    'aadhaar_xml_present',
-    'loan_agreement_present',
-    'loan_agreement_signed',
-    'customer_consent',
-  ];
-
   const getCanonicalJsonString = () => {
     if (document.formattedText && document.formattedText.trim().startsWith('{')) {
       try {
@@ -199,18 +173,11 @@ export function DocumentViewer({ document }: { document: DocumentRecord }) {
         return document.formattedText;
       }
     }
-    // Reconstruct canonical 23-field JSON from extracted fields
-    const map: Record<string, any> = {};
+    // No server JSON: show the key-value pairs this document actually has.
+    const result: Record<string, ExtractedField['value']> = { document_type: document.type };
     for (const f of document.extractedFields) {
-      const normalizedKey = f.name.toLowerCase().replace(/\s+/g, '_');
-      map[normalizedKey] = f.value;
-    }
-    const result: Record<string, any> = {};
-    for (const key of CANONICAL_TEMPLATE_FIELDS) {
-      if (key === 'aadhaar_xml_present' || key === 'loan_agreement_present' || key === 'loan_agreement_signed' || key === 'customer_consent') {
-        result[key] = Boolean(map[key]);
-      } else {
-        result[key] = map[key] ?? null;
+      if ((f.type ?? 'key_value') === 'key_value' && f.value !== null && f.value !== '') {
+        result[f.name] = f.value;
       }
     }
     return JSON.stringify(result, null, 2);

@@ -6,36 +6,17 @@ Usage
 
     system_prompt = get_system_prompt(doc_type)   # doc_type is a canonical key
 
-Supported canonical types (each has a dedicated, schema-constrained prompt):
-    - application_form
-    - kfs
-    - sanction_letter
-    - aadhaar
-    - pan
+A type with a template in pipeline/engines/doc_templates/<doc_type>.yaml gets its
+prompt generated from that template (currently: sanction_letter, kfs, application_form).
 
-All other types (including 'misc', 'miscellaneous', and any unknown/unresolved
-key) fall back to the universal key-value extraction prompt in misc.py.
+Every other type falls back to the universal key-value extraction prompt in misc.py,
+which extracts all key-value pairs plus the canonical keys the LOS checks read.
 """
 
 from __future__ import annotations
 
-from pipeline.engines.prompts import (
-    aadhaar,
-    application_form,
-    kfs,
-    misc,
-    pan,
-    sanction_letter,
-)
-
-# Mapping from canonical doc-type key → module that contains SYSTEM_PROMPT
-_PROMPT_MAP: dict[str, str] = {
-    "aadhaar":          aadhaar.SYSTEM_PROMPT,
-    "pan":              pan.SYSTEM_PROMPT,
-    "application_form": application_form.SYSTEM_PROMPT,
-    "kfs":              kfs.SYSTEM_PROMPT,
-    "sanction_letter":  sanction_letter.SYSTEM_PROMPT,
-}
+from pipeline.engines.doc_templates import build_system_prompt, get_doc_template
+from pipeline.engines.prompts import misc
 
 _FALLBACK_PROMPT: str = misc.SYSTEM_PROMPT
 
@@ -49,8 +30,10 @@ def get_system_prompt(doc_type: str) -> str:
                   Examples: ``"aadhaar"``, ``"kfs"``, ``"sanction_letter"``.
 
     Returns:
-        A system prompt string tailored to the document type.
-        Falls back to the universal misc prompt for any unknown or
-        miscellaneous type.
+        The template-generated prompt when the type has a template, otherwise the
+        universal key-value extraction prompt.
     """
-    return _PROMPT_MAP.get((doc_type or "").lower().strip(), _FALLBACK_PROMPT)
+    template = get_doc_template(doc_type)
+    if template is not None:
+        return build_system_prompt(template)
+    return _FALLBACK_PROMPT

@@ -1,0 +1,95 @@
+# Sanction Letter template: the single place that defines what the LLM extracts from a sanction
+# letter and how the result is shown on the UI (the JSON view and the field labels).
+#
+# To add, remove, rename or reorder a field, edit `fields` below. The LLM prompt and the UI JSON
+# are both generated from this list, in this order.
+#
+#   key          JSON key the LLM must return. Keys marked "LOS check" are read by
+#                config/pipeline_checks.py and app/serializers/checkpoints/financial.py; renaming
+#                one silently disables that comparison.
+#   label        Name shown on the UI.
+#   type         string | number | date | percent. Adds a formatting instruction to the prompt.
+#   description  What the LLM should extract for this key.
+#   show_in_ui   false = still extracted (a check needs it) but left out of the UI JSON. Default true.
+
+doc_type: sanction_letter
+display_name: Sanction Letter
+version: 1
+
+intro: >-
+  You are an expert document extraction engine specialising in loan sanction letters issued by
+  Indian banks and NBFCs.
+
+rules:
+  - "'apr_percent' is the Annual Percentage Rate (APR). 'irr_percent' is the interest rate (ROI / IRR). Never copy one into the other."
+  - "'application_no' is the reference number / LOS ID quoted on the letter; 'sanction_number' is the letter's own sanction number. Keep them separate."
+
+fields:
+  - key: applicant_name          # LOS check
+    label: Name
+    type: string
+    description: full name of the borrower the letter is addressed to
+
+  - key: sanction_date
+    label: Date
+    type: date
+    description: date printed on the sanction letter (date of issue)
+
+  - key: address                 # LOS check
+    label: Address
+    type: string
+    description: borrower address as printed in the letter
+
+  - key: application_no          # LOS check (vs LOS loan_id)
+    label: "Ref. Number: LOS ID"
+    type: string
+    description: the reference number / LOS ID (loan or application ID) quoted on the letter
+
+  - key: sanction_number
+    label: Sanction Number
+    type: string
+    description: the sanction number / sanction reference of this letter
+
+  - key: mobile_no               # LOS check
+    label: Contact Number
+    type: string
+    description: borrower contact / mobile number
+
+  - key: loan_amount             # LOS check
+    label: Loan Amount (Rs)
+    type: number
+    description: sanctioned loan amount in rupees
+
+  - key: apr_percent
+    label: Annual Percentage Rate (APR) (%)
+    type: percent
+    description: Annual Percentage Rate (APR)
+
+  - key: loan_validity           # LOS check
+    label: Tenor (Months)
+    type: number
+    description: loan tenor / tenure in months
+
+  - key: emi_payment_date
+    label: EMI Payment Date
+    type: string
+    description: EMI due / payment date as printed (a date, or a day such as "5th of every month")
+
+  # Not on the UI sheet, but the LOS comparison checks read them, so they are still extracted.
+  - key: irr_percent             # LOS check
+    label: Interest Rate (%)
+    type: percent
+    description: interest rate / ROI / IRR stated in the letter
+    show_in_ui: false
+
+  - key: emi                     # LOS check
+    label: EMI Amount (Rs)
+    type: number
+    description: EMI amount in rupees
+    show_in_ui: false
+
+  - key: loan_type               # LOS check
+    label: Loan Type
+    type: string
+    description: type of loan, e.g. "Personal Loan"
+    show_in_ui: false

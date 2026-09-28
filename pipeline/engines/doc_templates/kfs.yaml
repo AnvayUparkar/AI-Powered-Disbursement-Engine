@@ -1,0 +1,111 @@
+# Key Fact Statement (KFS) template: the single place that defines what the LLM extracts from a KFS
+# and how the result is shown on the UI. See sanction_letter.yaml for what each setting means.
+# Keys marked "LOS check" are read by config/pipeline_checks.py or app/serializers/checkpoints;
+# renaming one silently disables that comparison.
+
+doc_type: kfs
+display_name: Key Fact Statement (KFS)
+version: 1
+
+intro: >-
+  You are an expert document extraction engine specialising in Key Fact Statement (KFS) documents
+  issued by Indian financial institutions under the RBI mandate.
+
+rules:
+  - "'irr_percent' is the base / nominal interest rate (labelled 'Interest Rate', 'Rate of Interest' or 'IRR'). Never put the APR there; the APR goes in 'apr_percent'."
+  - "'application_no' is the applicant / application number; 'loan_proposal_no' is the loan proposal or loan account number. Keep them separate."
+  - "'customer_consent' is true only if the KFS explicitly records OTP-based consent, borrower acceptance or a signed acknowledgement; otherwise false."
+
+fields:
+  - key: applicant_name          # LOS check
+    label: Applicant Name
+    type: string
+    description: full name of the borrower
+
+  - key: application_date
+    label: Date
+    type: date
+    description: date of the KFS
+
+  - key: application_no          # LOS check (vs LOS loan_id)
+    label: Applicant No
+    type: string
+    description: applicant / application number
+
+  - key: loan_proposal_no
+    label: Loan Proposal / Account No
+    type: string
+    description: loan proposal number or loan account number
+
+  - key: loan_type               # LOS check
+    label: Type of Loan
+    type: string
+    description: type of loan, e.g. "Two Wheeler Loan"
+
+  - key: loan_amount             # LOS check
+    label: Sanctioned Loan Amount (INR)
+    type: number
+    description: sanctioned loan amount in rupees
+
+  - key: loan_validity           # LOS check
+    label: Loan Term (Months)
+    type: number
+    description: loan term / tenure in months
+
+  - key: num_epis
+    label: No. of EPIs
+    type: number
+    description: number of Equated Periodic Instalments (EPIs)
+
+  - key: repayment_commencement
+    label: Repayment Commencement
+    type: string
+    description: when repayment commences after sanction, as printed
+
+  - key: irr_percent             # LOS check
+    label: Interest Rate (%)
+    type: percent
+    description: interest rate
+
+  - key: interest_type
+    label: Interest Type
+    type: string
+    description: interest rate type - Fixed, Floating or Hybrid
+
+  - key: apr_percent
+    label: APR (%)
+    type: percent
+    description: Annual Percentage Rate (APR)
+
+  - key: total_interest_amount
+    label: Total Interest (INR)
+    type: number
+    description: total interest amount to be charged during the entire tenor of the loan
+
+  - key: net_disbursed_amount
+    label: Net Disbursed Amount (INR)
+    type: number
+    description: net disbursed amount
+
+  - key: total_amount_payable
+    label: Total Amount Payable (INR)
+    type: number
+    description: total amount to be paid by the borrower
+
+  - key: customer_consent        # LOS check
+    label: Customer Consent
+    type: boolean
+    description: whether explicit customer consent / acceptance is recorded
+
+  # Not on the UI sheet, but the LOS comparison checks read them, so they are still extracted.
+  - key: emi                     # LOS check
+    label: EMI / EPI Amount (INR)
+    type: number
+    description: EMI / EPI amount
+    show_in_ui: false
+
+  - key: BPI                     # LOS check
+    label: Broken Period Interest (INR)
+    type: number
+    description: Broken Period Interest (BPI) amount
+    show_in_ui: false

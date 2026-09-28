@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from config import IST, S3_EXTRACTED_DIR
 from idp.services.ocr.lightonocr_engine import LIGHTONOCR_ENGINE_ID
-from pipeline.engines.llm_field_extractor import format_template_json
+from pipeline.engines.doc_templates import format_ui_json_text, get_doc_template, ui_label_for
 
 _DOCLING_ENGINE_IDS = {"docling_rapidocr", "docling_ocr"}
 
@@ -193,12 +193,30 @@ def parse_extracted_fields(
     doc_id: str,
     parsed_result: Dict[str, Any],
     llm_meta: Dict[str, Any],
+    doc_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Parse key-value fields, text blocks, and tables from parsed result."""
+    """Parse key-value fields, text blocks, and tables from parsed result.
+
+    When *doc_type* has a document template, its fields come first, in template order, under
+    their template labels.
+    """
     extracted_fields: List[Dict[str, Any]] = []
     field_locs = (parsed_result.get("custom_metadata") or {}).get("field_locations") or {}
 
-    for lk, lv in llm_meta.items():
+    template = get_doc_template(doc_type)
+    template_order = {f.key: idx for idx, f in enumerate(template.fields)} if template else {}
+    ordered_llm_items = sorted(llm_meta.items(), key=lambda kv: template_order.get(kv[0], len(template_order)))
+
+    # Nested values ({"reference_1": {"name": ..}}) become one row per sub-field, keyed
+    # "reference_1.name" -- the same key the field location resolver uses.
+    flat_llm_items: List[Tuple[str, Any]] = []
+    for lk, lv in ordered_llm_items:
+        if isinstance(lv, dict):
+            flat_llm_items.extend((f"{lk}.{sk}", sv) for sk, sv in lv.items())
+        else:
+            flat_llm_items.append((lk, lv))
+
+    for lk, lv in flat_llm_items:
         if lv is not None:
             fl = field_locs.get(lk) or {}
             fl_bbox = fl.get("bbox")
@@ -208,7 +226,7 @@ def parse_extracted_fields(
 
             extracted_fields.append({
                 "id": f"llm-{lk}",
-                "name": lk.replace("_", " ").title(),
+                "name": ui_label_for(doc_type, lk) or lk.replace(".", " - ").replace("_", " ").title(),
                 "value": str(lv),
                 "confidence": fl_conf,
                 "sourceDocumentId": doc_id,
@@ -324,7 +342,7 @@ def normalize_uploaded_record(
         if not llm_meta and assoc_case and assoc_case != "GENERAL":
             llm_meta = _lookup_disk_llm_meta(assoc_case, filename, detected_type)
 
-        extracted_fields = parse_extracted_fields(doc_id, parsed_result, llm_meta)
+        extracted_fields = parse_extracted_fields(doc_id, parsed_result, llm_meta, doc_type=detected_type)
 
         avg_conf = (parsed_result.get("processing") or {}).get("metrics", {}).get("average_confidence")
         if avg_conf is not None and avg_conf > 0:
@@ -342,9 +360,11 @@ def normalize_uploaded_record(
     if not raw_text_val:
         raw_text_val = f"Document Name: {filename}\nType: {detected_type}"
 
+    # A templated type always gets its template layout (all null when extraction found nothing),
+    # otherwise the frontend falls back to its generic field list.
     fmt_text_val = (
-        json.dumps(format_template_json(llm_meta), indent=2)
-        if llm_meta
+        format_ui_json_text(detected_type, llm_meta)
+        if llm_meta or get_doc_template(detected_type)
         else (p_res.get("formatted_text") or p_res.get("formattedText") or "")
     )
 

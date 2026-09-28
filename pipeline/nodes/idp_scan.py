@@ -1,6 +1,5 @@
 """Node: IDP Scan — Ingests raw PDFs/images/XML via IDP and saves output to S3 Extracted tier."""
 import asyncio
-import json
 import logging
 from config.tenant import ContextThreadPoolExecutor as ThreadPoolExecutor
 from pathlib import Path
@@ -35,6 +34,7 @@ from pipeline.storage import (
 from idp.models.document import ParsedDocument
 from idp.services.extraction.field_location_resolver import FieldLocationResolver
 from idp.services.output.serializer import DocumentSerializer
+from pipeline.engines.doc_templates import format_ui_json_text
 from pipeline.engines.llm_field_extractor import format_template_json, llm_extract_fields
 from pipeline.utils.image_normalizer import ensure_png_for_idp
 from idp.utils.timing import record_document
@@ -123,7 +123,7 @@ def build_idp_result_from_parsed(parsed: ParsedDocument, doc_type: str, doc_id: 
         })
 
     template_fields = format_template_json(extracted_fields or {})
-    formatted_json = json.dumps(template_fields, indent=2)
+    formatted_json = format_ui_json_text(doc_type, template_fields)
 
     page_dims = []
     for p in (parsed.pages or []):

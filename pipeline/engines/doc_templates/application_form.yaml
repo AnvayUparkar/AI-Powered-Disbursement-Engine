@@ -1,0 +1,200 @@
+# Application Form template: the single place that defines what the LLM extracts from a loan
+# application form and how the result is shown on the UI. See sanction_letter.yaml for what each
+# setting means. Keys marked "LOS check" are read by config/pipeline_checks.py or
+# app/serializers/checkpoints; renaming one silently disables that comparison.
+
+doc_type: application_form
+display_name: Application Form
+version: 1
+
+intro: >-
+  You are an expert document extraction engine specialising in loan application forms.
+
+rules:
+  - "Applicant fields refer to the primary applicant. Co-applicant fields are prefixed 'co_applicant_1_' / 'co_applicant_2_', numbered in the order the co-applicants appear (at most 2); set them to null when there is no such co-applicant. Ignore guarantor details."
+  - "Every '*_residence_type' field is the residence type (e.g. Owned, Rented, Company Provided), never the address; addresses go in the address fields."
+  - "'reference_1' / 'reference_2' are the two references in the order they appear; split each into its name, relationship and residential address."
+  - "'customer_photo' is true only if the text states that a customer photograph is affixed; null if the text does not say either way."
+
+fields:
+  - key: application_date
+    label: Application Date
+    type: date
+    description: date of application
+
+  - key: application_no          # LOS check (vs LOS loan_id)
+    label: LOS No
+    type: string
+    description: LOS number / application number
+
+  - key: applicant_name          # LOS check
+    label: Applicant Name
+    type: string
+    description: full name of the primary applicant
+
+  - key: pan_number              # LOS check
+    label: PAN
+    type: string
+    description: PAN number, format AAAAA9999A
+
+  - key: dob                     # LOS check
+    label: Date of Birth
+    type: date
+    description: date of birth of the primary applicant
+
+  - key: mobile_no               # LOS check
+    label: Mobile
+    type: string
+    description: primary mobile number
+
+  - key: email_id
+    label: Email ID
+    type: string
+    description: email address
+
+  - key: aadhaar_number
+    label: Aadhaar No
+    type: string
+    description: Aadhaar number (12 digits, or masked as printed)
+
+  - key: ckyc_no
+    label: CKYC No
+    type: string
+    description: CKYC (Central KYC) number
+
+  - key: present_residence_type
+    label: Present Residence
+    type: string
+    description: present residence type
+
+  - key: current_address         # read by the App Form checkpoint
+    label: Present Address
+    type: string
+    description: present / current residential address
+
+  - key: permanent_residence_type
+    label: Permanent Residence
+    type: string
+    description: permanent residence type
+
+  - key: address                 # read by the App Form checkpoint
+    label: Permanent Address
+    type: string
+    description: permanent address
+
+  - key: co_applicant_1_present_residence_type
+    label: Co-Applicant 1 Present Residence
+    type: string
+    description: first co-applicant's present residence type
+
+  - key: co_applicant_1_present_address
+    label: Co-Applicant 1 Present Address
+    type: string
+    description: first co-applicant's present / current residential address
+
+  - key: co_applicant_2_present_residence_type
+    label: Co-Applicant 2 Present Residence
+    type: string
+    description: second co-applicant's present residence type
+
+  - key: co_applicant_2_present_address
+    label: Co-Applicant 2 Present Address
+    type: string
+    description: second co-applicant's present / current residential address
+
+  - key: employer_name
+    label: Employer Name
+    type: string
+    description: name of the applicant's employer
+
+  - key: office_address
+    label: Office Address
+    type: string
+    description: office / employer address
+
+  - key: bank_account_no         # LOS check
+    label: Account Number
+    type: string
+    description: bank account number
+
+  - key: loan_amount             # LOS check
+    label: Loan Amount (Rs)
+    type: number
+    description: requested loan amount in rupees
+
+  - key: loan_validity           # LOS check
+    label: Tenure
+    type: string
+    description: loan tenure as printed, e.g. "36 Months"
+
+  # type: object -> a nested JSON object; `fields` lists its sub-keys (one level deep only).
+  - key: reference_1
+    label: Reference 1
+    type: object
+    description: first reference
+    fields:
+      - key: name
+        label: Name
+        type: string
+        description: first reference's full name
+      - key: relationship
+        label: Relationship
+        type: string
+        description: first reference's relationship to the applicant
+      - key: residential_address
+        label: Residential Address
+        type: string
+        description: first reference's residential address
+
+  - key: reference_2
+    label: Reference 2
+    type: object
+    description: second reference
+    fields:
+      - key: name
+        label: Name
+        type: string
+        description: second reference's full name
+      - key: relationship
+        label: Relationship
+        type: string
+        description: second reference's relationship to the applicant
+      - key: residential_address
+        label: Residential Address
+        type: string
+        description: second reference's residential address
+
+  - key: customer_photo
+    label: Customer Photo
+    type: boolean
+    description: whether the text states a customer photograph is affixed
+
+  - key: hdb_contact_person
+    label: HDB Contact Person
+    type: string
+    description: name of the HDB contact person on the form
+
+  # Not on the UI sheet, but the LOS comparison checks read them, so they are still extracted.
+  - key: fathers_name            # LOS check
+    label: Father's Name
+    type: string
+    description: father's full name
+    show_in_ui: false
+
+  - key: gender                  # LOS check
+    label: Gender
+    type: string
+    description: Male / Female / Other
+    show_in_ui: false
+
+  - key: type_of_account         # LOS check
+    label: Account Type
+    type: string
+    description: bank account type (SB / CA / CC etc.)
+    show_in_ui: false
+
+  - key: loan_type               # LOS check
+    label: Loan Type
+    type: string
+    description: type of loan, e.g. "Two Wheeler", "Personal Loan"
+    show_in_ui: false

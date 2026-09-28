@@ -132,7 +132,9 @@ class DocumentRegistry:
                 "elements": result.get("elements", []),
                 "tables": result.get("tables", []),
             }
-            extracted_fields_list = parse_extracted_fields(doc_id, parsed_shim, llm_meta)
+            extracted_fields_list = parse_extracted_fields(
+                doc_id, parsed_shim, llm_meta, doc_type=rec.get("type") or rec.get("name")
+            )
 
             pages_count = len(result.get("pages") or []) or result.get("pages") or rec.get("pages", 1)
             try:

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from config import DMS_DIR, IST, S3_EXTRACTED_DIR, S3_EXTRACTED_STRUCTURED_DIR, S3_RAW_DIR
 from config.tenant import current_tenant_id
+from pipeline.engines.doc_templates import format_ui_json_text, get_doc_template, ui_label_for
 from pipeline.engines.llm_field_extractor import format_template_json
 from pipeline.storage import list_loan_ids
 
@@ -300,7 +301,7 @@ def _build_case_document_record(
     )
     if ext_data:
         try:
-            formatted_text = json.dumps(format_template_json(ext_data), indent=2)
+            formatted_text = format_ui_json_text(doc_type, ext_data)
         except Exception:
             llm_extracted_dict = {
                 k: v for k, v in ext_data.items()
@@ -308,7 +309,7 @@ def _build_case_document_record(
             }
             formatted_text = json.dumps(llm_extracted_dict, indent=2)
     elif not formatted_text:
-        formatted_text = ""
+        formatted_text = format_ui_json_text(doc_type, {}) if get_doc_template(doc_type) else ""
 
     if fpath.exists():
         mtime = fpath.stat().st_mtime
@@ -453,11 +454,11 @@ def enrich_document_record(doc: Dict[str, Any]) -> Dict[str, Any]:
                     if not (doc.get("formattedText") or "").strip().startswith("{"):
                         if any(k in loaded for k in ("applicant_name", "loan_amount", "pan_number", "mobile_no", "dob")):
                             tpl = format_template_json(loaded)
-                            doc["formattedText"] = json.dumps(tpl, indent=2)
+                            doc["formattedText"] = format_ui_json_text(type_canonical, loaded)
 
                             existing_fnames = {f.get("name") for f in doc.get("extractedFields", [])}
                             for tk, tv in tpl.items():
-                                nice_name = tk.replace("_", " ").title()
+                                nice_name = ui_label_for(type_canonical, tk) or tk.replace("_", " ").title()
                                 if tv is not None and nice_name not in existing_fnames:
                                     doc.setdefault("extractedFields", []).append({
                                         "id": f"llm-{tk}",
