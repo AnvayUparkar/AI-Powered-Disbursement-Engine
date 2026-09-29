@@ -192,6 +192,7 @@ class LightOnOCREngine:
             return None
 
         choice = choices[0] or {}
+        finish_reason = choice.get("finish_reason")
         message = choice.get("message") or {}
         content = message.get("content")
         if isinstance(content, list):  # some gateways return content parts
