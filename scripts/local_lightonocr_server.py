@@ -26,21 +26,56 @@ def get_model_and_processor():
     if _model is None or _processor is None:
         try:
             import torch
-            from transformers import AutoProcessor, AutoModelForVision2Seq
-        except ImportError:
+            from transformers import AutoProcessor
+
+            # Prefer dedicated LightOnOCR classes (transformers >= 5.0.0), then fallback to Auto classes
+            processor_class = AutoProcessor
+            try:
+                from transformers import LightOnOcrProcessor as processor_class
+            except ImportError:
+                pass
+
+            model_class = None
+            try:
+                from transformers import LightOnOcrForConditionalGeneration as model_class
+            except ImportError:
+                pass
+            if model_class is None:
+                try:
+                    from transformers import AutoModelForImageTextToText as model_class
+                except ImportError:
+                    pass
+            if model_class is None:
+                try:
+                    from transformers import AutoModelForVision2Seq as model_class
+                except ImportError:
+                    pass
+            if model_class is None:
+                from transformers import AutoModel as model_class
+        except ImportError as e:
             raise RuntimeError(
-                "torch and transformers must be installed to run local inference: "
-                "pip install torch transformers pillow"
+                f"torch and transformers must be installed to run local inference: {e}"
             )
 
         print(f"Loading {MODEL_ID} on CPU...")
-        _processor = AutoProcessor.from_pretrained(MODEL_ID)
-        _model = AutoModelForVision2Seq.from_pretrained(
-            MODEL_ID,
-            torch_dtype=torch.float32,
-            device_map="cpu",
-            low_cpu_mem_usage=True,
-        )
+        _processor = processor_class.from_pretrained(MODEL_ID, trust_remote_code=True)
+        load_kwargs = {
+            "device_map": "cpu",
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": True,
+        }
+        try:
+            _model = model_class.from_pretrained(
+                MODEL_ID,
+                dtype=torch.float32,
+                **load_kwargs,
+            )
+        except TypeError:
+            _model = model_class.from_pretrained(
+                MODEL_ID,
+                torch_dtype=torch.float32,
+                **load_kwargs,
+            )
         print("Model loaded successfully.")
     return _model, _processor
 
@@ -141,3 +176,4 @@ def chat_completions(req: ChatCompletionRequest):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8002"))
     uvicorn.run(app, host="127.0.0.1", port=port)
+
