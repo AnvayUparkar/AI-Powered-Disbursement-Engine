@@ -114,7 +114,54 @@ CHARACTER_BOX_FORMS_PROFILE = DoclingOptions(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PROFILE: SCANNED DOCUMENTS (Low Quality)
+# PROFILE: SCANNED CLEAN DOCUMENTS (High Quality / Flatbed / >= 200 DPI)
+# ═══════════════════════════════════════════════════════════════════════════
+# Crisp scans that do NOT require 3x pixel explosion or aggressive blurring.
+# Bypasses contrast/denoise/deskew while keeping accurate table and OCR detection.
+# ═══════════════════════════════════════════════════════════════════════════
+
+SCANNED_CLEAN_PROFILE = DoclingOptions(
+    # Table Detection
+    do_table_structure=True,
+    table_mode="ACCURATE",
+    table_confidence_threshold=0.1,
+    table_min_rows=1,
+    table_min_cols=2,
+    
+    # Cell Merging
+    merge_adjacent_cells=True,
+    cell_merge_threshold=0.8,
+    detect_cell_spans=True,
+    
+    # OCR Settings
+    do_ocr=True,
+    force_full_page_ocr=True,
+    ocr_lang=["en", "hindi"],
+    det_limit_side_len=1536,
+    det_db_thresh=0.05,
+    det_db_box_thresh=0.1,
+    rec_batch_num=6,
+    
+    # Image Processing (clean pass-through at 2.0x, eliminating 9x pixel explosion)
+    images_scale=2.0,
+    enhance_contrast=False,
+    denoise=False,
+    deskew=False,
+    
+    # Layout Analysis
+    do_layout_analysis=True,
+    detect_reading_order=True,
+    reading_order_method="column_aware",
+    
+    # Performance
+    max_num_pages=100,
+    use_gpu=True,
+    num_threads=2,
+)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROFILE: SCANNED DOCUMENTS (Low Quality / Degraded)
 # ═══════════════════════════════════════════════════════════════════════════
 # Aggressive OCR with image enhancement for poor quality scans.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -159,6 +206,8 @@ SCANNED_DOCUMENTS_PROFILE = DoclingOptions(
     use_gpu=True,
     num_threads=2,
 )
+
+SCANNED_DEGRADED_PROFILE = SCANNED_DOCUMENTS_PROFILE
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -404,6 +453,8 @@ DOCLING_PROFILES = {
     "character_box_forms": CHARACTER_BOX_FORMS_PROFILE,
     "scanned_character_box_forms": SCANNED_CHARACTER_BOX_FORMS_PROFILE,
     "scanned_documents": SCANNED_DOCUMENTS_PROFILE,
+    "scanned_clean": SCANNED_CLEAN_PROFILE,
+    "scanned_degraded": SCANNED_DEGRADED_PROFILE,
     "digital_pdf": DIGITAL_PDF_PROFILE,
     "mixed_content": MIXED_CONTENT_PROFILE,
     "high_performance": HIGH_PERFORMANCE_PROFILE,
@@ -432,10 +483,14 @@ def get_profile(profile_name: str) -> DoclingOptions:
     return DOCLING_PROFILES[profile_name]
 
 
-def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = None) -> DoclingOptions:
+def get_profile_for_document_type(
+    doc_type: str,
+    is_scanned: Optional[bool] = None,
+    overall_scan_grade: Optional[str] = None
+) -> DoclingOptions:
     """
     Auto-select profile based on document type, refined by actual scan-status
-    inspection when available.
+    and scan quality inspection when available.
 
     Args:
         doc_type: Document type (e.g., "application_form", "aadhaar", "kfs")
@@ -446,6 +501,9 @@ def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = No
             filename/doc-type assumption. Pass None (default) to preserve the
             legacy doc_type-only heuristic for callers that haven't inspected
             the file (e.g. profile lookups made before preprocessing runs).
+        overall_scan_grade: Quality grade from ScannedDocQualityGate ('CLEAN',
+            'MIXED', or 'DEGRADED'). When 'CLEAN', routes to SCANNED_CLEAN_PROFILE
+            to bypass heavy 3x upscaling and aggressive blurring filters.
 
     Returns:
         Appropriate DoclingOptions profile
@@ -471,8 +529,10 @@ def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = No
     # Content-inspected scan status takes precedence over the doc_type guess:
     # a "bank_statement" that is actually a clean digital export should not be
     # force-rasterized and re-OCR'd, and a "loan_agreement" that is actually a
-    # scanned copy should get the aggressive scanned-document OCR settings.
+    # scanned copy should get the appropriate scanned-document OCR settings.
     elif is_scanned is True:
+        if overall_scan_grade == "CLEAN":
+            return SCANNED_CLEAN_PROFILE
         return SCANNED_DOCUMENTS_PROFILE
 
     elif is_scanned is False:
@@ -481,6 +541,8 @@ def get_profile_for_document_type(doc_type: str, is_scanned: Optional[bool] = No
     # is_scanned unknown -- fall back to the pre-inspection doc_type heuristic.
     # Financial documents (typically scanned)
     elif doc_type in ["bank_statement", "salary_slip"]:
+        if overall_scan_grade == "CLEAN":
+            return SCANNED_CLEAN_PROFILE
         return SCANNED_DOCUMENTS_PROFILE
 
     # Legal/contract documents (typically digital)

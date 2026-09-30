@@ -43,19 +43,24 @@ class DocumentProcessor:
         self._in_flight_tasks: Dict[str, asyncio.Task] = {}
         self._redis_client = None
 
-    def _get_docling_parser(self, doc_type: str, is_scanned: Optional[bool] = None) -> DoclingParser:
+    def _get_docling_parser(
+        self,
+        doc_type: str,
+        is_scanned: Optional[bool] = None,
+        overall_scan_grade: Optional[str] = None
+    ) -> DoclingParser:
         """Return the cached DoclingParser tuned for this canonical document type.
 
-        `is_scanned` is the preprocessor's content-based text-layer inspection
-        result (PreprocessedDocument.is_scanned_pdf) and takes precedence over
-        the doc_type-only heuristic inside get_profile_for_document_type --
-        see that function's docstring. It is folded into the cache key since
-        the same doc_type can now resolve to different profiles.
+        `is_scanned` and `overall_scan_grade` are the preprocessor's inspection
+        results and take precedence over the doc_type-only heuristic inside
+        get_profile_for_document_type.
         """
-        cache_key = f"{doc_type}::{is_scanned}"
+        cache_key = f"{doc_type}::{is_scanned}::{overall_scan_grade}"
         parser = self._docling_parsers.get(cache_key)
         if parser is None:
-            profile: DoclingOptions = get_profile_for_document_type(doc_type, is_scanned=is_scanned)
+            profile: DoclingOptions = get_profile_for_document_type(
+                doc_type, is_scanned=is_scanned, overall_scan_grade=overall_scan_grade
+            )
             parser = DoclingParser(profile)
             self._docling_parsers[cache_key] = parser
         return parser
@@ -288,7 +293,11 @@ class DocumentProcessor:
             docling_input_path = local_file_path  # default: pass raw file unchanged
             # Build the primary parser for this document type.  For scanned docs we may
             # swap it below to one using images_scale=1.0 (see note in scan branch).
-            docling_profile = self._get_docling_parser(doc_type_hint, is_scanned=prep_doc.is_scanned_pdf)
+            docling_profile = self._get_docling_parser(
+                doc_type_hint,
+                is_scanned=prep_doc.is_scanned_pdf,
+                overall_scan_grade=getattr(prep_doc, "overall_scan_grade", "CLEAN")
+            )
 
             if prep_doc.is_scanned_pdf and settings.ENABLE_SCAN_PREPROCESSING:
                 try:

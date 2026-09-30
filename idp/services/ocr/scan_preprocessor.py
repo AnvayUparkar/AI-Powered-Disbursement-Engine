@@ -52,9 +52,14 @@ def _preprocess_page(
     preprocessor: OCRImagePreprocessor,
 ) -> Tuple[int, bytes, Dict[str, Any]]:
     """Process a single rasterised page; returns (page_index, cleaned_bytes, metadata)."""
+    # Quality Gate: check if page is already sharp and well-contrasted
+    quality = preprocessor.assess_quality(page_bytes)
+    skip = not quality.get("needs_preprocessing", True)
+
     cleaned_bytes, meta = preprocessor.preprocess_image(
-        page_bytes, doc_id=f"{doc_id}_p{page_index + 1}"
+        page_bytes, doc_id=f"{doc_id}_p{page_index + 1}", skip_preprocessing=skip
     )
+    meta["quality_assessment"] = quality
     return page_index, cleaned_bytes, meta
 
 
@@ -138,7 +143,13 @@ def _process_image(
     with open(file_path, "rb") as fh:
         raw_bytes = fh.read()
 
-    cleaned_bytes, meta = preprocessor.preprocess_image(raw_bytes, doc_id=doc_id)
+    quality = preprocessor.assess_quality(raw_bytes)
+    skip = not quality.get("needs_preprocessing", True)
+
+    cleaned_bytes, meta = preprocessor.preprocess_image(
+        raw_bytes, doc_id=doc_id, skip_preprocessing=skip
+    )
+    meta["quality_assessment"] = quality
 
     with open(output_path, "wb") as fh:
         fh.write(cleaned_bytes)

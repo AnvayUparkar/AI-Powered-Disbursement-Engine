@@ -4,6 +4,7 @@ from config.docling_profiles import (
     CHARACTER_BOX_FORMS_PROFILE,
     SCANNED_CHARACTER_BOX_FORMS_PROFILE,
     SCANNED_DOCUMENTS_PROFILE,
+    SCANNED_CLEAN_PROFILE,
     DIGITAL_PDF_PROFILE,
     MIXED_CONTENT_PROFILE,
 )
@@ -89,3 +90,14 @@ def test_no_profile_declares_non_accurate_table_mode():
             "mode is disabled repo-wide -- this value is never honored and only "
             "produces a misleading warning log"
         )
+
+
+def test_scanned_clean_profile_selection():
+    """Documents with overall_scan_grade='CLEAN' select SCANNED_CLEAN_PROFILE."""
+    profile = get_profile_for_document_type("bank_statement", is_scanned=True, overall_scan_grade="CLEAN")
+    assert profile is SCANNED_CLEAN_PROFILE
+    assert profile.images_scale == 2.0
+    assert profile.enhance_contrast is False
+    assert profile.denoise is False
+    assert profile.deskew is False
+
