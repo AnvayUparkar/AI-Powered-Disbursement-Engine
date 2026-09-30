@@ -16,8 +16,8 @@ set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
 :: -----------------------------------------------------------------------------
 :: 1. Clean Up Any Stale Previous Instances (Ports & Worker Windows)
 :: -----------------------------------------------------------------------------
-echo [1/6] Cleaning up any previous running instances...
-powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
+echo [1/7] Cleaning up any previous running instances...
+powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 8002, 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 powershell -NoProfile -Command "Get-Process python, uvicorn, celery, node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 taskkill /F /FI "WINDOWTITLE eq Disbursement Scorecard*" 2>nul
 echo   [OK] Clean state prepared.
@@ -26,7 +26,7 @@ echo   [OK] Clean state prepared.
 :: 2. Pre-flight Dependency Checks
 :: -----------------------------------------------------------------------------
 echo.
-echo [2/6] Checking environment dependencies...
+echo [2/7] Checking environment dependencies...
 
 :: Check Python venv
 if not exist "%PYTHON_EXE%" (
@@ -98,7 +98,7 @@ if not exist "%ROOT_DIR%.env" (
 :: 3. Check WSL and Start Redis with Keep-Alive
 :: -----------------------------------------------------------------------------
 echo.
-echo [3/6] Checking WSL and Redis Server...
+echo [3/7] Checking WSL and Redis Server...
 
 where wsl >nul 2>&1
 if %errorlevel% neq 0 (
@@ -141,39 +141,47 @@ if "%REDIS_READY%"=="1" (
 :: 4. Launch FastAPI Core Backend (Port 8000)
 :: -----------------------------------------------------------------------------
 echo.
-echo [4/6] Launching FastAPI Core Backend (Port 8000)...
+echo [4/7] Launching FastAPI Core Backend (Port 8000)...
 start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.env"
 
 :: -----------------------------------------------------------------------------
 :: 5. Launch IDP Engine Microservice (Port 8001)
 :: -----------------------------------------------------------------------------
 echo.
-echo [5/6] Launching IDP Engine Microservice (Port 8001)...
+echo [5/7] Launching IDP Engine Microservice (Port 8001)...
 start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
+
+:: -----------------------------------------------------------------------------
+:: 6. Launch Local LightOnOCR Server (Port 8002)
+:: -----------------------------------------------------------------------------
+echo.
+echo [6/7] Launching Local LightOnOCR Server (Port 8002)...
+start "Disbursement Scorecard - Local LightOnOCR (8002)" cmd /k "cd /d "%~dp0" && color 0B && venv\Scripts\python.exe scripts\local_lightonocr_server.py"
 
 echo   Waiting 30 seconds for backend microservices to initialize...
 timeout /t 30 /nobreak >nul
 
 :: -----------------------------------------------------------------------------
-:: 6. Launch Celery Worker (with Auto-Reload) and Frontend UI
+:: 7. Launch Celery Worker (with Auto-Reload) and Frontend UI
 :: -----------------------------------------------------------------------------
 echo.
-echo [6/6] Launching Celery Worker (with Auto-Reload) and Frontend UI...
+echo [7/7] Launching Celery Worker (with Auto-Reload) and Frontend UI...
 start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m watchfiles "venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info -P threads" pipeline app config idp .env"
 
 start "Disbursement Scorecard - Vite Frontend (5173)" cmd /k "cd /d "%~dp0frontend" && color 03 && npm run dev"
 
 :: -----------------------------------------------------------------------------
-:: 7. Summary & Status Dashboard
+:: 8. Summary & Status Dashboard
 :: -----------------------------------------------------------------------------
 echo.
 echo ===============================================================================
-echo              ALL 5 SERVICES ARE RUNNING SUCCESSFULLY!
+echo              ALL 6 SERVICES ARE RUNNING SUCCESSFULLY!
 echo ===============================================================================
 echo.
 echo   [+] Frontend Web UI:         http://localhost:5173
 echo   [+] FastAPI Core API:        http://localhost:8000 (Swagger: /docs)
 echo   [+] IDP Engine Microservice: http://localhost:8001 (Swagger: /docs)
+echo   [+] Local LightOnOCR Server: http://localhost:8002 (/v1/chat/completions)
 echo   [+] Celery Background Worker: Active (threads pool)
 echo   [+] Redis Broker (WSL):      redis://127.0.0.1:6379/0 (Keepalive Active)
 echo.
