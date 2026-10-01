@@ -50,9 +50,9 @@ def get_report_summary():
     indeterminate = sum(1 for c in cases if c.get("status") == "INDETERMINATE")
 
     checkpoint_names = [
-        "Loan Amount", "Loan Validity", "Application Form", "KYC",
-        "Selfie / Live Photo", "Loan Agreement", "KFS", "Sanction Letter",
-        "Aadhaar XML", "BPI", "Disbursal Memo", "BT Details",
+        "Loan Amount Consistency", "Loan Tenure Consistency", "Application Form Data Check", "KYC Document Verification",
+        "Selfie & Live Photo Check", "Loan Agreement Verification", "Key Fact Statement (KFS) Data Check", "Sanction Letter Data Check",
+        "Aadhaar XML Data Check", "Broken Period Interest (BPI) Check", "Disbursal Memo Verification", "Balance Transfer Details Check",
     ]
 
     cp_performance = []

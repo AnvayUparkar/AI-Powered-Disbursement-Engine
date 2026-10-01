@@ -148,7 +148,7 @@ KYC_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
 # ── 2. Financial Field Checks (Financial Checker Node) ────────────────────────
 FINANCIAL_FIELD_CHECKS: dict[str, list[dict[str, Any]]] = {
     "application_form": [
-        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "[exact_numeric]", "aliases": ["funding_amount", "amount"]},
+        {"doc_field": "loan_amount", "los_field": "loan_amount", "method": "exact_numeric", "aliases": ["funding_amount", "amount"]},
         {"doc_field": "loan_validity", "los_field": "loan_validity", "method": "tenure_months", "aliases": ["tenure", "tenure_months", "loan_tenure", "loan_term", "term", "validity"]},
         {"doc_field": "account_no", "los_field": "applicant_bank_account_no", "method": "exact_id", "aliases": ["account_number", "applicant_bank_account_no", "bank_account_no"]},
         {"doc_field": "type_of_account", "los_field": "bank_account_type", "method": "exact_string_ci", "aliases": ["bank_account_type", "account_type"]},

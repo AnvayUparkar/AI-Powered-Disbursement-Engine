@@ -50,6 +50,16 @@ When fulfilling any task:
 3. **Test:** Add or update concrete unit and integration tests covering the changes.
 4. **Verify:** Run the automated test runner (`pytest`) to confirm all tests pass cleanly.
 
+## 5. UI & Browser Automation Guidelines
+
+When inspecting, screenshotting, or testing frontend UI screens:
+- **Use Local Chrome:** Always launch Playwright with `channel="chrome"` (`p.chromium.launch(channel="chrome", headless=True)`). Never run `playwright install chromium` or attempt to download driver binaries from upstream CDNs.
+- **Avoid `networkidle`:** Use `wait_until="domcontentloaded"` plus a short wait or `wait_for_selector` (Vite dev server HMR/WebSockets prevent `networkidle` from resolving).
+- **Service Endpoints:** Frontend runs on `http://localhost:5173` and backend API runs on `http://localhost:8000`.
+- **Encoding Safety:** Ensure text extracted from DOM is UTF-8 encoded before printing on Windows environments to prevent `UnicodeEncodeError` with currency symbols (e.g., `₹`).
+
+---
+
 ## Response Rules
 
 - Be concise. No preamble, no summaries of what you are about to do.

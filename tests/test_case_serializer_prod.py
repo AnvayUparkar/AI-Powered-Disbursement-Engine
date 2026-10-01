@@ -796,15 +796,15 @@ def test_appl00343265_field_and_comparison_surfacing_invariants(tmp_path: Path, 
     checkpoints = {cp["name"]: cp for cp in case["checkpoints"]}
 
     # CP 1: Loan Amount is verified (₹1,000,000 across documents and LOS)
-    cp1 = checkpoints["Loan Amount"]
+    cp1 = checkpoints["Loan Amount Consistency"]
     assert cp1["status"] == "VERIFIED"
     assert cp1["validation"]["left"] == "₹1,000,000"
     assert cp1["validation"]["right"] == "₹1,000,000"
     assert cp1["validation"]["result"] == "MATCH"
     assert len(cp1["comparisons"]) > 0
 
-    # CP 2: Loan Validity is verified (36 Months across documents)
-    cp2 = checkpoints["Loan Validity"]
+    # CP 2: Loan Tenure is verified (36 Months across documents)
+    cp2 = checkpoints["Loan Tenure Consistency"]
     assert cp2["status"] == "VERIFIED"
     assert cp2["validation"]["left"] == "36"
     assert cp2["validation"]["right"] == "36"
@@ -812,7 +812,7 @@ def test_appl00343265_field_and_comparison_surfacing_invariants(tmp_path: Path, 
     assert len(cp2["comparisons"]) > 0
 
     # CP 4: KYC surfaces the Aadhaar address discrepancy in APPL00343265
-    cp4 = checkpoints["KYC"]
+    cp4 = checkpoints["KYC Document Verification"]
     assert cp4["status"] == "DISCREPANCY"
     assert cp4["validation"]["result"] == "MISMATCH"
     assert cp4["validation"]["left"] != cp4["validation"]["right"]
@@ -820,7 +820,7 @@ def test_appl00343265_field_and_comparison_surfacing_invariants(tmp_path: Path, 
     assert len(cp4["comparisons"]) > 0
 
     # CP 7: KFS must show the IRR mismatch, not loan amount mismatch
-    cp7 = checkpoints["KFS"]
+    cp7 = checkpoints["Key Fact Statement (KFS) Data Check"]
     assert cp7["status"] == "DISCREPANCY"
     assert cp7["validation"]["left"] == "17.9%"
     assert cp7["validation"]["right"] == "17.0%"
@@ -828,7 +828,7 @@ def test_appl00343265_field_and_comparison_surfacing_invariants(tmp_path: Path, 
     assert len(cp7["comparisons"]) > 0
 
     # Missing documents must not show N/A != N/A
-    for name in ("Selfie / Live Photo", "Disbursal Memo", "Loan Agreement", "Aadhaar XML"):
+    for name in ("Selfie & Live Photo Check", "Disbursal Memo Verification", "Loan Agreement Verification", "Aadhaar XML Data Check"):
         cp = checkpoints[name]
         val = cp["validation"]
         assert not (val["left"] == "N/A" and val["right"] == "N/A" and val["result"] == "MISMATCH"), (

@@ -98,17 +98,17 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     if has_app_form:
         eval_fields = [
             ("applicant_name", app_name_val, ctx.los_data.get("applicant_name")),
-            ("application_no", app_no_val, ctx.los_data.get("loan_id")),
+            ("application_no", app_no_val, ctx.los_data.get("loan_id") or ctx.los_data.get("application_id")),
             ("fathers_name", app_father_val, ctx.los_data.get("fathers_name")),
-            ("dob", app_dob_val, ctx.los_data.get("applicant_dob")),
-            ("gender", app_gender_val, ctx.los_data.get("applicant_gender")),
-            ("mobile_no", app_mobile_val, ctx.los_data.get("applicant_mobile_no")),
-            ("pan_number", app_pan_val, ctx.los_data.get("applicant_pan_number")),
-            ("account_no", app_bank_val, ctx.los_data.get("applicant_bank_account_no")),
-            ("account_type", app_acct_type, ctx.los_data.get("bank_account_type")),
+            ("dob", app_dob_val, ctx.los_data.get("applicant_dob") or ctx.los_data.get("dob")),
+            ("gender", app_gender_val, ctx.los_data.get("applicant_gender") or ctx.los_data.get("gender")),
+            ("mobile_no", app_mobile_val, ctx.los_data.get("applicant_mobile_no") or ctx.los_data.get("mobile_no")),
+            ("pan_number", app_pan_val, ctx.los_data.get("applicant_pan_number") or ctx.los_data.get("pan")),
+            ("account_no", app_bank_val, ctx.los_data.get("applicant_bank_account_no") or ctx.los_data.get("account_no")),
+            ("account_type", app_acct_type, ctx.los_data.get("bank_account_type") or ctx.los_data.get("account_type")),
             ("loan_type", app_type_val, ctx.los_data.get("loan_type")),
-            ("loan_amount", app_amt_val, ctx.los_data.get("loan_amount")),
-            ("loan_validity", app_tenure_val, ctx.los_data.get("tenure")),
+            ("loan_amount", app_amt_val, ctx.los_data.get("loan_amount") or ctx.los_data.get("funding_amount")),
+            ("loan_validity", app_tenure_val, ctx.los_data.get("loan_validity") or ctx.los_data.get("tenure_months") or ctx.los_data.get("tenure")),
         ]
 
         for fld_name, doc_v, los_v in eval_fields:
@@ -196,7 +196,7 @@ def build_application_form_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         3,
-        "Application Form",
+        "Application Form Data Check",
         status,
         conf,
         notes,
@@ -430,7 +430,7 @@ def build_kyc_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         4,
-        "KYC",
+        "KYC Document Verification",
         status,
         conf,
         kyc_notes,
@@ -487,7 +487,7 @@ def build_selfie_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         5,
-        "Selfie / Live Photo",
+        "Selfie & Live Photo Check",
         status,
         conf,
         notes,
@@ -563,7 +563,7 @@ def build_aadhaar_xml_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         9,
-        "Aadhaar XML",
+        "Aadhaar XML Data Check",
         status,
         xml_conf,
         notes,

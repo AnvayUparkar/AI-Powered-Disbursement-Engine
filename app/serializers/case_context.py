@@ -333,6 +333,10 @@ def build_checkpoint(
     comparisons: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Builds a standardized checkpoint record."""
+    # Derived deterministically from comparisons — same source as the UI table
+    total_fields: int = len(comparisons) if comparisons else 0
+    matched_fields: int = sum(1 for c in (comparisons or []) if c.get("match_status") == "MATCH")
+
     cp_data: dict[str, Any] = {
         "id": cp_id,
         "name": name,
@@ -344,10 +348,18 @@ def build_checkpoint(
         "evidence": evidence,
         "validation": validation,
         "comparisons": comparisons or [],
+        "matchedFields": matched_fields,
+        "matched_fields": matched_fields,
+        "totalFields": total_fields,
+        "total_fields": total_fields,
     }
     if match_score is not None:
         cp_data["matchScore"] = round(match_score, 1)
         cp_data["match_score"] = round(match_score, 1)
+    elif total_fields > 0:
+        ratio_score = round((matched_fields / total_fields) * 100, 1)
+        cp_data["matchScore"] = ratio_score
+        cp_data["match_score"] = ratio_score
     return cp_data
 
 

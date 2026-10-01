@@ -40,8 +40,12 @@ def _evaluate_checkpoints(comparison_results: List[Dict[str, Any]]) -> tuple[Lis
             confidence = 0.0
             score_fraction = 0.0
             match_score = 0.0
+            matched_fields = 0
+            total_fields = 0
             reason = f"No documents provided for required fields: {', '.join(spec['fields'])}"
         else:
+            total_fields = len(matched_records)
+            matched_fields = sum(1 for r in matched_records if r.get("match_status") == "MATCH")
             statuses = {r.get("match_status") for r in matched_records}
             confidences = [float(r.get("confidence") or 0.0) for r in matched_records]
             avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
@@ -87,6 +91,8 @@ def _evaluate_checkpoints(comparison_results: List[Dict[str, Any]]) -> tuple[Lis
             "status": status,
             "confidence": confidence,
             "match_score": match_score,
+            "matched_fields": matched_fields,
+            "total_fields": total_fields,
             "weight": weight,
             "reason": reason,
             "rule": spec["rule"],

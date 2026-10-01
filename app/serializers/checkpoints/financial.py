@@ -41,7 +41,7 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             r.get("field") in ("loan_amount", "funding_amount")
             or (r.get("check_id") and "loan_amount" in r.get("check_id", "").lower())
         )
-        and not any(s in ("application_form", "appform") for s in (r.get("sources") or []))
+        and not any(s in ("disbursal_memo", "memo") for s in (r.get("sources") or []))
     ]
 
     fields: list[dict[str, Any]] = []
@@ -64,6 +64,7 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-sanction", "Sanction_Letter.pdf", "Sanction Letter — Amount", 1, "Loan Amount"))
 
     has_amt_mismatch = any(r.get("match_status") == "MISMATCH" for r in amount_records)
+    has_amt_not_found = any(r.get("match_status") in ("NOT_FOUND", "PARTIAL") for r in amount_records)
 
     primary_record = r_kfs_amt or r_sanc_amt or r_app_amt
     if not fields:
@@ -76,6 +77,9 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     elif has_amt_mismatch:
         status = "DISCREPANCY"
         notes = (primary_record.get("notes") if primary_record else "") or "Loan amount discrepancy across documents."
+    elif has_amt_not_found:
+        status = "INDETERMINATE"
+        notes = "Loan amount could not be verified in one or more source documents."
     else:
         status = "VERIFIED"
         notes = (primary_record.get("notes") if primary_record else "") or (
@@ -116,9 +120,17 @@ def build_loan_amount_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             default_right_source="sanction_letter",
         )
 
+    valid_amount_fields = [f for f in fields if f.get("value") not in (None, "Not Available", "—")]
+    total_amt_fields = len(valid_amount_fields)
+    matched_amt_fields = (
+        total_amt_fields
+        if status == "VERIFIED"
+        else sum(1 for f in valid_amount_fields if safe_float(f.get("value")) == ctx.loan_amount)
+    )
+
     return build_checkpoint(
         1,
-        "Loan Amount",
+        "Loan Amount Consistency",
         status,
         conf,
         notes,
@@ -175,6 +187,7 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     primary_tenure = r_sanc_tenure or r_kfs_tenure or r_app_tenure
     has_validity_mismatch = any(r.get("match_status") == "MISMATCH" for r in tenure_records)
+    has_validity_not_found = any(r.get("match_status") in ("NOT_FOUND", "PARTIAL") for r in tenure_records)
 
     if not fields:
         fields.append(build_field("Tenure", "Not Available", 0.0, f"doc-{ctx.loan_id}"))
@@ -183,13 +196,15 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     elif not ctx.has_verification_run and not tenure_records:
         status = "INDETERMINATE"
         notes = "Verification pipeline has not been executed yet."
+    elif has_validity_mismatch:
+        status = "DISCREPANCY"
+        notes = (primary_tenure.get("notes") if primary_tenure else "") or "Tenure discrepancy detected."
+    elif has_validity_not_found:
+        status = "INDETERMINATE"
+        notes = "Loan tenure could not be verified in one or more source documents."
     else:
-        status = "DISCREPANCY" if has_validity_mismatch else "VERIFIED"
-        if not has_validity_mismatch and primary_tenure and primary_tenure.get("match_status") in ("PARTIAL", "NOT_FOUND"):
-            status = "INDETERMINATE"
-        notes = (primary_tenure.get("notes") if primary_tenure else "") or (
-            "Tenure discrepancy detected." if status == "DISCREPANCY" else f"Loan tenure normalized at {tenure_val}."
-        )
+        status = "VERIFIED"
+        notes = (primary_tenure.get("notes") if primary_tenure else "") or f"Loan tenure normalized at {tenure_val}."
 
     has_tenure_amt = bool(fields and any(f["confidence"] is not None and f["confidence"] > 0 for f in fields))
     conf = compute_checkpoint_confidence(fields, tenure_records) if has_tenure_amt else 0.0
@@ -201,8 +216,8 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
     if status == "DISCREPANCY" and mismatched_tenure:
         vals = mismatched_tenure.get("values") or []
         srcs = mismatched_tenure.get("sources") or []
-        v0 = f"{vals[0]} Months" if str(vals[0]).isdigit() else str(vals[0])
-        v1 = f"{vals[1]} Months" if str(vals[1]).isdigit() else str(vals[1])
+        v0 = (f"{vals[0]} Months" if str(vals[0]).isdigit() else str(vals[0])) if len(vals) > 0 and vals[0] is not None else (f"{tenure_val}" if tenure_val is not None else "N/A")
+        v1 = (f"{vals[1]} Months" if str(vals[1]).isdigit() else str(vals[1])) if len(vals) > 1 and vals[1] is not None else (f"{sanc_tenure or 'N/A'}")
         val_block = resolve_checkpoint_validation(
             status,
             default_left=v0,
@@ -221,9 +236,13 @@ def build_loan_validity_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             default_right_source="sanction_letter",
         )
 
+    valid_tenure_fields = [f for f in fields if f.get("value") not in (None, "Not Available", "—")]
+    total_tenure_fields = len(valid_tenure_fields)
+    matched_tenure_fields = total_tenure_fields if status == "VERIFIED" else 0
+
     return build_checkpoint(
         2,
-        "Loan Validity",
+        "Loan Tenure Consistency",
         status,
         conf,
         notes,
@@ -277,13 +296,12 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
         evidence.append(build_evidence(f"doc-{ctx.loan_id}-kfs", "KFS.pdf", "KFS — Terms & Consent", 1))
 
-        has_mismatch = any(r.get("match_status") == "MISMATCH" for r in kfs_records)
-        core_kfs = [r for r in [r7_amt, r7_val] if r is not None]
-        has_partial = any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in core_kfs)
+        has_mismatch = any(r.get("match_status") == "MISMATCH" for r in all_kfs_records)
+        has_partial = any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in all_kfs_records)
 
         if has_mismatch:
             status = "DISCREPANCY"
-            first_mis = next(r for r in kfs_records if r.get("match_status") == "MISMATCH")
+            first_mis = next(r for r in all_kfs_records if r.get("match_status") == "MISMATCH")
             notes = first_mis.get("notes") or f"KFS discrepancy detected in {first_mis.get('field', 'terms')}."
             vals = first_mis.get("values") or []
             srcs = first_mis.get("sources") or []
@@ -347,7 +365,7 @@ def build_kfs_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         7,
-        "KFS",
+        "Key Fact Statement (KFS) Data Check",
         status,
         conf,
         notes,
@@ -413,10 +431,9 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             doc_emi is not None and los_emi is not None and abs(safe_float(doc_emi) - safe_float(los_emi)) >= 1.0
         )
 
-        has_record_mismatch = any(r.get("match_status") == "MISMATCH" for r in sanction_records)
+        has_record_mismatch = any(r.get("match_status") == "MISMATCH" for r in all_sanction_records)
         has_mismatch = has_record_mismatch or direct_irr_mismatch or direct_emi_mismatch
-        core_sanction = [r for r in [r8_amt, r8_val] if r is not None]
-        has_partial = any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in core_sanction)
+        has_partial = any(r.get("match_status") in ("PARTIAL", "NOT_FOUND") for r in all_sanction_records)
 
         left_src = "sanction_letter"
         right_src = "los"
@@ -432,7 +449,7 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
                 val_left = inr_format(doc_emi)
                 val_right = inr_format(los_emi)
             elif has_record_mismatch:
-                first_mis = next(r for r in sanction_records if r.get("match_status") == "MISMATCH")
+                first_mis = next(r for r in all_sanction_records if r.get("match_status") == "MISMATCH")
                 notes = first_mis.get("notes") or f"Sanction Letter discrepancy detected in {first_mis.get('field', 'terms')}."
                 vals = first_mis.get("values") or []
                 srcs = first_mis.get("sources") or []
@@ -495,7 +512,7 @@ def build_sanction_letter_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         8,
-        "Sanction Letter",
+        "Sanction Letter Data Check",
         status,
         conf,
         notes,
@@ -577,7 +594,7 @@ def build_bpi_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         10,
-        "BPI",
+        "Broken Period Interest (BPI) Check",
         status,
         conf,
         notes,
@@ -673,7 +690,7 @@ def build_disbursal_memo_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         11,
-        "Disbursal Memo",
+        "Disbursal Memo Verification",
         status,
         conf,
         notes,

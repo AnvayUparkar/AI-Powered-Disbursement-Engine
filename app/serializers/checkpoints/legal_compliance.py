@@ -88,7 +88,7 @@ def build_loan_agreement_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         6,
-        "Loan Agreement",
+        "Loan Agreement Verification",
         status,
         conf,
         notes,
@@ -124,7 +124,7 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             bt_conf = compute_checkpoint_confidence(bt_fields, bt_records)
             return build_checkpoint(
                 12,
-                "BT Details",
+                "Balance Transfer Details Check",
                 "VERIFIED",
                 bt_conf,
                 "BT details document present and verified.",
@@ -136,7 +136,7 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
             )
         return build_checkpoint(
             12,
-            "BT Details",
+            "Balance Transfer Details Check",
             "INDETERMINATE",
             0.0,
             "Balance Transfer loan flagged in LOS (BT=1), but BT Details document is missing.",
@@ -152,7 +152,7 @@ def build_bt_details_checkpoint(ctx: CaseContext) -> dict[str, Any]:
 
     return build_checkpoint(
         12,
-        "BT Details",
+        "Balance Transfer Details Check",
         "NOT_APPLICABLE",
         0.0,
         "Not applicable — not a BT case (BT flag = 0).",
