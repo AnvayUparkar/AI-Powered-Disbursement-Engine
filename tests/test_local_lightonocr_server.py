@@ -30,18 +30,19 @@ def test_models_endpoint(client):
 def test_chat_completions_mock_inference(client):
     # Mock get_model_and_processor to avoid downloading weights in unit tests
     mock_model = MagicMock()
+    mock_model.device = "cpu"
     mock_processor = MagicMock()
+    mock_processor.apply_chat_template.return_value = "Extract the text from this document."
     mock_processor.return_value = {"input_ids": [1, 2, 3]}
     mock_processor.batch_decode.return_value = ["Extracted Document Text Sample"]
 
     with patch("scripts.local_lightonocr_server.get_model_and_processor", return_value=(mock_model, mock_processor)):
-        # 1x1 transparent PNG
-        tiny_png = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06"
-            b"\x00\x00\x00\x1f\x15c4\x00\x00\x00\rIDATx\x9cc`\x00\x00\x00\x02\x00\x01H\xaf"
-            b"\xa4q\x00\x00\x00\x00IEND\xaeB`\x82"
-        )
-        b64 = base64.b64encode(tiny_png).decode("utf-8")
+        import io
+        from PIL import Image
+        img = Image.new("RGB", (10, 10), color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         payload = {
             "model": "lightonai/LightOnOCR-2-1B",

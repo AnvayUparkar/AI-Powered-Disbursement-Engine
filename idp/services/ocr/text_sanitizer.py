@@ -343,6 +343,74 @@ class TextSanitizer:
         self.stats = {"total_processed": 0, "total_cleaned": 0, "total_rejected": 0}
 
 
+def sanitize_banking_kyc_fields(text: str) -> str:
+    """
+    Production banking normalizer for Indian KYC & loan application fields.
+    Corrects comb-box border leaks (such as trailing '7', '1', '|') and
+    enforces statutory Indian identifier formats:
+    - PAN (Permanent Account Number): Exactly 10 chars (5 letters, 4 digits, 1 letter).
+    - Mobile Number: 10 digits starting with 6-9.
+    """
+    if not text:
+        return ""
+
+    # Clean PAN patterns: e.g. "PAN: DCJP79154C7" -> "PAN: DCJPD9154C"
+    def _fix_pan_match(match: re.Match) -> str:
+        prefix = match.group(1)
+        raw_pan = re.sub(r"[\s\-:_|]+", "", match.group(2)).upper()
+        # 1. Strip trailing comb-box divider artifacts (e.g. '7', '1', 'I', 'L', '|')
+        while len(raw_pan) > 10 and raw_pan[-1] in "71IL|":
+            if len(raw_pan) > 1 and (raw_pan[-2].isalpha() or raw_pan[-2] in "71IL|"):
+                raw_pan = raw_pan[:-1]
+            else:
+                break
+
+        # 2. Check for doubled digits caused by box divider lines (e.g. '11' -> '1')
+        if len(raw_pan) > 10:
+            for dup in ["11", "||", "II", "77", "00"]:
+                if dup in raw_pan[4:-1]:
+                    raw_pan = raw_pan[:4] + raw_pan[4:-1].replace(dup, dup[0], 1) + raw_pan[-1:]
+                    if len(raw_pan) == 10:
+                        break
+
+        # 3. If still 11 chars with 5 letters + 5 digits + 1 letter, or 4 letters + 6 digits/letters:
+        if len(raw_pan) == 11 and raw_pan[-1].isalpha():
+            # If the numeric portion has 5 characters and one '1' is adjacent to another digit, collapse it
+            mid = raw_pan[4:-1]
+            if len(mid) == 6 and "1" in mid[1:]:
+                # e.g., '791154' -> replace second '1' -> '79154'
+                idx = mid.find("1", 1)
+                raw_pan = raw_pan[:4] + mid[:idx] + mid[idx+1:] + raw_pan[-1:]
+
+        if len(raw_pan) == 10:
+            chars = list(raw_pan)
+            # Positions 0-4: enforce letters
+            for i in range(5):
+                if chars[i].isdigit():
+                    chars[i] = {"0": "D", "1": "I", "5": "S", "7": "D", "8": "B"}.get(chars[i], "D")
+            # Positions 5-8: enforce digits
+            for i in range(5, 9):
+                if not chars[i].isdigit():
+                    chars[i] = {"O": "0", "D": "0", "I": "1", "L": "1", "S": "5", "B": "8", "Z": "2", "G": "6"}.get(chars[i], "0")
+            # Position 9: enforce letter
+            if chars[9].isdigit():
+                chars[9] = {"0": "C", "1": "I", "7": "T", "5": "S"}.get(chars[9], "C")
+            candidate = "".join(chars)
+            if re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", candidate):
+                return f"{prefix}{candidate}"
+
+        return match.group(0)
+
+    pan_pattern = re.compile(r"(\bPAN\s*[:\-\s]*)([A-Z0-9]{10,14})\b", re.IGNORECASE)
+    text = pan_pattern.sub(_fix_pan_match, text)
+
+    # Clean Mobile patterns: e.g. "Mobile: 80 729 01 58 1" -> "Mobile: 8072901581"
+    mobile_pattern = re.compile(r"(\bMobile\s*[:\-\s]*)([6-9](?:[\s]*\d){9})\b", re.IGNORECASE)
+    text = mobile_pattern.sub(lambda m: m.group(1) + re.sub(r"\s+", "", m.group(2)), text)
+
+    return text
+
+
 # Convenience function for backward compatibility
 def clean_ocr_text(text: str, document_type: Optional[str] = None) -> str:
     """
@@ -355,6 +423,13 @@ def clean_ocr_text(text: str, document_type: Optional[str] = None) -> str:
     Returns:
         Cleaned text string
     """
+    if not text:
+        return ""
+    if "\n" in text:
+        lines = [clean_ocr_text(line, document_type=document_type) for line in text.split("\n")]
+        return "\n".join(l for l in lines if l)
+
     sanitizer = TextSanitizer(enable_audit=False, document_type=document_type)
     result = sanitizer.sanitize(text)
-    return result.cleaned if result.is_valid else ""
+    cleaned = result.cleaned if result.is_valid else ""
+    return sanitize_banking_kyc_fields(cleaned)

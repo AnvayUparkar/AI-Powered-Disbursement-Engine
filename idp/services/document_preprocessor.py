@@ -126,9 +126,11 @@ class DocumentPreprocessor:
 
         except Exception as e:
             logger.warning(format_doc_log(doc_id, f"PDF inspection fallback triggered: {e}"))
-            page_count = 1
+            if page_count < 1:
+                page_count = 1
+            if not dimensions:
+                dimensions = [{"width": 595.0, "height": 842.0}] * page_count
             is_scanned = True
-            dimensions = [{"width": 595.0, "height": 842.0}]
 
         return page_count, is_scanned, dimensions, pages_quality, overall_scan_grade
 

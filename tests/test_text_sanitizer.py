@@ -449,3 +449,52 @@ class TestConfidenceThreshold:
         result = sanitizer.sanitize("AB")
         # May pass with lenient threshold
         assert result.confidence_score >= 0.3
+
+
+class TestBankingKYCSanitizer:
+    """Test banking KYC field normalization (PAN comb-box repair, mobile formatting)."""
+
+    def test_repairs_comb_box_pan_with_trailing_divider_and_position_confusion(self):
+        from idp.services.ocr.text_sanitizer import sanitize_banking_kyc_fields, clean_ocr_text
+
+        # Raw comb-box OCR with trailing border artifact '7' and 'D' misread as '7'
+        raw = "PAN: DCJP79154C7"
+        cleaned = sanitize_banking_kyc_fields(raw)
+        assert cleaned == "PAN: DCJPD9154C"
+
+    def test_repairs_comb_box_pan_with_double_digit_and_border_artifacts(self):
+        from idp.services.ocr.text_sanitizer import sanitize_banking_kyc_fields
+
+        # 12-char raw comb-box OCR: 'D' misread as '7', vertical box line duplicating '1' as '11', and trailing border '7'
+        raw = "PAN: DCJP791154C7"
+        cleaned = sanitize_banking_kyc_fields(raw)
+        assert cleaned == "PAN: DCJPD9154C"
+
+    def test_preserves_already_valid_pan(self):
+        from idp.services.ocr.text_sanitizer import sanitize_banking_kyc_fields
+
+        raw = "PAN DCJPD9154C"
+        assert sanitize_banking_kyc_fields(raw) == "PAN DCJPD9154C"
+
+    def test_normalizes_spaced_mobile_digits(self):
+        from idp.services.ocr.text_sanitizer import sanitize_banking_kyc_fields
+
+        raw = "Mobile: 80 729 01 58 1"
+        assert sanitize_banking_kyc_fields(raw) == "Mobile: 8072901581"
+
+    def test_multiline_clean_ocr_text_preserves_structure_and_fixes_kyc(self):
+        from idp.services.ocr.text_sanitizer import clean_ocr_text
+
+        raw_multiline = (
+            "Applicant Name: DINESH KUMAR\n"
+            "Date of Birth: 20 07 1989\n"
+            "Mobile: 80 729 01 58 1\n"
+            "PAN: DCJP79154C7\n"
+            "Email: DineshSmFinance916@gmail.com"
+        )
+        cleaned = clean_ocr_text(raw_multiline)
+        assert "PAN: DCJPD9154C" in cleaned
+        assert "Mobile: 8072901581" in cleaned
+        assert "Applicant Name: DINESH KUMAR" in cleaned
+        assert len(cleaned.splitlines()) == 5
+

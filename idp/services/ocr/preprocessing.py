@@ -244,7 +244,10 @@ class OCRImagePreprocessor:
             if lines is not None:
                 angles = []
                 for line in lines:
-                    x1, y1, x2, y2 = line[0]
+                    coords = line.ravel()
+                    if len(coords) < 4:
+                        continue
+                    x1, y1, x2, y2 = coords[:4]
                     angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
                     if -45 < angle < 45:
                         angles.append(angle)

@@ -21,8 +21,8 @@ from idp.core.logging import logger, format_doc_log
 # UI key off it to show that LightOnOCR (via LiteLLM) produced the text.
 LIGHTONOCR_ENGINE_ID = "lightonocr_litellm"
 
-# Instruction sent alongside each page image.
-LIGHTONOCR_PROMPT = "Extract the text from this document."
+# Instruction sent alongside each page image (empty string for native pure-image OCR mode).
+LIGHTONOCR_PROMPT = ""
 
 # The chat/completions API returns no per-token OCR confidence, so a fixed engine confidence is used
 # (same value the previous in-process implementation reported). The quality score below is what
@@ -198,6 +198,9 @@ class LightOnOCREngine:
         if isinstance(content, list):  # some gateways return content parts
             content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
         text = content if isinstance(content, str) else ""
+        if text:
+            from idp.services.ocr.text_sanitizer import sanitize_banking_kyc_fields
+            text = sanitize_banking_kyc_fields(text)
 
         usage = data.get("usage") or {}
 
