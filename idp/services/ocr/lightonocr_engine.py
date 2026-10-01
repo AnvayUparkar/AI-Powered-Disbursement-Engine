@@ -7,6 +7,7 @@ LightOnOCR is never loaded in-process: every page is sent to the LiteLLM gateway
 from typing import Optional, List, Dict, Any, Tuple
 import base64
 import re
+import threading
 import time
 import uuid
 
@@ -66,6 +67,24 @@ class LightOnOCREngine:
         self.model_name: str = settings.LIGHTONOCR_MODEL
         self.timeout_seconds: int = settings.LIGHTONOCR_TIMEOUT_SECONDS
         self.max_tokens: int = settings.LIGHTONOCR_MAX_TOKENS
+        self._client: Optional[httpx.Client] = None
+        self._client_lock = threading.Lock()
+
+    def _get_client(self) -> httpx.Client:
+        """One persistent, connection-pooling client reused across every page and document this
+        process handles, instead of paying a fresh TCP+TLS handshake per page (the previous
+        `with httpx.Client(...)` per call was the main cause of this app's per-page latency being
+        far higher than LiteLLM's own reported latency, which only measures from when it receives
+        the already-connected request). httpx.Client is safe for concurrent use from multiple
+        threads, so callers on different asyncio.to_thread workers can share this one instance."""
+        if self._client is None:
+            with self._client_lock:
+                if self._client is None:
+                    timeout = httpx.Timeout(
+                        float(self.timeout_seconds), connect=min(_CONNECT_TIMEOUT_SECONDS, float(self.timeout_seconds))
+                    )
+                    self._client = httpx.Client(timeout=timeout)
+        return self._client
 
     def _resolve_gateway(self) -> Tuple[Optional[str], Optional[str], str, str]:
         """Return (base_url, api_key, base_url_source, api_key_source).
@@ -148,10 +167,9 @@ class LightOnOCREngine:
         ))
 
         start_time = time.time()
-        timeout = httpx.Timeout(float(self.timeout_seconds), connect=min(_CONNECT_TIMEOUT_SECONDS, float(self.timeout_seconds)))
+        client = self._get_client()
         try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(endpoint, headers=headers, json=payload)
+            response = client.post(endpoint, headers=headers, json=payload)
         except httpx.TimeoutException as e:
             elapsed = (time.time() - start_time) * 1000
             logger.error(format_doc_log(

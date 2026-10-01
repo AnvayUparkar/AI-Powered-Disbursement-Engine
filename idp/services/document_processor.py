@@ -338,68 +338,24 @@ class DocumentProcessor:
                 from idp.services.ocr.lightonocr_adapter import LightOnOCRAdapter
 
                 lightonocr_adapter = LightOnOCRAdapter()
-                ocr_results: List[OCRResult] = []
 
                 logger.info(format_doc_log(
                     document_id,
                     f"Routing {prep_doc.page_count} scanned pages to LightOnOCR via LiteLLM "
-                    f"(model={settings.LIGHTONOCR_MODEL})"
+                    f"(model={settings.LIGHTONOCR_MODEL}, page_workers={max(1, settings.MAX_PAGE_WORKERS)}, "
+                    f"tier_wide_cap={settings.LIGHTONOCR_MAX_CONCURRENT_CALLS})"
                     f"{' (preprocessed)' if docling_input_path != local_file_path else ' (raw)'}"
                 ))
 
                 lightonocr_start = time.time()
-                lightonocr_pages_processed = 0
-                lightonocr_pages_failed = 0
 
                 # Extract page images from the PREPROCESSED PDF (same images Docling would use)
                 page_image_data_for_ocr = await self._get_page_images(docling_input_path, prep_doc)
                 clock.lap("page_images")
 
-                for page_idx, (page_bytes, img_w, img_h) in enumerate(page_image_data_for_ocr):
-                    page_num = page_idx + 1
-
-                    try:
-                        # Blocking HTTP call to LiteLLM: run it off the event loop so /health and
-                        # other in-flight requests on this idp pod keep being served.
-                        ocr_res = await asyncio.to_thread(
-                            lightonocr_adapter.process_page_to_ocr_result,
-                            image_bytes=page_bytes,
-                            page_number=page_num,
-                            image_width=img_w,
-                            image_height=img_h,
-                            doc_id=document_id
-                        )
-
-                        if ocr_res and not ocr_res.extraction_failed:
-                            ocr_results.append(ocr_res)
-                            lightonocr_pages_processed += 1
-                        else:
-                            ocr_results.append(OCRResult(
-                                page_number=page_num,
-                                elements=[],
-                                extraction_failed=True,
-                                image_width=img_w,
-                                image_height=img_h
-                            ))
-                            lightonocr_pages_failed += 1
-                            logger.warning(format_doc_log(
-                                document_id,
-                                f"LightOnOCR failed on page {page_num} - will use VLM fallback"
-                            ))
-
-                    except Exception as e:
-                        logger.error(format_doc_log(
-                            document_id,
-                            f"LightOnOCR exception on page {page_num}: {e}"
-                        ))
-                        ocr_results.append(OCRResult(
-                            page_number=page_num,
-                            elements=[],
-                            extraction_failed=True,
-                            image_width=img_w,
-                            image_height=img_h
-                        ))
-                        lightonocr_pages_failed += 1
+                ocr_results, lightonocr_pages_processed, lightonocr_pages_failed = await self._run_lightonocr_pages(
+                    page_image_data_for_ocr, document_id, lightonocr_adapter
+                )
 
                 clock.lap("lightonocr")
                 metrics.lightonocr_processing_time = round(time.time() - lightonocr_start, 3)
@@ -721,6 +677,73 @@ class DocumentProcessor:
             rows.append((stage, seconds, note))
         if rows:
             logger.info(format_doc_log(document_id, format_timing_table("Document timing summary", rows, elapsed)))
+
+    async def _run_lightonocr_pages(
+        self,
+        page_image_data_for_ocr: List[Tuple[bytes, float, float]],
+        document_id: str,
+        lightonocr_adapter: "LightOnOCRAdapter",
+    ) -> Tuple[List[OCRResult], int, int]:
+        """Fan LightOnOCR page calls out MAX_PAGE_WORKERS at a time (bounding how many page
+        images this one document holds in flight/in memory), further bounded by the tier-wide
+        LightOnOCRConcurrencyLimiter (real cap across every idp pod/process, not just this one --
+        see lightonocr_concurrency.py). asyncio.gather preserves input order in its result list
+        regardless of which page's call actually finishes first, so results stay page-ordered.
+
+        Returns (ocr_results, pages_processed, pages_failed).
+        """
+        from idp.services.ocr.lightonocr_concurrency import LightOnOCRConcurrencyLimiter
+
+        concurrency_limiter = LightOnOCRConcurrencyLimiter(await self._get_redis_client())
+
+        async def _process_one_page(page_num: int, page_bytes: bytes, img_w: float, img_h: float) -> Tuple[OCRResult, bool]:
+            try:
+                async with concurrency_limiter.acquire(doc_id=document_id):
+                    # Blocking HTTP call to LiteLLM: run it off the event loop so /health
+                    # and other in-flight requests on this idp pod keep being served.
+                    ocr_res = await asyncio.to_thread(
+                        lightonocr_adapter.process_page_to_ocr_result,
+                        image_bytes=page_bytes,
+                        page_number=page_num,
+                        image_width=img_w,
+                        image_height=img_h,
+                        doc_id=document_id
+                    )
+
+                if ocr_res and not ocr_res.extraction_failed:
+                    return ocr_res, True
+
+                logger.warning(format_doc_log(
+                    document_id, f"LightOnOCR failed on page {page_num} - will use VLM fallback"
+                ))
+                return OCRResult(page_number=page_num, elements=[], extraction_failed=True,
+                                  image_width=img_w, image_height=img_h), False
+
+            except Exception as e:
+                logger.error(format_doc_log(document_id, f"LightOnOCR exception on page {page_num}: {e}"))
+                return OCRResult(page_number=page_num, elements=[], extraction_failed=True,
+                                  image_width=img_w, image_height=img_h), False
+
+        ocr_results: List[OCRResult] = []
+        pages_processed = 0
+        pages_failed = 0
+
+        page_items = list(enumerate(page_image_data_for_ocr, start=1))
+        page_worker_count = max(1, settings.MAX_PAGE_WORKERS)
+        for chunk_start in range(0, len(page_items), page_worker_count):
+            chunk = page_items[chunk_start:chunk_start + page_worker_count]
+            chunk_results = await asyncio.gather(*[
+                _process_one_page(page_num, page_bytes, img_w, img_h)
+                for page_num, (page_bytes, img_w, img_h) in chunk
+            ])
+            for ocr_res, ok in chunk_results:
+                ocr_results.append(ocr_res)
+                if ok:
+                    pages_processed += 1
+                else:
+                    pages_failed += 1
+
+        return ocr_results, pages_processed, pages_failed
 
     async def _get_page_images(
         self, file_path: str, prep_doc: PreprocessedDocument

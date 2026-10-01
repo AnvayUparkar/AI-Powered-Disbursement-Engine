@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     REDIS_LOCK_TIMEOUT_SECONDS: int = 900
 
     # Parallel Worker Concurrency
+    # MAX_PAGE_WORKERS: how many pages of ONE document are sent to LightOnOCR at once, bounded
+    # further by LIGHTONOCR_MAX_CONCURRENT_CALLS (the tier-wide cap; see
+    # idp/services/ocr/lightonocr_concurrency.py). Keeps one very large document from holding
+    # many page images in memory at once while most of them just wait on that cap anyway.
     MAX_PAGE_WORKERS: int = 2
     MAX_DOC_WORKERS: int = 2
 
@@ -112,6 +116,11 @@ class Settings(BaseSettings):
     LIGHTONOCR_MAX_TOKENS: int = 4096  # completion budget per page
     LIGHTONOCR_QUALITY_THRESHOLD: float = 0.40  # Below this -> VLM fallback
     LIGHTONOCR_LOG_TEXT_PREVIEW: bool = False  # log first 300 chars of OCR text (contains KYC data)
+    # Tier-wide cap on concurrent LightOnOCR calls (idp/services/ocr/lightonocr_concurrency.py),
+    # enforced via Redis across every idp pod/process, not per-process. Size this against the
+    # vLLM server's own configured concurrency (max_num_seqs or equivalent), not a guess -- ask
+    # whoever runs it, or tune up from this conservative default while watching its latency.
+    LIGHTONOCR_MAX_CONCURRENT_CALLS: int = 4
 
     # LiteLLM gateway shared with pipeline/engines/llm_client.py; used as the LightOnOCR fallback.
     LLM_BASE_URL: Optional[str] = None
