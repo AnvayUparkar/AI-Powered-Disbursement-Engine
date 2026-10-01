@@ -46,6 +46,7 @@ export default function AuditPage() {
             <table className="w-full">
               <thead className="bg-ink-50/50">
                 <tr>
+                  <th className="table-head w-14">Sr No</th>
                   <th className="table-head">Timestamp</th>
                   <th className="table-head">Result</th>
                   <th className="table-head">Action</th>
@@ -56,8 +57,11 @@ export default function AuditPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {events.map((e) => (
+                {events.map((e, idx) => (
                   <tr key={e.id} className="hover:bg-ink-50/50">
+                    <td className="table-cell font-mono text-xs text-ink-400">
+                      {String(idx + 1).padStart(2, '0')}
+                    </td>
                     <td className="table-cell font-mono text-ink-600 tabular-nums">{e.timestamp}</td>
                     <td className="table-cell">{resultIcon(e.result)}</td>
                     <td className="table-cell text-ink-800">{e.action}</td>

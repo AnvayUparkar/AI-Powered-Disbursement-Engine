@@ -153,6 +153,7 @@ export default function CasesPage() {
               <table className="w-full">
                 <thead className="bg-ink-50/50">
                   <tr>
+                    <th className="table-head w-14">Sr No</th>
                     <th className="table-head"><SortHeader label="Case ID" active={sort?.key === 'id'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('id')} /></th>
                     <th className="table-head"><SortHeader label="Applicant" active={sort?.key === 'applicant'} dir={sort?.dir ?? 'asc'} onClick={() => toggleSort('applicant')} /></th>
                     <th className="table-head">Loan Type</th>
@@ -167,8 +168,11 @@ export default function CasesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
-                  {data.items.map((c) => (
+                  {data.items.map((c, idx) => (
                     <tr key={c.id} className="hover:bg-ink-50/50">
+                      <td className="table-cell font-mono text-xs text-ink-400">
+                        {String(idx + 1).padStart(2, '0')}
+                      </td>
                       <td className="table-cell font-medium">
                         <Link to={`/cases/${c.id}`} className="text-brand-600 hover:text-brand-800 hover:underline">
                           {c.id}

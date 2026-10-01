@@ -7,18 +7,18 @@ import type {
 } from '@/types';
 
 export const DGCL_CHECKPOINT_NAMES = [
-  'Loan Amount',
-  'Loan Validity',
-  'Application Form',
-  'KYC',
-  'Selfie / Live Photo',
-  'Loan Agreement',
-  'KFS',
-  'Sanction Letter',
-  'Aadhaar XML',
-  'BPI',
-  'Disbursal Memo',
-  'BT Details',
+  'Loan Amount Consistency',
+  'Loan Tenure Consistency',
+  'Application Form Data Check',
+  'KYC Document Verification',
+  'Selfie & Live Photo Check',
+  'Loan Agreement Verification',
+  'Key Fact Statement (KFS) Data Check',
+  'Sanction Letter Data Check',
+  'Aadhaar XML Data Check',
+  'Broken Period Interest (BPI) Check',
+  'Disbursal Memo Verification',
+  'Balance Transfer Details Check',
 ] as const;
 
 let idc = 0;

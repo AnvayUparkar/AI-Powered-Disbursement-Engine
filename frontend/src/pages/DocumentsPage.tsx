@@ -107,6 +107,7 @@ export default function DocumentsPage() {
       <table className="w-full">
         <thead className="bg-ink-50/50">
           <tr>
+            <th className="table-head w-14">Sr No</th>
             <th className="table-head">Document</th>
             <th className="table-head">Type</th>
             <th className="table-head">Pages</th>
@@ -118,8 +119,11 @@ export default function DocumentsPage() {
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
-          {docs.map((d) => (
+          {docs.map((d, idx) => (
             <tr key={d.id} className="hover:bg-ink-50/50 transition-colors">
+              <td className="table-cell font-mono text-xs text-ink-400">
+                {String(idx + 1).padStart(2, '0')}
+              </td>
               <td className="table-cell font-medium text-ink-800">
                 <Link
                   to={`/documents/${d.id}`}

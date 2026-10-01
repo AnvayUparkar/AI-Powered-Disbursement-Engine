@@ -13,22 +13,170 @@ import {
   Trash2,
   AlertTriangle,
   ScanLine,
+  ChevronDown,
+  ArrowRight,
   MoreHorizontal,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
 import { ErrorState } from '@/components/ui/ErrorState';
-import { DGCLScorecard } from '@/components/verification/DGCLScorecard';
 import { CheckpointDrawer } from '@/components/verification/CheckpointDrawer';
 import { PrintScorecardModal } from '@/components/verification/PrintScorecardModal';
-import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
 import { UploadModal } from '@/components/documents/UploadModal';
-import { casesService, reviewService } from '@/services';
-import type { Case, Checkpoint, ReviewItem, PipelineEvent, PipelineStage } from '@/types';
+import { casesService } from '@/services';
+import type { Case, Checkpoint, PipelineEvent, PipelineStage } from '@/types';
 
 const inr = (n: number) => '₹' + n.toLocaleString('en-IN');
 
-export default function CaseDetailPage() {
+const formatSourceName = (src?: string) => {
+  if (!src) return '—';
+  const s = src.toLowerCase();
+  if (s === 'los') return 'LOS';
+  if (s === 'pan') return 'PAN';
+  if (s === 'aadhaar') return 'Aadhaar';
+  if (s === 'aadhaar_xml') return 'Aadhaar XML';
+  if (s === 'application_form') return 'Application Form';
+  if (s === 'loan_agreement') return 'Loan Agreement';
+  if (s === 'kfs') return 'KFS';
+  if (s === 'sanction_letter' || s === 'sanction') return 'Sanction Letter';
+  if (s === 'account_statement') return 'Account Statement';
+  if (s === 'bpi') return 'BPI';
+  if (s === 'disbursal_memo' || s === 'memo') return 'Disbursal Memo';
+  if (s === 'bt_details' || s === 'bt') return 'BT Details';
+  return src.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+function CaseReviewScorecard({
+  checkpoints,
+  onCheckpointClick,
+}: {
+  checkpoints: Checkpoint[];
+  onCheckpointClick?: (cp: Checkpoint) => void;
+}) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  const toggle = (id: number) => setExpanded((p) => (p === id ? null : id));
+
+  return (
+    <div className="card divide-y divide-ink-100">
+      {checkpoints.map((cp) => {
+        const isOpen = expanded === cp.id;
+        const na = cp.status === 'NOT_APPLICABLE';
+        return (
+          <div key={cp.id} className={na ? 'opacity-60' : ''}>
+            <div className="flex items-start gap-3 px-4 py-3.5">
+              <span className="font-mono text-xs text-ink-400 mt-0.5 w-6 shrink-0">
+                {String(cp.id).padStart(2, '0')}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <button
+                    onClick={() => onCheckpointClick?.(cp)}
+                    className="text-sm font-medium text-ink-800 hover:text-brand-600 text-left"
+                  >
+                    {cp.name}
+                  </button>
+                  <StatusBadge status={cp.status} />
+                  {cp.totalFields != null && cp.totalFields > 0 ? (
+                    <span className="text-xs text-ink-500 ml-1">
+                      · matched {cp.matchedFields ?? 0} / {cp.totalFields} fields
+                    </span>
+                  ) : null}
+                </div>
+                {isOpen && (
+                  <div className="mt-3 space-y-3 animate-fade-in">
+                    {cp.comparisons && cp.comparisons.length > 0 ? (
+                      <div className="overflow-x-auto rounded border border-ink-100">
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="bg-ink-50/80 text-[10px] uppercase tracking-wider text-ink-400 border-b border-ink-100">
+                              <th className="py-1.5 px-2 font-medium w-12 text-ink-400">Sr No</th>
+                              <th className="py-1.5 px-2 font-medium">Field</th>
+                              <th className="py-1.5 px-2 font-medium">Source Document</th>
+                              <th className="py-1.5 px-2 font-medium">Doc Value</th>
+                              <th className="py-1.5 px-2 font-medium">LOS Value</th>
+                              <th className="py-1.5 px-2 font-medium text-right">Result</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-ink-100">
+                            {cp.comparisons.map((c, idx) => {
+                              const fieldName = c.field
+                                ? c.field.replace(/_/g, ' ').replace(/^\w/, (chr) => chr.toUpperCase())
+                                : 'Check';
+                              const sourceDoc = formatSourceName(c.sources?.[0]);
+                              const docVal =
+                                c.values?.[0] !== null && c.values?.[0] !== undefined ? String(c.values[0]) : '—';
+                              const losVal =
+                                c.values?.[1] !== null && c.values?.[1] !== undefined ? String(c.values[1]) : '—';
+                              const result = c.match_status || 'INDETERMINATE';
+
+                              return (
+                                <tr key={c.check_id || idx} className={idx % 2 === 1 ? 'bg-ink-50/40' : ''}>
+                                  <td className="py-1.5 px-2 font-mono text-ink-400 text-xs">
+                                    {String(idx + 1).padStart(2, '0')}
+                                  </td>
+                                  <td className="py-1.5 px-2 font-medium text-ink-800">
+                                    {fieldName}
+                                  </td>
+                                  <td className="py-1.5 px-2 text-ink-600">
+                                    {sourceDoc}
+                                  </td>
+                                  <td className="py-1.5 px-2 text-ink-700 font-mono">
+                                    {docVal}
+                                  </td>
+                                  <td className="py-1.5 px-2 text-ink-700 font-mono">
+                                    {losVal}
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right">
+                                    <span
+                                      className={`chip text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ring-1 ring-inset ${
+                                        result === 'MATCH'
+                                          ? 'bg-verified-50 text-verified-700 ring-verified-500/20'
+                                          : result === 'MISMATCH'
+                                            ? 'bg-discrepancy-50 text-discrepancy-700 ring-discrepancy-500/20'
+                                            : 'bg-review-50 text-review-700 ring-review-500/20'
+                                      }`}
+                                    >
+                                      {result}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-ink-500 italic">No comparison data available.</p>
+                    )}
+                    <div className="flex flex-wrap items-center justify-end text-xs text-ink-500">
+                      <button
+                        onClick={() => onCheckpointClick?.(cp)}
+                        className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium"
+                      >
+                        View details <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => toggle(cp.id)}
+                className="shrink-0 p-1 text-ink-400 hover:text-ink-600"
+                aria-label={isOpen ? 'Collapse' : 'Expand'}
+              >
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function CaseReviewPage() {
   const { caseId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -43,9 +191,9 @@ export default function CaseDetailPage() {
   const [pipelineErrors, setPipelineErrors] = useState<string[]>([]);
   const [error, setError] = useState(false);
   const [drawer, setDrawer] = useState<Checkpoint | null>(null);
-  const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [showIssuesOnly, setShowIssuesOnly] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -104,7 +252,6 @@ export default function CaseDetailPage() {
       .getById(caseId)
       .then((res) => {
         setC(res);
-        if (res) reviewService.getByCaseId(res.id).then(setReviews).catch(() => {});
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
@@ -197,7 +344,6 @@ export default function CaseDetailPage() {
         >
           <ArrowLeft className="h-4 w-4" /> Back to Cases
         </Link>
-
 
         <div className="card p-6 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-brand-600 mx-auto mb-2" />
@@ -324,18 +470,12 @@ export default function CaseDetailPage() {
                 )}
               </div>
             </div>
-            <p className="text-sm text-ink-500 mt-1">
-              {c.loanType} · {c.applicant}
-            </p>
           </div>
           <div className="text-right">
             <p className="text-xs text-ink-500 uppercase tracking-wide">DGCL Confidence</p>
             <p className="text-2xl font-semibold text-ink-900 tabular-nums">
               {c.dgclScore.toFixed(1)}%
             </p>
-            <div className="mt-1 w-40 ml-auto">
-              <ConfidenceBar value={c.dgclScore} threshold={90} />
-            </div>
           </div>
         </div>
 
@@ -401,55 +541,31 @@ export default function CaseDetailPage() {
           >
             <UploadCloud className="h-3.5 w-3.5" /> Upload
           </button>
-          <Link
-            to={`/verification/${c.id}`}
-            className="inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700 text-xs font-medium"
-          >
-            <ShieldCheck className="h-3.5 w-3.5" /> Verification detail
-          </Link>
         </div>
       </div>
 
       {/* Main layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2">
-          <h2 className="text-sm font-semibold text-ink-800 mb-3">DGCL Scorecard</h2>
-          <DGCLScorecard checkpoints={c.checkpoints} onCheckpointClick={setDrawer} />
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink-800">DGCL Scorecard</h2>
+          <label className="text-xs text-ink-600 flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showIssuesOnly}
+              onChange={(e) => setShowIssuesOnly(e.target.checked)}
+              className="rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+            />
+            Show Issues Only
+          </label>
         </div>
-        <div className="space-y-5">
-          <ProcessingPipeline steps={c.processingSteps} />
-
-          {reviews.length > 0 && (
-            <div className="card p-4">
-              <h3 className="text-sm font-semibold text-ink-800 mb-3">Review Items</h3>
-              <div className="space-y-2">
-                {reviews.map((r) => (
-                  <div key={r.id} className="flex items-start gap-2 text-sm">
-                    <span
-                      className={`chip ${
-                        r.priority === 'HIGH'
-                          ? 'bg-discrepancy-50 text-discrepancy-700'
-                          : 'bg-review-50 text-review-700'
-                      }`}
-                    >
-                      {r.priority}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-ink-700 truncate">{r.issue}</p>
-                      <p className="text-xs text-ink-500">{r.checkpointName}</p>
-                    </div>
-                    <button
-                      onClick={() => navigate(`/review?case=${r.caseId}`)}
-                      className="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0"
-                    >
-                      Review →
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <CaseReviewScorecard
+          checkpoints={
+            showIssuesOnly
+              ? c.checkpoints.filter((cp) => cp.status === 'DISCREPANCY' || cp.status === 'INDETERMINATE')
+              : c.checkpoints
+          }
+          onCheckpointClick={setDrawer}
+        />
       </div>
 
       <CheckpointDrawer checkpoint={drawer} onClose={() => setDrawer(null)} />
@@ -467,4 +583,3 @@ export default function CaseDetailPage() {
     </div>
   );
 }
-
