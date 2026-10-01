@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate, Navigate } from 'react-router-dom';
 import {
   ArrowLeft,
   FileText,
@@ -27,7 +27,7 @@ import { ProcessingPipeline } from '@/components/documents/ProcessingPipeline';
 import { RunTimingPanel } from '@/components/pipeline/TimingBreakdown';
 import { UploadModal } from '@/components/documents/UploadModal';
 import { casesService, reviewService } from '@/services';
-import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
+import { useDgclPipelineStatus } from '@/hooks/useDgclPipelineFlag';
 import type { Case, Checkpoint, ReviewItem, PipelineEvent, PipelineStage } from '@/types';
 
 const inr = (n: number) => '₹' + n.toLocaleString('en-IN');
@@ -51,7 +51,7 @@ export default function CaseDetailPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const pipelineEnabled = useDgclPipelineFlag();
+  const { enabled: pipelineEnabled, loading: flagLoading } = useDgclPipelineStatus();
   const autoRunHandled = useRef(false);
 
   const handleDeleteCase = async () => {
@@ -162,6 +162,14 @@ export default function CaseDetailPage() {
       startPipelineStream();
     }
   }, [searchParams, caseId]);
+
+  if (flagLoading) {
+    return <CardSkeleton />;
+  }
+
+  if (!pipelineEnabled) {
+    return <Navigate to="/documents" replace />;
+  }
 
   if (error && !pipelineVisible && !running && !c) {
     return (

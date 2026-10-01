@@ -1,13 +1,17 @@
 import { NavLink } from 'react-router-dom';
 import {
   FileText,
+  FolderKanban,
 } from 'lucide-react';
-
-const nav = [
-  { to: '/documents', label: 'Documents', icon: FileText },
-];
+import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const pipelineEnabled = useDgclPipelineFlag();
+
+  const nav = [
+    { to: '/documents', label: 'Documents', icon: FileText },
+    ...(pipelineEnabled ? [{ to: '/cases', label: 'Loan Cases', icon: FolderKanban }] : []),
+  ];
   return (
     <>
       {open && (

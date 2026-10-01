@@ -6,7 +6,6 @@ import {
   MinusCircle,
   Loader2,
   ChevronDown,
-  FileText,
   ArrowRight,
 } from 'lucide-react';
 import type { Checkpoint } from '@/types';
@@ -87,29 +86,10 @@ export function DGCLScorecard({
                         ))}
                       </dl>
                     )}
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-ink-500">
-                      <span className="inline-flex items-center gap-1">
-                        <FileText className="h-3.5 w-3.5" />
-                        {cp.evidence.length} {cp.evidence.length === 1 ? 'piece' : 'pieces'} of evidence
-                      </span>
-                      {cp.validation && (
-                        <span
-                          className={`chip ring-1 ring-inset ${
-                            cp.validation.result === 'MATCH'
-                              ? 'bg-verified-50 text-verified-700 ring-verified-500/20'
-                              : cp.validation.result === 'MISMATCH'
-                                ? 'bg-discrepancy-50 text-discrepancy-700 ring-discrepancy-500/20'
-                                : 'bg-review-50 text-review-700 ring-review-500/20'
-                          }`}
-                        >
-                          {cp.validation.result === 'MISMATCH' && cp.validation.leftSource && cp.validation.rightSource
-                            ? `${cp.validation.leftSource.replace('_', ' ')}: ${cp.validation.left} ≠ ${cp.validation.rightSource.replace('_', ' ')}: ${cp.validation.right}`
-                            : `${cp.validation.left} ${cp.validation.result === 'MATCH' ? '=' : cp.validation.result === 'MISMATCH' ? '≠' : '?'} ${cp.validation.right}`}
-                        </span>
-                      )}
+                    <div className="flex flex-wrap items-center justify-end text-xs text-ink-500">
                       <button
                         onClick={() => onCheckpointClick?.(cp)}
-                        className="ml-auto inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium"
+                        className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium"
                       >
                         View details <ArrowRight className="h-3.5 w-3.5" />
                       </button>

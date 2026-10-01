@@ -30,10 +30,12 @@ import { documentsService } from '@/services';
 import type { DocumentPage } from '@/services/documents';
 import type { DocumentRecord } from '@/types';
 import { useDebounced } from '@/hooks/useDebounced';
+import { useDgclPipelineFlag } from '@/hooks/useDgclPipelineFlag';
 
 const PAGE_SIZE = 50; // Increased to show comprehensive grouped view per page
 
 export default function DocumentsPage() {
+  const pipelineEnabled = useDgclPipelineFlag();
   const [params, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const debounced = useDebounced(query, 350);
@@ -152,6 +154,7 @@ export default function DocumentsPage() {
       <table className="w-full">
         <thead className="bg-ink-50/50">
           <tr>
+            <th className="table-head w-14">Sr No</th>
             <th className="table-head">Document</th>
             <th className="table-head">Type</th>
             <th className="table-head">Pages</th>
@@ -164,9 +167,12 @@ export default function DocumentsPage() {
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
-          {docs.map((d) => (
+          {docs.map((d, idx) => (
             <Fragment key={d.id}>
             <tr className="hover:bg-ink-50/50 transition-colors">
+              <td className="table-cell font-mono text-xs text-ink-400">
+                {String(idx + 1).padStart(2, '0')}
+              </td>
               <td className="table-cell font-medium text-ink-800">
                 <Link
                   to={`/documents/${d.id}`}
@@ -255,7 +261,7 @@ export default function DocumentsPage() {
             </tr>
             {ocrOpen[d.id] && (
               <tr id={`ocr-${d.id}`} className="bg-ink-50/40">
-                <td colSpan={9} className="px-4 pb-4 pt-1">
+                <td colSpan={10} className="px-4 pb-4 pt-1">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-ink-700">
                       Raw OCR text · {d.pages} page{d.pages === 1 ? '' : 's'}
@@ -463,14 +469,16 @@ export default function DocumentsPage() {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {/* <Link
-                      to={`/cases/${cId}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 px-2.5 py-1.5 rounded-md border border-ink-200 transition-colors shadow-2xs"
-                    >
-                      <span>View Case Details</span>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Link> */}
+                    {pipelineEnabled && (
+                      <Link
+                        to={`/cases/${cId}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 px-2.5 py-1.5 rounded-md border border-ink-200 transition-colors shadow-2xs"
+                      >
+                        <span>View Case Details</span>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Link>
+                    )}
                     <button className="text-ink-400 hover:text-ink-600 p-1">
                       {isExpanded ? (
                         <ChevronDown className="h-5 w-5" />

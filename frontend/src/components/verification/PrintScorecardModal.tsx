@@ -200,7 +200,7 @@ function ScorecardReportContent({ caseData, displayedComparisons, idPrefix = 'pr
         <table className="w-full border border-slate-200 text-left text-xs">
           <thead className="bg-slate-100 border-b border-slate-200">
             <tr>
-              <th className="py-2 px-3 font-bold text-slate-700 w-12 text-center">#</th>
+              <th className="py-2 px-3 font-bold text-slate-700 w-14 text-center">Sr No</th>
               <th className="py-2 px-3 font-bold text-slate-700 w-44">Checkpoint</th>
               <th className="py-2 px-3 font-bold text-slate-700 w-32 text-center">Verdict</th>
               <th className="py-2 px-3 font-bold text-slate-700 w-24 text-right">Confidence</th>
@@ -249,6 +249,7 @@ function ScorecardReportContent({ caseData, displayedComparisons, idPrefix = 'pr
           <table className="w-full border border-slate-200 text-left text-xs">
             <thead className="bg-slate-100 border-b border-slate-200">
               <tr>
+                <th className="py-2 px-3 font-bold text-slate-700 w-14 text-center">Sr No</th>
                 <th className="py-2 px-3 font-bold text-slate-700 w-36">Field</th>
                 <th className="py-2 px-3 font-bold text-slate-700 w-44">Compared Sources</th>
                 <th className="py-2 px-3 font-bold text-slate-700">Extracted & Compared Values</th>
@@ -265,6 +266,9 @@ function ScorecardReportContent({ caseData, displayedComparisons, idPrefix = 'pr
 
                 return (
                   <tr key={c.check_id || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                    <td className="py-2 px-3 align-top font-mono text-center text-slate-500">
+                      {String(idx + 1).padStart(2, '0')}
+                    </td>
                     <td className="py-2 px-3 align-top font-medium text-slate-900">
                       {c.field ? c.field.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Check'}
                       <span className="block text-[10px] text-slate-400 font-mono mt-0.5">

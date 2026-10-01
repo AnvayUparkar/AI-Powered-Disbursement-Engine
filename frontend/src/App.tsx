@@ -7,7 +7,7 @@ import { useAuth } from '@/context/auth';
 
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const CasesPage = lazy(() => import('@/pages/CasesPage'));
-const CaseDetailPage = lazy(() => import('@/pages/CaseDetailPage'));
+const CaseReviewPage = lazy(() => import('@/pages/CaseReviewPage'));
 const DocumentsPage = lazy(() => import('@/pages/DocumentsPage'));
 const DocumentDetailPage = lazy(() => import('@/pages/DocumentDetailPage'));
 const VerificationPage = lazy(() => import('@/pages/VerificationPage'));
@@ -38,7 +38,7 @@ function AuthGate() {
           <Route index element={<Navigate to="/documents" replace />} />
           <Route path="/dashboard" element={<Suspense fallback={<PageFallback />}><DashboardPage /></Suspense>} />
           <Route path="/cases" element={<Suspense fallback={<PageFallback />}><CasesPage /></Suspense>} />
-          <Route path="/cases/:caseId" element={<Suspense fallback={<PageFallback />}><CaseDetailPage /></Suspense>} />
+          <Route path="/cases/:caseId" element={<Suspense fallback={<PageFallback />}><CaseReviewPage /></Suspense>} />
           <Route path="/documents" element={<Suspense fallback={<PageFallback />}><DocumentsPage /></Suspense>} />
           <Route path="/documents/:documentId" element={<Suspense fallback={<PageFallback />}><DocumentDetailPage /></Suspense>} />
           <Route path="/verification" element={<Suspense fallback={<PageFallback />}><VerificationPage /></Suspense>} />

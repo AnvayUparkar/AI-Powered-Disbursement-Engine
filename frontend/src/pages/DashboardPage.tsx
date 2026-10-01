@@ -171,6 +171,7 @@ export default function DashboardPage() {
           <table className="w-full">
             <thead className="bg-ink-50/50">
               <tr>
+                <th className="table-head w-14">Sr No</th>
                 <th className="table-head">Case ID</th>
                 <th className="table-head">Applicant</th>
                 <th className="table-head">Loan Type</th>
@@ -183,8 +184,11 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
-              {recent.map((c) => (
+              {recent.map((c, idx) => (
                 <tr key={c.id} className="hover:bg-ink-50/50">
+                  <td className="table-cell font-mono text-xs text-ink-400">
+                    {String(idx + 1).padStart(2, '0')}
+                  </td>
                   <td className="table-cell font-medium text-brand-700">{c.id}</td>
                   <td className="table-cell">{c.applicant}</td>
                   <td className="table-cell">{c.loanType}</td>

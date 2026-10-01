@@ -10,6 +10,10 @@ export const settingsService = {
   },
 
   async setDgclPipelineFlag(enabled: boolean): Promise<DgclPipelineFlag> {
-    return await apiClient.post<DgclPipelineFlag>('/settings/dgcl-pipeline', { enabled });
+    const res = await apiClient.post<DgclPipelineFlag>('/settings/dgcl-pipeline', { enabled });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dgcl-flag-changed', { detail: res.enabled }));
+    }
+    return res;
   },
 };

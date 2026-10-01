@@ -139,6 +139,9 @@ export interface Checkpoint {
     leftSource?: string;
     rightSource?: string;
   };
+  matchScore?: number;
+  matchedFields?: number;
+  totalFields?: number;
   comparisons?: ComparisonResult[];
 }
 
