@@ -10,14 +10,27 @@ echo.
 
 set "ROOT_DIR=%~dp0"
 set "FRONTEND_DIR=%ROOT_DIR%frontend"
-set "PYTHON_EXE=%ROOT_DIR%venv\Scripts\python.exe"
-set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
+
+:: Detect virtual environment (venv or .venv)
+if exist "%ROOT_DIR%venv\Scripts\python.exe" (
+    set "VENV_DIR=%ROOT_DIR%venv"
+    set "PYTHON_EXE=%ROOT_DIR%venv\Scripts\python.exe"
+    set "CELERY_EXE=%ROOT_DIR%venv\Scripts\celery.exe"
+) else if exist "%ROOT_DIR%.venv\Scripts\python.exe" (
+    set "VENV_DIR=%ROOT_DIR%.venv"
+    set "PYTHON_EXE=%ROOT_DIR%.venv\Scripts\python.exe"
+    set "CELERY_EXE=%ROOT_DIR%.venv\Scripts\celery.exe"
+) else (
+    set "VENV_DIR="
+    set "PYTHON_EXE="
+    set "CELERY_EXE="
+)
 
 :: -----------------------------------------------------------------------------
 :: 1. Clean Up Any Stale Previous Instances (Ports & Worker Windows)
 :: -----------------------------------------------------------------------------
 echo [1/6] Cleaning up any previous running instances...
-powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
+powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173, 5555 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 powershell -NoProfile -Command "Get-Process python, uvicorn, celery, node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 taskkill /F /FI "WINDOWTITLE eq Disbursement Scorecard*" 2>nul
 echo   [OK] Clean state prepared.
@@ -29,9 +42,9 @@ echo.
 echo [2/6] Checking environment dependencies...
 
 :: Check Python venv
-if not exist "%PYTHON_EXE%" (
+if "%PYTHON_EXE%"=="" (
     echo [ERROR] Python virtual environment not found at:
-    echo         "%ROOT_DIR%venv"
+    echo         "%ROOT_DIR%venv" or "%ROOT_DIR%.venv"
     echo.
     echo Please create and install dependencies first:
     echo   python -m venv venv
@@ -40,7 +53,7 @@ if not exist "%PYTHON_EXE%" (
     pause
     exit /b 1
 ) else (
-    echo   [OK] Python venv found.
+    echo   [OK] Python venv found: "%VENV_DIR%"
 )
 
 :: Check Node.js and NPM
@@ -94,6 +107,21 @@ if not exist "%ROOT_DIR%.env" (
     echo   [OK] .env configuration file found.
 )
 
+:: Check offline model weights
+if not exist "%ROOT_DIR%models" (
+    echo [ERROR] Model weights directory not found at:
+    echo         "%ROOT_DIR%models"
+    echo.
+    echo In air-gapped environments, model weights must be pre-populated.
+    echo To download required weights on an internet-enabled system, run:
+    echo   venv\Scripts\python.exe scripts\download_models.py
+    echo.
+    pause
+    exit /b 1
+) else (
+    echo   [OK] Local model weights directory found.
+)
+
 :: -----------------------------------------------------------------------------
 :: 3. Check WSL and Start Redis with Keep-Alive
 :: -----------------------------------------------------------------------------
@@ -113,12 +141,10 @@ if %errorlevel% neq 0 (
 start "Disbursement Scorecard - WSL Keepalive" /min wsl sleep infinity
 echo   [OK] WSL keep-alive process spawned.
 
-:: Start Redis/Valkey inside WSL
+:: Start Redis inside WSL
 echo   Starting Redis server inside WSL...
 wsl -u root service redis-server start >nul 2>&1
-wsl -u root service valkey-server start >nul 2>&1
 wsl redis-server --daemonize yes --protected-mode no >nul 2>&1
-wsl -u root env LC_ALL=C LANG=C valkey-server --protected-mode no --bind 0.0.0.0 --daemonize yes >nul 2>&1
 
 :: Verify Redis is responding with a short retry loop for WSL port-forwarding
 set "REDIS_READY=0"
@@ -142,24 +168,31 @@ if "%REDIS_READY%"=="1" (
 :: -----------------------------------------------------------------------------
 echo.
 echo [4/6] Launching FastAPI Core Backend (Port 8000)...
-start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.env"
+start "Disbursement Scorecard - FastAPI Core (8000)" cmd /k "cd /d "%~dp0" && color 0A && "%PYTHON_EXE%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.env"
 
 :: -----------------------------------------------------------------------------
 :: 5. Launch IDP Engine Microservice (Port 8001)
 :: -----------------------------------------------------------------------------
 echo.
 echo [5/6] Launching IDP Engine Microservice (Port 8001)...
-start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && venv\Scripts\python.exe -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
+start "Disbursement Scorecard - IDP Engine (8001)" cmd /k "cd /d "%~dp0" && color 0E && "%PYTHON_EXE%" -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include *.env"
 
-echo   Waiting 30 seconds for backend microservices to initialize...
-timeout /t 30 /nobreak >nul
+echo   Waiting for backend microservices to initialize...
+for /L %%i in (1,1,30) do (
+    curl -s http://127.0.0.1:8001/health 2>nul | findstr /i "status" >nul 2>&1
+    if not errorlevel 1 goto :backend_ready
+    timeout /t 1 /nobreak >nul
+)
+:backend_ready
 
 :: -----------------------------------------------------------------------------
-:: 6. Launch Celery Worker (with Auto-Reload) and Frontend UI
+:: 6. Launch Celery Worker, Flower Monitor, and Frontend UI
 :: -----------------------------------------------------------------------------
 echo.
-echo [6/6] Launching Celery Worker (with Auto-Reload) and Frontend UI...
-start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && venv\Scripts\python.exe -m watchfiles "venv\Scripts\python.exe -m celery -A pipeline.celery_app worker -l info -P threads" pipeline app config idp .env"
+echo [6/6] Launching Celery Worker, Flower Monitor, and Frontend UI...
+start "Disbursement Scorecard - Celery Worker" cmd /k "cd /d "%~dp0" && color 0D && "%PYTHON_EXE%" -m watchfiles "%PYTHON_EXE% -m celery -A pipeline.celery_app worker -l info -P threads -E" pipeline app config idp .env"
+
+start "Disbursement Scorecard - Celery Flower (5555)" cmd /k "cd /d "%~dp0" && color 05 && "%PYTHON_EXE%" -m celery -A pipeline.celery_app flower --port=5555"
 
 start "Disbursement Scorecard - Vite Frontend (5173)" cmd /k "cd /d "%~dp0frontend" && color 03 && npm run dev"
 
@@ -168,13 +201,14 @@ start "Disbursement Scorecard - Vite Frontend (5173)" cmd /k "cd /d "%~dp0fronte
 :: -----------------------------------------------------------------------------
 echo.
 echo ===============================================================================
-echo              ALL 5 SERVICES ARE RUNNING SUCCESSFULLY!
+echo              ALL 6 SERVICES ARE RUNNING SUCCESSFULLY!
 echo ===============================================================================
 echo.
 echo   [+] Frontend Web UI:         http://localhost:5173
 echo   [+] FastAPI Core API:        http://localhost:8000 (Swagger: /docs)
 echo   [+] IDP Engine Microservice: http://localhost:8001 (Swagger: /docs)
 echo   [+] Celery Background Worker: Active (threads pool)
+echo   [+] Celery Flower Monitor:   http://localhost:5555
 echo   [+] Redis Broker (WSL):      redis://127.0.0.1:6379/0 (Keepalive Active)
 echo.
 echo -------------------------------------------------------------------------------

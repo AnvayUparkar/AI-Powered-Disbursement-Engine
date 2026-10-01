@@ -50,6 +50,7 @@ app.conf.update(
     worker_concurrency=MAX_DOC_WORKERS,  # Configured dynamically from MAX_DOC_WORKERS in .env
     task_track_started=True,
     broker_connection_retry_on_startup=True,
+    worker_send_task_events=True,
 )
 
 if not redis_online:

@@ -122,7 +122,7 @@ flowchart TD
 │   ├── test_pipeline_edge_cases.py # Extreme thresholds & corrupt data tests
 │   └── test_integration.py         # End-to-end multi-loan pipeline tests
 ├── generate_mock_data.py           # Synthetic loan case data generator
-├── start_all.bat                   # Master launcher (WSL Redis, FastAPI, IDP, Celery, React)
+├── start_all.bat                   # Master launcher (WSL Redis, FastAPI, IDP, Celery, Flower, React)
 ├── stop_all.bat                    # Graceful shutdown script for all services
 ├── config.py                       # Global configuration and environment settings
 ├── requirements.txt                # Python backend dependencies
@@ -254,12 +254,18 @@ python -m celery -A pipeline.celery_app worker --loglevel=info
 ```
 * Pipelines triggered via `POST /api/cases/{case_id}/run?async=true` will be processed asynchronously by this worker.
 
-**C. Run IDP Microservice (Standalone)**
+**C. Run Celery Flower Monitoring Dashboard (Optional Standalone)**
+```bash
+celery -A pipeline.celery_app flower --port=5555
+```
+* **Flower Web Dashboard**: `http://localhost:5555`
+
+**D. Run IDP Microservice (Standalone)**
 ```bash
 uvicorn idp.main:app --reload --port 8001
 ```
 
-**D. Run Frontend Application**
+**E. Run Frontend Application**
 ```bash
 cd frontend
 npm run dev

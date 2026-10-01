@@ -24,12 +24,12 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # 2. Anything still listening on the service ports
-say "[2/3] Terminating port listeners (8000, 8001, 5173)..."
-PORT_PIDS="$(lsof -ti tcp:8000,8001,5173 -sTCP:LISTEN 2>/dev/null)"
+say "[2/3] Terminating port listeners (8000, 8001, 5173, 5555)..."
+PORT_PIDS="$(lsof -ti tcp:8000,8001,5173,5555 -sTCP:LISTEN 2>/dev/null)"
 [ -n "$PORT_PIDS" ] && echo "$PORT_PIDS" | xargs kill -9 2>/dev/null
 
 # Celery/watchfiles from this project only (avoid killing unrelated python/node)
-pkill -f "$ROOT_DIR/venv/bin/python.*watchfiles" 2>/dev/null
+pkill -f "$ROOT_DIR/.*watchfiles" 2>/dev/null
 pkill -f "celery -A pipeline.celery_app" 2>/dev/null
 
 # 3. Redis (only when stopped explicitly; skipped on the launcher's cleanup pass)

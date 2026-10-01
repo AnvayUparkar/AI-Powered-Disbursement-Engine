@@ -36,6 +36,8 @@ typing-extensions>=4.16.0
 # ── Async Task Processing (Celery + Redis) ──────────────────────
 celery>=5.6.3
 redis>=8.1.0
+flower>=2.2.0
+
 
 # ── Testing ────────────────────────────────────────────────────
 pytest>=9.1.1

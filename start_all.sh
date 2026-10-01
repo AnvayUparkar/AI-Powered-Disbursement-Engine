@@ -4,7 +4,22 @@ set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-PYTHON_EXE="$ROOT_DIR/venv/bin/python"
+
+# Detect virtual environment (venv or .venv)
+if [ -x "$ROOT_DIR/venv/bin/python" ]; then
+    VENV_DIR="$ROOT_DIR/venv"
+    PYTHON_EXE="$ROOT_DIR/venv/bin/python"
+    CELERY_EXE="$ROOT_DIR/venv/bin/celery"
+elif [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+    VENV_DIR="$ROOT_DIR/.venv"
+    PYTHON_EXE="$ROOT_DIR/.venv/bin/python"
+    CELERY_EXE="$ROOT_DIR/.venv/bin/celery"
+else
+    VENV_DIR=""
+    PYTHON_EXE=""
+    CELERY_EXE=""
+fi
+
 LOG_DIR="$ROOT_DIR/.logs"
 PID_FILE="$LOG_DIR/pids"
 
@@ -27,12 +42,15 @@ echo "  [OK] Clean state prepared."
 echo
 echo "[2/6] Checking environment dependencies..."
 
-if [ ! -x "$PYTHON_EXE" ]; then
-    echo "[ERROR] Python virtual environment not found at: $ROOT_DIR/venv"
+if [ -z "$PYTHON_EXE" ]; then
+    echo "[ERROR] Python virtual environment not found at:"
+    echo "        \"$ROOT_DIR/venv\" or \"$ROOT_DIR/.venv\""
+    echo
+    echo "Please create and install dependencies first:"
     echo "  python3 -m venv venv && venv/bin/pip install -r requirements.txt"
     exit 1
 fi
-echo "  [OK] Python venv found."
+echo "  [OK] Python venv found: \"$VENV_DIR\""
 
 for bin in node npm; do
     if ! command -v "$bin" >/dev/null 2>&1; then
@@ -60,6 +78,20 @@ if [ ! -f "$ROOT_DIR/.env" ]; then
     fi
 else
     echo "  [OK] .env configuration file found."
+fi
+
+# Check offline model weights
+if [ ! -d "$ROOT_DIR/models" ]; then
+    echo "[ERROR] Model weights directory not found at:"
+    echo "        \"$ROOT_DIR/models\""
+    echo
+    echo "In air-gapped environments, model weights must be pre-populated."
+    echo "To download required weights on an internet-enabled system, run:"
+    echo "  $PYTHON_EXE scripts/download_models.py"
+    echo
+    exit 1
+else
+    echo "  [OK] Local model weights directory found."
 fi
 
 # -----------------------------------------------------------------------------
@@ -109,35 +141,42 @@ echo
 echo "[5/6] Launching IDP Engine Microservice (Port 8001)..."
 launch idp "$ROOT_DIR" "$PYTHON_EXE" -m uvicorn idp.main:app --host 0.0.0.0 --port 8001 --reload --reload-include '*.env'
 
-echo "  Waiting 30 seconds for backend microservices to initialize..."
-sleep 30
+echo "  Waiting for backend microservices to initialize..."
+for _ in $(seq 1 30); do
+    if curl -s http://127.0.0.1:8001/health 2>/dev/null | grep -qi "status"; then
+        break
+    fi
+    sleep 1
+done
 
 # -----------------------------------------------------------------------------
-# 6. Celery Worker (auto-reload) and Frontend UI
+# 6. Celery Worker (auto-reload), Flower Monitor, and Frontend UI
 # -----------------------------------------------------------------------------
 echo
-echo "[6/6] Launching Celery Worker (with Auto-Reload) and Frontend UI..."
+echo "[6/6] Launching Celery Worker (with Auto-Reload), Flower, and Frontend UI..."
 launch celery "$ROOT_DIR" "$PYTHON_EXE" -m watchfiles \
-    "$PYTHON_EXE -m celery -A pipeline.celery_app worker -l info -P threads" \
+    "$PYTHON_EXE -m celery -A pipeline.celery_app worker -l info -P threads -E" \
     pipeline app config idp .env
+launch flower "$ROOT_DIR" "$PYTHON_EXE" -m celery -A pipeline.celery_app flower --port=5555
 launch frontend "$FRONTEND_DIR" npm run dev
 
 echo
 echo "==============================================================================="
-echo "             ALL 5 SERVICES ARE RUNNING!"
+echo "             ALL 6 SERVICES ARE RUNNING!"
 echo "==============================================================================="
 echo
 echo "  [+] Frontend Web UI:          http://localhost:5173"
 echo "  [+] FastAPI Core API:         http://localhost:8000 (Swagger: /docs)"
 echo "  [+] IDP Engine Microservice:  http://localhost:8001 (Swagger: /docs)"
 echo "  [+] Celery Background Worker: Active (threads pool)"
+echo "  [+] Celery Flower Monitor:    http://localhost:5555"
 echo "  [+] Redis Broker:             redis://127.0.0.1:6379/0"
 echo
-echo "  Logs:  $LOG_DIR/{fastapi,idp,celery,frontend}.log"
+echo "  Logs:  $LOG_DIR/{fastapi,idp,celery,flower,frontend}.log"
 echo "  Stop:  press Ctrl+C here (or run ./stop_all.sh from another terminal)"
 echo "==============================================================================="
 echo
 
 # Stream all service logs to this terminal; Ctrl+C stops every service.
 trap '"$ROOT_DIR/stop_all.sh"; exit 0' INT TERM
-tail -n +1 -f "$LOG_DIR"/fastapi.log "$LOG_DIR"/idp.log "$LOG_DIR"/celery.log "$LOG_DIR"/frontend.log
+tail -n +1 -f "$LOG_DIR"/fastapi.log "$LOG_DIR"/idp.log "$LOG_DIR"/celery.log "$LOG_DIR"/flower.log "$LOG_DIR"/frontend.log

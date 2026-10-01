@@ -9,10 +9,10 @@ echo ===========================================================================
 echo.
 
 :: -----------------------------------------------------------------------------
-:: 1. Terminate processes listening on active ports (8000, 8001, 5173)
+:: 1. Terminate processes listening on active ports (8000, 8001, 5173, 5555)
 :: -----------------------------------------------------------------------------
-echo [1/4] Terminating Port Listeners (8000, 8001, 5173)...
-powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
+echo [1/4] Terminating Port Listeners (8000, 8001, 5173, 5555)...
+powershell -NoProfile -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort 8000, 8001, 5173, 5555 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"
 
 :: -----------------------------------------------------------------------------
 :: 2. Terminate background Celery workers, watchfiles, and uvicorn processes
